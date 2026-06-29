@@ -60,7 +60,6 @@ struct ClipVaultApp: App {
 
         Settings {
             SettingsView(model: model)
-                .frame(width: 520)
         }
     }
 }

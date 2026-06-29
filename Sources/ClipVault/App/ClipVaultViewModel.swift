@@ -75,6 +75,7 @@ final class ClipVaultViewModel {
         isCapturing = true
         captureStatus = "Watching clipboard"
         reload()
+        pruneExpiredClips(retentionDays: configuredRetentionDays, updatesStatus: false)
         if let storageStartupError {
             Self.logger.error("Persistent storage startup failed; using fallback storage")
             captureStatus = storageStartupError
@@ -293,6 +294,14 @@ final class ClipVaultViewModel {
         }
     }
 
+    func pruneExpiredClips(retentionDays: Int) {
+        pruneExpiredClips(retentionDays: retentionDays, updatesStatus: true)
+    }
+
+    func refreshDockTilePreferences() {
+        updateDockTile()
+    }
+
     func select(_ clip: Clip) {
         selectedClipID = clip.id
         if selectedClipIDs.contains(clip.id) {
@@ -463,6 +472,41 @@ final class ClipVaultViewModel {
             isCapturing: isCapturing,
             captureStatus: captureStatus
         )
+    }
+
+    private var configuredRetentionDays: Int {
+        let value = UserDefaults.standard.integer(
+            forKey: ClipVaultSettingsKey.ordinaryClipRetentionDays,
+            default: ClipVaultSettingsDefault.ordinaryClipRetentionDays
+        )
+        return min(max(value, 7), 180)
+    }
+
+    private func pruneExpiredClips(retentionDays: Int, updatesStatus: Bool) {
+        let policy = RetentionPolicy(ordinaryClipLifetimeDays: min(max(retentionDays, 7), 180))
+        let expired = clips.filter { policy.shouldExpire($0) }
+        guard !expired.isEmpty else {
+            if updatesStatus {
+                captureStatus = "No expired clips"
+                updateDockTile()
+            }
+            return
+        }
+
+        do {
+            let expiredIDs = Set(expired.map(\.id))
+            try store?.delete(ids: Array(expiredIDs))
+            clips.removeAll { expiredIDs.contains($0.id) }
+            selectedClipIDs.subtract(expiredIDs)
+            selectFirstVisibleResultIfNeeded()
+            if updatesStatus {
+                captureStatus = "Removed \(expired.count) expired clips"
+            }
+        } catch {
+            Self.logger.error("Failed to prune expired clips: \(error.localizedDescription, privacy: .public)")
+            captureStatus = error.localizedDescription
+        }
+        updateDockTile()
     }
 
     private func selectFirstVisibleResultIfNeeded() {
