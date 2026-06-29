@@ -1,0 +1,9 @@
+.build/
+.swiftpm/
+.superpowers/
+dist/
+rust/**/target/
+Resources/AppIcon.iconset/
+.DS_Store
+*.xcuserdata/
+*.xcuserstate
