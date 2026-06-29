@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+MODE="${1:-run}"
+APP_NAME="ClipVault"
+BUNDLE_ID="${APP_BUNDLE_ID:-com.andrzej.ClipVault}"
+MIN_SYSTEM_VERSION="15.0"
+APP_VERSION="${APP_VERSION:-0.1.0}"
+APP_BUILD="${APP_BUILD:-1}"
+LOCAL_SIGNING_IDENTITY="${LOCAL_SIGNING_IDENTITY:-}"
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+DIST_DIR="$ROOT_DIR/dist"
+APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
+APP_CONTENTS="$APP_BUNDLE/Contents"
+APP_MACOS="$APP_CONTENTS/MacOS"
+APP_RESOURCES="$APP_CONTENTS/Resources"
+APP_BINARY="$APP_MACOS/$APP_NAME"
+INFO_PLIST="$APP_CONTENTS/Info.plist"
+ENTITLEMENTS="$ROOT_DIR/Packaging/ClipVault.entitlements"
+PRIVACY_MANIFEST="$ROOT_DIR/Resources/PrivacyInfo.xcprivacy"
+APP_ICON="$ROOT_DIR/Resources/AppIcon.icns"
+
+cd "$ROOT_DIR"
+
+pkill -x "$APP_NAME" >/dev/null 2>&1 || true
+
+cargo build --manifest-path rust/SearchIndexCore/Cargo.toml --release
+swift build
+BUILD_BINARY="$(swift build --show-bin-path)/$APP_NAME"
+
+if [[ ! -f "$APP_ICON" ]]; then
+  swift script/generate_app_icon.swift "$APP_ICON"
+fi
+
+rm -rf "$APP_BUNDLE"
+mkdir -p "$APP_MACOS" "$APP_RESOURCES"
+cp "$BUILD_BINARY" "$APP_BINARY"
+chmod +x "$APP_BINARY"
+cp "$PRIVACY_MANIFEST" "$APP_RESOURCES/PrivacyInfo.xcprivacy"
+cp "$APP_ICON" "$APP_RESOURCES/AppIcon.icns"
+
+cat >"$INFO_PLIST" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleExecutable</key>
+  <string>$APP_NAME</string>
+  <key>CFBundleIdentifier</key>
+  <string>$BUNDLE_ID</string>
+  <key>CFBundleDisplayName</key>
+  <string>$APP_NAME</string>
+  <key>CFBundleShortVersionString</key>
+  <string>$APP_VERSION</string>
+  <key>CFBundleVersion</key>
+  <string>$APP_BUILD</string>
+  <key>CFBundleName</key>
+  <string>$APP_NAME</string>
+  <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>LSApplicationCategoryType</key>
+  <string>public.app-category.productivity</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>$MIN_SYSTEM_VERSION</string>
+  <key>NSHighResolutionCapable</key>
+  <true/>
+  <key>NSHumanReadableCopyright</key>
+  <string>Copyright © 2026 ClipVault. All rights reserved.</string>
+  <key>NSPrincipalClass</key>
+  <string>NSApplication</string>
+  <key>NSSupportsAutomaticGraphicsSwitching</key>
+  <true/>
+</dict>
+</plist>
+PLIST
+
+if [[ -f "$ENTITLEMENTS" ]]; then
+  if [[ -z "$LOCAL_SIGNING_IDENTITY" ]]; then
+    LOCAL_SIGNING_IDENTITY="$(security find-identity -v -p codesigning | sed -nE 's/.*"(Apple Development:[^"]*)".*/\1/p' | head -1)"
+  fi
+
+  if [[ -n "$LOCAL_SIGNING_IDENTITY" ]]; then
+    echo "Signing $APP_NAME with $LOCAL_SIGNING_IDENTITY"
+    codesign --force --sign "$LOCAL_SIGNING_IDENTITY" --entitlements "$ENTITLEMENTS" "$APP_BUNDLE" >/dev/null
+  else
+    echo "Signing $APP_NAME ad-hoc because no Apple Development identity was found"
+    codesign --force --sign - --entitlements "$ENTITLEMENTS" "$APP_BUNDLE" >/dev/null
+  fi
+fi
+
+open_app() {
+  /usr/bin/open -n "$APP_BUNDLE"
+}
+
+case "$MODE" in
+  run)
+    open_app
+    ;;
+  --debug|debug)
+    lldb -- "$APP_BINARY"
+    ;;
+  --logs|logs)
+    open_app
+    /usr/bin/log stream --info --style compact --predicate "process == \"$APP_NAME\""
+    ;;
+  --telemetry|telemetry)
+    open_app
+    /usr/bin/log stream --info --style compact --predicate "subsystem == \"$BUNDLE_ID\""
+    ;;
+  --verify|verify)
+    open_app
+    sleep 1
+    pgrep -x "$APP_NAME" >/dev/null
+    ;;
+  *)
+    echo "usage: $0 [run|--debug|--logs|--telemetry|--verify]" >&2
+    exit 2
+    ;;
+esac
