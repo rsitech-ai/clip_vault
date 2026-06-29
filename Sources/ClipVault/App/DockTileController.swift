@@ -36,15 +36,16 @@ final class DockTileController: NSObject {
         self.captureStatus = captureStatus
 
         installTileViewIfNeeded()
-        NSApp.dockTile.badgeLabel = clips.isEmpty ? nil : clippedCountLabel(clips.count)
+        let settings = DockTileSettings.current
+        NSApp.dockTile.badgeLabel = settings.showsBadge && !clips.isEmpty ? clippedCountLabel(clips.count) : nil
         tileView.snapshot = DockTileSnapshot(
             count: clips.count,
             isCapturing: isCapturing,
             captureStatus: captureStatus,
-            recentKinds: Array(clips.prefix(6).map(\.kind))
+            recentKinds: settings.showsKindBars ? Array(clips.prefix(6).map(\.kind)) : []
         )
         NSApp.dockTile.display()
-        updateAnimationTimer()
+        updateAnimationTimer(isEnabled: settings.animatesWhileCapturing)
     }
 
     func makeDockMenu() -> NSMenu {
@@ -64,7 +65,7 @@ final class DockTileController: NSObject {
         menu.addItem(statusItem)
         menu.addItem(.separator())
 
-        let recent = Array(clips.prefix(6))
+        let recent = Array(clips.prefix(DockTileSettings.current.recentClipLimit))
         if recent.isEmpty {
             let emptyItem = NSMenuItem(title: "No clips yet", action: nil, keyEquivalent: "")
             emptyItem.isEnabled = false
@@ -102,8 +103,8 @@ final class DockTileController: NSObject {
         }
     }
 
-    private func updateAnimationTimer() {
-        guard isCapturing else {
+    private func updateAnimationTimer(isEnabled: Bool) {
+        guard isCapturing, isEnabled else {
             animationTimer?.invalidate()
             animationTimer = nil
             tileView.phase = 0
@@ -167,6 +168,36 @@ private struct DockTileSnapshot {
     var recentKinds: [ClipKind]
 
     static let empty = DockTileSnapshot(count: 0, isCapturing: false, captureStatus: "Ready", recentKinds: [])
+}
+
+private struct DockTileSettings {
+    var showsBadge: Bool
+    var animatesWhileCapturing: Bool
+    var showsKindBars: Bool
+    var recentClipLimit: Int
+
+    static var current: DockTileSettings {
+        let defaults = UserDefaults.standard
+        let limit = defaults.integer(
+            forKey: ClipVaultSettingsKey.dockRecentClipLimit,
+            default: ClipVaultSettingsDefault.dockRecentClipLimit
+        )
+        return DockTileSettings(
+            showsBadge: defaults.bool(
+                forKey: ClipVaultSettingsKey.dockBadgeEnabled,
+                default: ClipVaultSettingsDefault.dockBadgeEnabled
+            ),
+            animatesWhileCapturing: defaults.bool(
+                forKey: ClipVaultSettingsKey.dockAnimationEnabled,
+                default: ClipVaultSettingsDefault.dockAnimationEnabled
+            ),
+            showsKindBars: defaults.bool(
+                forKey: ClipVaultSettingsKey.dockKindBarsEnabled,
+                default: ClipVaultSettingsDefault.dockKindBarsEnabled
+            ),
+            recentClipLimit: min(max(limit, 3), 10)
+        )
+    }
 }
 
 private final class ClipVaultDockTileView: NSView {
@@ -276,7 +307,10 @@ private final class ClipVaultDockTileView: NSView {
     }
 
     private func drawKindBars(in rect: NSRect) {
-        let kinds = snapshot.recentKinds.isEmpty ? [.unknown] : snapshot.recentKinds
+        guard !snapshot.recentKinds.isEmpty else {
+            return
+        }
+        let kinds = snapshot.recentKinds
         let maxBars = min(kinds.count, 6)
         let totalWidth = CGFloat(maxBars) * 10 + CGFloat(maxBars - 1) * 4
         let startX = rect.midX - totalWidth / 2

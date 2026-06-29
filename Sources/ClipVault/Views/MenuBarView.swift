@@ -67,6 +67,13 @@ struct MenuBarView: View {
 
                     Spacer()
 
+                    SettingsLink {
+                        Image(systemName: "gearshape")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Open ClipVault settings")
+                    .accessibilityLabel("Open ClipVault settings")
+
                     Button {
                         model.toggleCapture()
                     } label: {
