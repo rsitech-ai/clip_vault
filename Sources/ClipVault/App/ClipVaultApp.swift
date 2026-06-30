@@ -29,6 +29,7 @@ struct ClipVaultApp: App {
                             recoverClipVaultWindows(after: 1.0)
                         }
                     )
+                    NotchLiveActivityController.shared.configure(model: model)
                     await model.bootstrap()
                 }
         }
@@ -43,6 +44,11 @@ struct ClipVaultApp: App {
                     recoverClipVaultWindows(after: 1.0)
                 }
                 .keyboardShortcut("v", modifiers: [.command, .shift])
+
+                Button("Capture Area Screenshot") {
+                    model.captureInteractiveScreenshot()
+                }
+                .keyboardShortcut("2", modifiers: [.command, .shift])
             }
         }
 

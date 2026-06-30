@@ -7,6 +7,7 @@ enum ClipVaultSettingsKey {
     static let dockAnimationEnabled = "dockAnimationEnabled"
     static let dockKindBarsEnabled = "dockKindBarsEnabled"
     static let dockRecentClipLimit = "dockRecentClipLimit"
+    static let liveNotchEnabled = "liveNotchEnabled"
 }
 
 enum ClipVaultSettingsDefault {
@@ -16,6 +17,7 @@ enum ClipVaultSettingsDefault {
     static let dockAnimationEnabled = true
     static let dockKindBarsEnabled = true
     static let dockRecentClipLimit = 6
+    static let liveNotchEnabled = true
 }
 
 extension UserDefaults {
