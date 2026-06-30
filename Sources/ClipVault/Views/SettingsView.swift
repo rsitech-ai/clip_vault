@@ -9,6 +9,7 @@ struct SettingsView: View {
     @AppStorage(ClipVaultSettingsKey.dockAnimationEnabled) private var dockAnimationEnabled = ClipVaultSettingsDefault.dockAnimationEnabled
     @AppStorage(ClipVaultSettingsKey.dockKindBarsEnabled) private var dockKindBarsEnabled = ClipVaultSettingsDefault.dockKindBarsEnabled
     @AppStorage(ClipVaultSettingsKey.dockRecentClipLimit) private var dockRecentClipLimit = ClipVaultSettingsDefault.dockRecentClipLimit
+    @AppStorage(ClipVaultSettingsKey.liveNotchEnabled) private var liveNotchEnabled = ClipVaultSettingsDefault.liveNotchEnabled
 
     var body: some View {
         TabView {
@@ -42,10 +43,11 @@ struct SettingsView: View {
                 dockBadgeEnabled: $dockBadgeEnabled,
                 dockAnimationEnabled: $dockAnimationEnabled,
                 dockKindBarsEnabled: $dockKindBarsEnabled,
-                dockRecentClipLimit: $dockRecentClipLimit
+                dockRecentClipLimit: $dockRecentClipLimit,
+                liveNotchEnabled: $liveNotchEnabled
             )
             .tabItem {
-                Label("Dock", systemImage: "dock.rectangle")
+                Label("Surfaces", systemImage: "dock.rectangle")
             }
 
             AboutSettingsTab()
@@ -59,6 +61,7 @@ struct SettingsView: View {
         .onChange(of: dockAnimationEnabled) { model.refreshDockTilePreferences() }
         .onChange(of: dockKindBarsEnabled) { model.refreshDockTilePreferences() }
         .onChange(of: dockRecentClipLimit) { model.refreshDockTilePreferences() }
+        .onChange(of: liveNotchEnabled) { model.refreshLiveNotchPreferences() }
     }
 }
 
@@ -93,6 +96,7 @@ private struct GeneralSettingsTab: View {
 
             Section("Workspace") {
                 LabeledContent("Open workspace shortcut", value: "Command-Shift-V")
+                LabeledContent("Capture screenshot shortcut", value: "Command-Shift-2")
                 LabeledContent("Menu bar behavior", value: "Click a clip to copy it")
             }
         }
@@ -133,6 +137,7 @@ private struct CaptureStorageSettingsTab: View {
             Section("Capture Intelligence") {
                 Label("Text, URLs, rich text, files, and images are captured when present.", systemImage: "tray.and.arrow.down")
                 Label("Image text is recognized locally with Vision OCR.", systemImage: "text.viewfinder")
+                Label("Command-Shift-2 opens custom area or window screenshot capture.", systemImage: "camera.viewfinder")
                 Label("Code, SQL, errors, links, images, and files are grouped into smart collections.", systemImage: "folder.badge.gearshape")
             }
         }
@@ -224,9 +229,19 @@ private struct DockSettingsTab: View {
     @Binding var dockAnimationEnabled: Bool
     @Binding var dockKindBarsEnabled: Bool
     @Binding var dockRecentClipLimit: Int
+    @Binding var liveNotchEnabled: Bool
 
     var body: some View {
         Form {
+            Section("Live Notch") {
+                Toggle("Show Live Notch on hover", isOn: $liveNotchEnabled)
+                    .help("Show ClipVault's live activity panel when the pointer enters the top-center notch area")
+
+                Text("The Live Notch stays hidden until you hover the top-center menu bar area, then fades away when you leave.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Dock Tile") {
                 Toggle("Show clip count badge", isOn: $dockBadgeEnabled)
                 Toggle("Animate while capturing", isOn: $dockAnimationEnabled)
@@ -259,6 +274,15 @@ private struct AboutSettingsTab: View {
                 LabeledContent("Build", value: appBuild)
                 LabeledContent("Bundle ID", value: bundleID)
                 LabeledContent("Category", value: "Productivity")
+            }
+
+            Section("Support") {
+                Link(destination: URL(string: "https://www.buymeacoffee.com/s1korrrr")!) {
+                    Label("Sponsor on Buy Me a Coffee", systemImage: "heart.fill")
+                }
+                Text("Sponsorship helps keep ClipVault local-first, polished, and actively maintained.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section("Release Readiness") {
