@@ -5,15 +5,7 @@ struct ContentView: View {
     @Bindable var model: ClipVaultViewModel
 
     var body: some View {
-        NavigationSplitView {
-            SidebarView(model: model)
-                .navigationSplitViewColumnWidth(min: 160, ideal: 220, max: 300)
-        } content: {
-            ClipListView(model: model)
-                .navigationSplitViewColumnWidth(min: 260, ideal: 360, max: 500)
-        } detail: {
-            DetailWorkspaceView(model: model)
-        }
+        workspace
         .searchable(text: $model.searchText, placement: .toolbar, prompt: "Search clips")
         .toolbar {
             ToolbarItemGroup {
@@ -31,6 +23,18 @@ struct ContentView: View {
                 }
                 .help("Refresh clips from storage")
             }
+        }
+    }
+
+    private var workspace: some View {
+        NavigationSplitView {
+            SidebarView(model: model)
+                .navigationSplitViewColumnWidth(min: 160, ideal: 220, max: 300)
+        } content: {
+            ClipListView(model: model)
+                .navigationSplitViewColumnWidth(min: 260, ideal: 360, max: 500)
+        } detail: {
+            DetailWorkspaceView(model: model)
         }
     }
 }

@@ -10,8 +10,16 @@ struct MenuBarView: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
+            if let previewClip {
+                MenuClipPreview(clip: previewClip, isPinned: previewPinned)
+                    .frame(width: 360)
+                    .frame(minHeight: 280, maxHeight: 540)
+                    .transition(.opacity.combined(with: .move(edge: .leading)))
+                Divider()
+            }
+
             VStack(alignment: .leading, spacing: 8) {
-                TextField("Maccy  type to search...", text: $model.searchText)
+                TextField("Search clips...", text: $model.searchText)
                     .textFieldStyle(.roundedBorder)
                     .onChange(of: model.searchText) {
                         model.statusMenuFocusIndex = 0
@@ -67,8 +75,22 @@ struct MenuBarView: View {
 
                     Spacer()
 
+                    Button {
+                        model.captureInteractiveScreenshot()
+                    } label: {
+                        Label("Shot", systemImage: "camera.viewfinder")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Capture a custom area or window screenshot with Command-Shift-2")
+
+                    Link(destination: URL(string: "https://www.buymeacoffee.com/s1korrrr")!) {
+                        Label("Sponsor", systemImage: "heart.fill")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Support ClipVault on Buy Me a Coffee")
+
                     SettingsLink {
-                        Image(systemName: "gearshape")
+                        Label("Settings", systemImage: "gearshape")
                     }
                     .buttonStyle(.borderless)
                     .help("Open ClipVault settings")
@@ -87,15 +109,7 @@ struct MenuBarView: View {
                 .foregroundStyle(.secondary)
             }
             .padding(10)
-            .frame(width: 420)
-
-            if let previewClip {
-                Divider()
-                MenuClipPreview(clip: previewClip, isPinned: previewPinned)
-                    .frame(width: 400)
-                    .frame(minHeight: 280, maxHeight: 540)
-                    .transition(.opacity.combined(with: .move(edge: .trailing)))
-            }
+            .frame(width: 380)
         }
         .background(MenuKeyboardCatcher { action in
             handleKeyboard(action)
