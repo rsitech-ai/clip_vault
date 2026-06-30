@@ -71,9 +71,13 @@ final class ClipVaultViewModel {
         captureService.onClipCaptured = { [weak self] payload, sourceApp in
             self?.ingest(payload: payload, sourceApp: sourceApp)
         }
+        let screenshotHotKeyRegistered = ScreenshotCaptureController.shared.configure { [weak self] didCapture in
+            self?.captureStatus = didCapture ? "Screenshot copied to clipboard" : "Screenshot cancelled"
+            self?.updateDockTile()
+        }
         captureService.start()
         isCapturing = true
-        captureStatus = "Watching clipboard"
+        captureStatus = screenshotHotKeyRegistered ? "Watching clipboard" : "Watching clipboard, screenshot shortcut unavailable"
         reload()
         pruneExpiredClips(retentionDays: configuredRetentionDays, updatesStatus: false)
         if let storageStartupError {
@@ -300,6 +304,16 @@ final class ClipVaultViewModel {
 
     func refreshDockTilePreferences() {
         updateDockTile()
+    }
+
+    func refreshLiveNotchPreferences() {
+        NotchLiveActivityController.shared.refreshPreferences()
+    }
+
+    func captureInteractiveScreenshot() {
+        captureStatus = "Select screenshot area"
+        updateDockTile()
+        ScreenshotCaptureController.shared.captureInteractiveScreenshot()
     }
 
     func select(_ clip: Clip) {
