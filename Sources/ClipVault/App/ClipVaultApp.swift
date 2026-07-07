@@ -29,7 +29,15 @@ struct ClipVaultApp: App {
                             recoverClipVaultWindows(after: 1.0)
                         }
                     )
-                    NotchLiveActivityController.shared.configure(model: model)
+                    NotchLiveActivityController.shared.configure(
+                        model: model,
+                        openWorkspace: {
+                            NSApp.activate(ignoringOtherApps: true)
+                            openWindow(id: "workspace")
+                            recoverClipVaultWindows(after: 0.4)
+                            recoverClipVaultWindows(after: 1.0)
+                        }
+                    )
                     await model.bootstrap()
                 }
         }
@@ -96,14 +104,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 @MainActor
-private func recoverClipVaultWindows(after delay: TimeInterval = 0) {
+func recoverClipVaultWindows(after delay: TimeInterval = 0) {
     DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
         recoverOffscreenClipVaultWindows()
     }
 }
 
 @MainActor
-private func recoverOffscreenClipVaultWindows() {
+func recoverOffscreenClipVaultWindows() {
     let visibleFrames = NSScreen.screens.map(\.visibleFrame)
     guard let targetFrame = NSScreen.main?.visibleFrame ?? visibleFrames.first else {
         return
