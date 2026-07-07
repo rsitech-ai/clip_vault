@@ -6,18 +6,20 @@ struct LiveActivityIslandView: View {
     var model: ClipVaultViewModel
     private let expandsOnHover: Bool
     private let allowsManualToggle: Bool
+    private let openWorkspace: () -> Void
     @State private var isExpanded = false
-    @State private var pulse = false
 
     init(
         model: ClipVaultViewModel,
         defaultExpanded: Bool = false,
         expandsOnHover: Bool = true,
-        allowsManualToggle: Bool = true
+        allowsManualToggle: Bool = true,
+        openWorkspace: @escaping () -> Void = {}
     ) {
         self.model = model
         self.expandsOnHover = expandsOnHover
         self.allowsManualToggle = allowsManualToggle
+        self.openWorkspace = openWorkspace
         _isExpanded = State(initialValue: defaultExpanded)
     }
 
@@ -56,11 +58,6 @@ struct LiveActivityIslandView: View {
                 isExpanded.toggle()
             }
         }
-        .onAppear {
-            withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) {
-                pulse = true
-            }
-        }
         .animation(.snappy(duration: 0.22), value: isExpanded)
         .animation(.snappy(duration: 0.18), value: model.captureStatus)
         .accessibilityElement(children: .combine)
@@ -74,16 +71,16 @@ struct LiveActivityIslandView: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(model.isCapturing ? "Capturing" : "Paused")
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.primary)
                 Text(compactSubtitle)
                     .font(.caption2)
-                    .foregroundStyle(.white.opacity(0.68))
+                    .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
 
             Divider()
                 .frame(height: 24)
-                .overlay(.white.opacity(0.16))
+                .overlay(.secondary.opacity(0.16))
 
             if let latestClip {
                 Image(systemName: icon(for: latestClip.kind))
@@ -93,13 +90,13 @@ struct LiveActivityIslandView: View {
 
                 Text(latestClip.title)
                     .font(.caption.weight(.medium))
-                    .foregroundStyle(.white.opacity(0.9))
+                    .foregroundStyle(.primary)
                     .lineLimit(1)
                     .frame(maxWidth: 170, alignment: .leading)
             } else {
                 Text("Copy anything to start")
                     .font(.caption.weight(.medium))
-                    .foregroundStyle(.white.opacity(0.76))
+                    .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
 
@@ -107,19 +104,18 @@ struct LiveActivityIslandView: View {
 
             Text("\(model.clips.count)")
                 .font(.caption.weight(.bold))
-                .foregroundStyle(.white)
+                .foregroundStyle(.primary)
                 .frame(minWidth: 28)
                 .padding(.vertical, 5)
-                .background(.white.opacity(0.13), in: Capsule())
+                .clipVaultGlassCapsule(tint: .accentColor.opacity(0.10))
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(islandBackground, in: Capsule())
-        .overlay {
-            Capsule()
-                .strokeBorder(islandStroke, lineWidth: 1)
-        }
-        .shadow(color: .black.opacity(0.25), radius: 18, y: 10)
+        .clipVaultGlassCapsule(
+            tint: model.isCapturing ? .green.opacity(0.08) : .orange.opacity(0.08),
+            interactive: true
+        )
+        .shadow(color: .black.opacity(0.16), radius: 18, y: 10)
     }
 
     private var expandedPanel: some View {
@@ -130,12 +126,12 @@ struct LiveActivityIslandView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(latestClip?.title ?? "No clip captured yet")
                         .font(.callout.weight(.semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(.primary)
                         .lineLimit(1)
 
                     Text(expandedSubtitle)
                         .font(.caption)
-                        .foregroundStyle(.white.opacity(0.66))
+                        .foregroundStyle(.secondary)
                         .lineLimit(2)
                 }
 
@@ -147,7 +143,7 @@ struct LiveActivityIslandView: View {
                     Label(model.isCapturing ? "Pause" : "Resume", systemImage: model.isCapturing ? "pause.fill" : "play.fill")
                 }
                 .controlSize(.small)
-                .buttonStyle(.borderedProminent)
+                .clipVaultGlassButtonStyle(prominent: true)
                 .tint(model.isCapturing ? .orange : .green)
                 .help(model.isCapturing ? "Pause clipboard capture" : "Resume clipboard capture")
             }
@@ -165,6 +161,7 @@ struct LiveActivityIslandView: View {
                 Button {
                     if let latestClip {
                         model.selectedClipID = latestClip.id
+                        openWorkspace()
                     }
                 } label: {
                     Label("Show", systemImage: "arrow.right.circle")
@@ -179,7 +176,7 @@ struct LiveActivityIslandView: View {
 
                 Spacer()
             }
-            .buttonStyle(.bordered)
+            .clipVaultGlassButtonStyle()
             .controlSize(.small)
 
             if !recentClips.isEmpty {
@@ -198,7 +195,7 @@ struct LiveActivityIslandView: View {
                             .padding(.horizontal, 8)
                             .padding(.vertical, 5)
                             .frame(maxWidth: 130)
-                            .background(.white.opacity(0.08), in: Capsule())
+                            .clipVaultGlassCapsule(interactive: true)
                         }
                         .buttonStyle(.plain)
                         .help("Copy \(clip.title)")
@@ -207,12 +204,12 @@ struct LiveActivityIslandView: View {
             }
         }
         .padding(14)
-        .background(islandBackground, in: RoundedRectangle(cornerRadius: 18))
-        .overlay {
-            RoundedRectangle(cornerRadius: 18)
-                .strokeBorder(islandStroke, lineWidth: 1)
-        }
-        .shadow(color: .black.opacity(0.24), radius: 24, y: 14)
+        .clipVaultGlassSurface(
+            cornerRadius: 18,
+            tint: model.isCapturing ? .green.opacity(0.08) : .orange.opacity(0.08),
+            interactive: true
+        )
+        .shadow(color: .black.opacity(0.16), radius: 24, y: 14)
     }
 
     private var statusOrb: some View {
@@ -220,8 +217,8 @@ struct LiveActivityIslandView: View {
             Circle()
                 .fill(model.isCapturing ? Color.green.opacity(0.22) : Color.orange.opacity(0.2))
                 .frame(width: 28, height: 28)
-                .scaleEffect(pulse && model.isCapturing ? 1.25 : 0.96)
-                .opacity(pulse && model.isCapturing ? 0.42 : 0.9)
+                .scaleEffect(model.isCapturing ? 1.08 : 0.96)
+                .opacity(model.isCapturing ? 0.62 : 0.9)
 
             Circle()
                 .fill(model.isCapturing ? Color.green : Color.orange)
@@ -234,11 +231,13 @@ struct LiveActivityIslandView: View {
     private var latestPreview: some View {
         if let latestClip,
            latestClip.kind == .image,
-           let data = latestClip.previewData,
-           let image = NSImage(data: data) {
-            Image(nsImage: image)
-                .resizable()
-                .scaledToFill()
+           let data = latestClip.previewData {
+            CachedClipImageView(
+                data: data,
+                cacheKey: latestClip.previewImageCacheKey,
+                contentMode: .fill,
+                placeholderSystemImage: "photo"
+            )
                 .frame(width: 48, height: 48)
                 .clipShape(RoundedRectangle(cornerRadius: 10))
                 .overlay {
@@ -275,30 +274,6 @@ struct LiveActivityIslandView: View {
         return "\(source) • \(latestClip.createdAt.formatted(date: .omitted, time: .shortened))\(copies) • \(model.captureStatus)"
     }
 
-    private var islandBackground: LinearGradient {
-        LinearGradient(
-            colors: [
-                Color(nsColor: .black).opacity(0.88),
-                Color(red: 0.08, green: 0.09, blue: 0.12).opacity(0.9),
-                model.isCapturing ? Color.blue.opacity(0.55) : Color.gray.opacity(0.28)
-            ],
-            startPoint: pulse ? .topLeading : .bottomLeading,
-            endPoint: .bottomTrailing
-        )
-    }
-
-    private var islandStroke: LinearGradient {
-        LinearGradient(
-            colors: [
-                .white.opacity(0.22),
-                model.isCapturing ? .cyan.opacity(0.5) : .white.opacity(0.1),
-                .white.opacity(0.08)
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-    }
-
     private func icon(for kind: ClipKind) -> String {
         switch kind {
         case .text: "doc.text"
@@ -315,7 +290,7 @@ struct LiveActivityIslandView: View {
 
     private func color(for kind: ClipKind) -> Color {
         switch kind {
-        case .text: .white
+        case .text: .primary
         case .code: .green
         case .sql: .orange
         case .url: .cyan

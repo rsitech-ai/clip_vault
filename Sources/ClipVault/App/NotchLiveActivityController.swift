@@ -3,34 +3,41 @@ import QuartzCore
 import SwiftUI
 
 @MainActor
-final class NotchLiveActivityController {
+final class NotchLiveActivityController: NSObject {
     static let shared = NotchLiveActivityController()
 
     private let panelSize = NSSize(width: 700, height: 210)
     private let notchZoneSize = NSSize(width: 190, height: 24)
     private let menuBarInset: CGFloat = 30
+    private let monitorInterval: TimeInterval = 0.12
+    private let hideGraceInterval: TimeInterval = 0.18
     private var panel: NSPanel?
     private var monitorTimer: Timer?
     private var lastPointerInsideAt = Date.distantPast
+    private var liveNotchEnabled = ClipVaultSettingsDefault.liveNotchEnabled
     private var isVisible = false
 
-    private init() {}
+    private override init() {
+        super.init()
+    }
 
-    func configure(model: ClipVaultViewModel) {
+    func configure(model: ClipVaultViewModel, openWorkspace: @escaping () -> Void) {
+        liveNotchEnabled = Self.readLiveNotchPreference()
         if panel == nil {
-            panel = makePanel(model: model)
+            panel = makePanel(model: model, openWorkspace: openWorkspace)
         }
         startMonitoring()
         positionPanelForCurrentScreen()
     }
 
     func refreshPreferences() {
-        if !isEnabled {
+        liveNotchEnabled = Self.readLiveNotchPreference()
+        if !liveNotchEnabled {
             hidePanel(immediately: true)
         }
     }
 
-    private func makePanel(model: ClipVaultViewModel) -> NSPanel {
+    private func makePanel(model: ClipVaultViewModel, openWorkspace: @escaping () -> Void) -> NSPanel {
         let panel = NSPanel(
             contentRect: NSRect(origin: .zero, size: panelSize),
             styleMask: [.borderless, .nonactivatingPanel],
@@ -57,7 +64,8 @@ final class NotchLiveActivityController {
                 model: model,
                 defaultExpanded: true,
                 expandsOnHover: false,
-                allowsManualToggle: false
+                allowsManualToggle: false,
+                openWorkspace: openWorkspace
             )
             .padding(.top, 10)
         }
@@ -78,17 +86,23 @@ final class NotchLiveActivityController {
             return
         }
 
-        let timer = Timer(timeInterval: 0.05, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                self?.updateVisibilityForPointer()
-            }
-        }
+        let timer = Timer(
+            timeInterval: monitorInterval,
+            target: self,
+            selector: #selector(handleMonitorTimer),
+            userInfo: nil,
+            repeats: true
+        )
         monitorTimer = timer
         RunLoop.main.add(timer, forMode: .common)
     }
 
+    @objc private func handleMonitorTimer() {
+        updateVisibilityForPointer()
+    }
+
     private func updateVisibilityForPointer() {
-        guard isEnabled else {
+        guard liveNotchEnabled else {
             hidePanel(immediately: true)
             return
         }
@@ -99,12 +113,17 @@ final class NotchLiveActivityController {
             return
         }
 
-        positionPanel(on: screen)
-        let isInside = notchZone(on: screen).contains(mouse)
-        if isInside {
+        let isInsideNotch = notchZone(on: screen).contains(mouse)
+        if isVisible {
+            positionPanel(on: screen)
+        }
+        let isInsidePanel = isVisible && (panel?.frame.contains(mouse) ?? false)
+        if isInsideNotch || isInsidePanel {
             lastPointerInsideAt = Date()
-            showPanel(on: screen)
-        } else if isVisible, Date().timeIntervalSince(lastPointerInsideAt) > 0.08 {
+            if isInsideNotch {
+                showPanel(on: screen)
+            }
+        } else if isVisible, Date().timeIntervalSince(lastPointerInsideAt) > hideGraceInterval {
             hidePanel()
         }
     }
@@ -186,7 +205,7 @@ final class NotchLiveActivityController {
         )
     }
 
-    private var isEnabled: Bool {
+    private static func readLiveNotchPreference() -> Bool {
         UserDefaults.standard.bool(
             forKey: ClipVaultSettingsKey.liveNotchEnabled,
             default: ClipVaultSettingsDefault.liveNotchEnabled
