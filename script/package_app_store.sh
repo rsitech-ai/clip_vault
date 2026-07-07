@@ -16,6 +16,7 @@ DIST_ROOT="$ROOT_DIR/dist/AppStore"
 APP_BUNDLE="$DIST_ROOT/$APP_NAME.app"
 APP_CONTENTS="$APP_BUNDLE/Contents"
 APP_MACOS="$APP_CONTENTS/MacOS"
+APP_FRAMEWORKS="$APP_CONTENTS/Frameworks"
 APP_RESOURCES="$APP_CONTENTS/Resources"
 APP_BINARY="$APP_MACOS/$APP_NAME"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
@@ -23,6 +24,9 @@ ENTITLEMENTS="$ROOT_DIR/Packaging/ClipVault.entitlements"
 DIST_ENTITLEMENTS="$DIST_ROOT/ClipVault-AppStore.entitlements"
 PRIVACY_MANIFEST="$ROOT_DIR/Resources/PrivacyInfo.xcprivacy"
 APP_ICON="$ROOT_DIR/Resources/AppIcon.icns"
+RUST_DYLIB_NAME="libsearch_index_core.dylib"
+RUST_DYLIB_SOURCE="$ROOT_DIR/rust/SearchIndexCore/target/release/deps/$RUST_DYLIB_NAME"
+RUST_DYLIB_BUNDLE="$APP_FRAMEWORKS/$RUST_DYLIB_NAME"
 PKG_PATH="$DIST_ROOT/$APP_NAME-$APP_VERSION-$APP_BUILD.pkg"
 
 cd "$ROOT_DIR"
@@ -59,9 +63,13 @@ if [[ ! -f "$APP_ICON" ]]; then
 fi
 
 rm -rf "$DIST_ROOT"
-mkdir -p "$APP_MACOS" "$APP_RESOURCES"
+mkdir -p "$APP_MACOS" "$APP_FRAMEWORKS" "$APP_RESOURCES"
 cp "$(swift build -c release --show-bin-path)/$APP_NAME" "$APP_BINARY"
 chmod +x "$APP_BINARY"
+cp "$RUST_DYLIB_SOURCE" "$RUST_DYLIB_BUNDLE"
+chmod +x "$RUST_DYLIB_BUNDLE"
+install_name_tool -id "@rpath/$RUST_DYLIB_NAME" "$RUST_DYLIB_BUNDLE"
+install_name_tool -change "$RUST_DYLIB_SOURCE" "@executable_path/../Frameworks/$RUST_DYLIB_NAME" "$APP_BINARY"
 cp "$PRIVACY_MANIFEST" "$APP_RESOURCES/PrivacyInfo.xcprivacy"
 cp "$APP_ICON" "$APP_RESOURCES/AppIcon.icns"
 
@@ -126,6 +134,13 @@ PLIST
 else
   cp "$ENTITLEMENTS" "$DIST_ENTITLEMENTS"
 fi
+
+/usr/bin/codesign \
+  --force \
+  --timestamp \
+  --options runtime \
+  --sign "$APP_SIGNING_IDENTITY" \
+  "$RUST_DYLIB_BUNDLE"
 
 /usr/bin/codesign \
   --force \

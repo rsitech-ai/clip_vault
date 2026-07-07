@@ -105,10 +105,13 @@ final class DockTileController: NSObject {
 
     private func updateAnimationTimer(isEnabled: Bool) {
         guard isCapturing, isEnabled else {
+            let shouldRedraw = animationTimer != nil || tileView.phase != 0
             animationTimer?.invalidate()
             animationTimer = nil
-            tileView.phase = 0
-            NSApp.dockTile.display()
+            if shouldRedraw {
+                tileView.phase = 0
+                NSApp.dockTile.display()
+            }
             return
         }
 
@@ -116,7 +119,7 @@ final class DockTileController: NSObject {
             return
         }
 
-        animationTimer = Timer.scheduledTimer(withTimeInterval: 0.7, repeats: true) { [weak self] _ in
+        animationTimer = Timer.scheduledTimer(withTimeInterval: 1.2, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self else {
                     return
