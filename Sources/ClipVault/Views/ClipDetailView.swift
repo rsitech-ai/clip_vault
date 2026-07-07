@@ -37,7 +37,7 @@ struct ClipDetailView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .background(Color(nsColor: .textBackgroundColor))
+        .background(.regularMaterial)
         .confirmationDialog(
             "Delete Clip?",
             isPresented: Binding(
@@ -91,27 +91,32 @@ private struct ClipDetailHeader: View {
     }
 
     private var actionButtons: some View {
-        HStack(spacing: 8) {
-            Button {
-                model.copyToClipboard(clip)
-            } label: {
-                Label("Copy", systemImage: "doc.on.doc")
-            }
-            .help("Copy this clip to the clipboard")
+        ClipVaultGlassContainer(spacing: 10) {
+            HStack(spacing: 8) {
+                Button {
+                    model.copyToClipboard(clip)
+                } label: {
+                    Label("Copy", systemImage: "doc.on.doc")
+                }
+                .clipVaultGlassButtonStyle(prominent: true)
+                .help("Copy this clip to the clipboard")
 
-            Button {
-                model.togglePinned(clip)
-            } label: {
-                Label(clip.isPinned ? "Unpin" : "Pin", systemImage: clip.isPinned ? "pin.fill" : "pin")
-            }
-            .help(clip.isPinned ? "Unpin this clip" : "Pin this clip")
+                Button {
+                    model.togglePinned(clip)
+                } label: {
+                    Label(clip.isPinned ? "Unpin" : "Pin", systemImage: clip.isPinned ? "pin.fill" : "pin")
+                }
+                .clipVaultGlassButtonStyle()
+                .help(clip.isPinned ? "Unpin this clip" : "Pin this clip")
 
-            Button(role: .destructive) {
-                requestDelete()
-            } label: {
-                Label("Delete", systemImage: "trash")
+                Button(role: .destructive) {
+                    requestDelete()
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+                .clipVaultGlassButtonStyle()
+                .help("Delete this clip")
             }
-            .help("Delete this clip")
         }
         .fixedSize(horizontal: true, vertical: false)
     }
@@ -201,7 +206,7 @@ struct ScreenshotAnnotationPanel: View {
             }
         }
         .padding(14)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .clipVaultGlassSurface(cornerRadius: 14, tint: .blue.opacity(0.10))
     }
 
     private func annotationStat(_ label: String, _ value: String) -> some View {
@@ -243,9 +248,9 @@ struct ClipNoteEditor: View {
                 .frame(minHeight: clip.kind == .image ? 110 : 82)
                 .padding(8)
                 .scrollContentBackground(.hidden)
-                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
+                .clipVaultGlassSurface(cornerRadius: 10, interactive: true)
                 .overlay {
-                    RoundedRectangle(cornerRadius: 8)
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .stroke(isFocused ? Color.accentColor.opacity(0.55) : Color.clear, lineWidth: 1)
                 }
                 .onAppear {
@@ -269,14 +274,17 @@ private extension ClipDetailView {
     @ViewBuilder
     func clipBody(for clip: Clip) -> some View {
         if clip.kind == .image {
-            if let data = clip.previewData, let image = NSImage(data: data) {
-                Image(nsImage: image)
-                    .resizable()
-                    .scaledToFit()
+            if let data = clip.previewData {
+                CachedClipImageView(
+                    data: data,
+                    cacheKey: clip.previewImageCacheKey,
+                    contentMode: .fit,
+                    placeholderSystemImage: "photo"
+                )
                     .frame(maxWidth: .infinity)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .overlay {
-                        RoundedRectangle(cornerRadius: 8)
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
                             .stroke(.quaternary, lineWidth: 1)
                     }
             }
@@ -291,7 +299,7 @@ private extension ClipDetailView {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(14)
-                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
+                .clipVaultGlassSurface(cornerRadius: 14)
             } else {
                 ContentUnavailableView("No text recognized", systemImage: "text.viewfinder")
                     .frame(maxWidth: .infinity)
@@ -303,7 +311,7 @@ private extension ClipDetailView {
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(14)
-                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
+                .clipVaultGlassSurface(cornerRadius: 14)
         }
     }
 }
@@ -318,7 +326,7 @@ struct FlowTags: View {
                     .font(.caption.weight(.medium))
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
-                    .background(.quaternary, in: Capsule())
+                    .clipVaultGlassCapsule()
             }
         }
     }

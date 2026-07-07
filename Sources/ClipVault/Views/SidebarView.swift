@@ -54,7 +54,7 @@ struct SidebarView: View {
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
-            .background(.bar)
+            .clipVaultGlassSurface(cornerRadius: 0)
         }
         .alert(prompt?.title ?? "New", isPresented: Binding(
             get: { prompt != nil },

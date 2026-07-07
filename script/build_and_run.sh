@@ -8,6 +8,7 @@ MIN_SYSTEM_VERSION="15.0"
 APP_VERSION="${APP_VERSION:-0.1.0}"
 APP_BUILD="${APP_BUILD:-1}"
 LOCAL_SIGNING_IDENTITY="${LOCAL_SIGNING_IDENTITY:-}"
+SWIFT_CONFIGURATION="${SWIFT_CONFIGURATION:-release}"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
@@ -30,8 +31,8 @@ cd "$ROOT_DIR"
 pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 
 cargo build --manifest-path rust/SearchIndexCore/Cargo.toml --release
-swift build
-BUILD_BINARY="$(swift build --show-bin-path)/$APP_NAME"
+swift build -c "$SWIFT_CONFIGURATION"
+BUILD_BINARY="$(swift build -c "$SWIFT_CONFIGURATION" --show-bin-path)/$APP_NAME"
 
 if [[ ! -f "$APP_ICON" ]]; then
   swift script/generate_app_icon.swift "$APP_ICON"
