@@ -14,7 +14,7 @@ enum ClipVaultSettingsDefault {
     static let ordinaryClipRetentionDays = 30
     static let cloudAIEnabled = false
     static let dockBadgeEnabled = true
-    static let dockAnimationEnabled = true
+    static let dockAnimationEnabled = false
     static let dockKindBarsEnabled = true
     static let dockRecentClipLimit = 6
     static let liveNotchEnabled = true

@@ -7,6 +7,8 @@ struct MenuBarView: View {
     var openWorkspace: () -> Void
     @State private var hoveredClipID: String?
     @State private var previewPinned = false
+    @State private var menuWindowBox = MenuWindowBox()
+    private let menuResultLimit = 12
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
@@ -27,127 +29,195 @@ struct MenuBarView: View {
 
                 ScrollViewReader { proxy in
                     ScrollView {
-                    LazyVStack(spacing: 4) {
-                        ForEach(Array(model.visibleResults.prefix(12).enumerated()), id: \.element.id) { index, result in
-                            MenuClipRow(
-                                clip: result.clip,
-                                isHovered: hoveredClipID == result.clip.id || model.statusMenuFocusIndex == index,
-                                copy: {
-                                    model.selectAndCopy(result.clip)
-                                    model.statusMenuFocusIndex = index
-                                    hoveredClipID = result.clip.id
-                                },
-                                openWorkspace: {
-                                    model.selectedClipID = result.clip.id
-                                    openWorkspace()
-                                },
-                                togglePin: {
-                                    model.togglePinned(result.clip)
-                                },
-                                delete: {
-                                    model.delete(result.clip)
+                        LazyVStack(spacing: 4) {
+                            ForEach(Array(menuResults.enumerated()), id: \.element.id) { index, result in
+                                MenuClipRow(
+                                    clip: result.clip,
+                                    isHovered: hoveredClipID == result.clip.id || model.statusMenuFocusIndex == index,
+                                    copy: {
+                                        copyFromMenu(result.clip, at: index)
+                                    },
+                                    openWorkspace: {
+                                        model.selectedClipID = result.clip.id
+                                        openWorkspace()
+                                    },
+                                    togglePin: {
+                                        model.togglePinned(result.clip)
+                                    },
+                                    delete: {
+                                        model.delete(result.clip)
+                                    }
+                                )
+                                .onHover { isHovering in
+                                    if isHovering {
+                                        model.statusMenuFocusIndex = index
+                                        hoveredClipID = result.clip.id
+                                    }
                                 }
-                            )
-                            .onHover { isHovering in
-                                if isHovering {
-                                    model.statusMenuFocusIndex = index
-                                    hoveredClipID = result.clip.id
-                                }
+                                .id(result.clip.id)
                             }
-                            .id(result.clip.id)
                         }
                     }
-                }
                     .frame(maxHeight: 460)
                     .onChange(of: model.statusMenuFocusIndex) {
-                        guard model.visibleClips.indices.contains(model.statusMenuFocusIndex) else { return }
-                        proxy.scrollTo(model.visibleClips[model.statusMenuFocusIndex].id, anchor: .center)
+                        guard menuClips.indices.contains(model.statusMenuFocusIndex) else { return }
+                        proxy.scrollTo(menuClips[model.statusMenuFocusIndex].id, anchor: .center)
                     }
                 }
 
-                HStack {
-                    Button {
-                        openWorkspace()
-                    } label: {
-                        Label("Workspace", systemImage: "rectangle.3.group")
-                    }
-                    .buttonStyle(.borderless)
+                ClipVaultGlassContainer(spacing: 8) {
+                    HStack {
+                        Button {
+                            openWorkspace()
+                        } label: {
+                            Label("Workspace", systemImage: "rectangle.3.group")
+                        }
+                        .clipVaultGlassButtonStyle()
 
-                    Spacer()
+                        Spacer()
 
-                    Button {
-                        model.captureInteractiveScreenshot()
-                    } label: {
-                        Label("Shot", systemImage: "camera.viewfinder")
-                    }
-                    .buttonStyle(.borderless)
-                    .help("Capture a custom area or window screenshot with Command-Shift-2")
+                        Button {
+                            model.captureInteractiveScreenshot()
+                        } label: {
+                            Label("Shot", systemImage: "camera.viewfinder")
+                        }
+                        .clipVaultGlassButtonStyle()
+                        .help("Capture a custom area or window screenshot with Command-Shift-2")
 
-                    Link(destination: URL(string: "https://www.buymeacoffee.com/s1korrrr")!) {
-                        Label("Sponsor", systemImage: "heart.fill")
-                    }
-                    .buttonStyle(.borderless)
-                    .help("Support ClipVault on Buy Me a Coffee")
+                        SponsorButton()
+                            .clipVaultGlassButtonStyle()
+                            .help("Support ClipVault on Buy Me a Coffee")
 
-                    SettingsLink {
-                        Label("Settings", systemImage: "gearshape")
-                    }
-                    .buttonStyle(.borderless)
-                    .help("Open ClipVault settings")
-                    .accessibilityLabel("Open ClipVault settings")
+                        SettingsLink {
+                            Label("Settings", systemImage: "gearshape")
+                        }
+                        .clipVaultGlassButtonStyle()
+                        .help("Open ClipVault settings")
+                        .accessibilityLabel("Open ClipVault settings")
 
-                    Button {
-                        model.toggleCapture()
-                    } label: {
-                        Image(systemName: model.isCapturing ? "pause.circle" : "play.circle")
+                        Button {
+                            model.toggleCapture()
+                        } label: {
+                            Image(systemName: model.isCapturing ? "pause.circle" : "play.circle")
+                        }
+                        .clipVaultGlassButtonStyle(prominent: model.isCapturing)
+                        .help(model.isCapturing ? "Pause clipboard capture" : "Resume clipboard capture")
+                        .accessibilityLabel(model.isCapturing ? "Pause clipboard capture" : "Resume clipboard capture")
                     }
-                    .buttonStyle(.borderless)
-                    .help(model.isCapturing ? "Pause clipboard capture" : "Resume clipboard capture")
-                    .accessibilityLabel(model.isCapturing ? "Pause clipboard capture" : "Resume clipboard capture")
                 }
                 .font(.caption)
+                .controlSize(.small)
                 .foregroundStyle(.secondary)
             }
             .padding(10)
             .frame(width: 380)
         }
-        .background(MenuKeyboardCatcher { action in
-            handleKeyboard(action)
-        })
+        .background(
+            MenuKeyboardCatcher(
+                handle: { action in
+                    handleKeyboard(action)
+                },
+                onWindowChange: { window in
+                    menuWindowBox.window = window
+                }
+            )
+        )
         .animation(.snappy(duration: 0.16), value: hoveredClipID)
+        .task {
+            await model.bootstrap()
+        }
+    }
+
+    private var menuResults: [SearchResult] {
+        Array(model.visibleResults.prefix(menuResultLimit))
+    }
+
+    private var menuClips: [Clip] {
+        menuResults.map(\.clip)
+    }
+
+    private var focusedMenuClip: Clip? {
+        guard !menuClips.isEmpty else { return nil }
+        let index = min(max(model.statusMenuFocusIndex, 0), menuClips.count - 1)
+        return menuClips[index]
     }
 
     private var previewClip: Clip? {
-        if let focused = model.focusedMenuClip {
+        if let focused = focusedMenuClip {
             return focused
         }
         if let hoveredClipID,
-           let hovered = model.visibleResults.map(\.clip).first(where: { $0.id == hoveredClipID }) {
+           let hovered = menuClips.first(where: { $0.id == hoveredClipID }) {
             return hovered
         }
 
-        return model.visibleResults.first?.clip
+        return menuClips.first
+    }
+
+    private func copyFromMenu(_ clip: Clip, at index: Int) {
+        model.selectAndCopy(clip)
+        model.statusMenuFocusIndex = index
+        hoveredClipID = clip.id
+        closeMenuWindow()
+    }
+
+    private func copyFocusedFromMenu() {
+        guard let focusedMenuClip else { return }
+        model.selectAndCopy(focusedMenuClip)
+        hoveredClipID = focusedMenuClip.id
+        closeMenuWindow()
+    }
+
+    private func moveMenuFocus(_ delta: Int) {
+        guard !menuClips.isEmpty else {
+            model.statusMenuFocusIndex = 0
+            hoveredClipID = nil
+            return
+        }
+        let nextIndex = min(max(model.statusMenuFocusIndex + delta, 0), menuClips.count - 1)
+        model.statusMenuFocusIndex = nextIndex
+        model.selectedClipID = menuClips[nextIndex].id
+        hoveredClipID = menuClips[nextIndex].id
+    }
+
+    private func deleteFocusedMenuClip() {
+        guard let clip = focusedMenuClip else { return }
+        model.delete(clip)
+        model.statusMenuFocusIndex = min(model.statusMenuFocusIndex, max(menuClips.count - 1, 0))
+        hoveredClipID = focusedMenuClip?.id
+    }
+
+    private func togglePinnedFocusedMenuClip() {
+        guard let clip = focusedMenuClip else { return }
+        model.togglePinned(clip)
+    }
+
+    private func closeMenuWindow() {
+        guard let window = menuWindowBox.window else { return }
+        window.resignKey()
+        window.orderOut(nil)
     }
 
     private func handleKeyboard(_ action: MenuKeyboardAction) {
         switch action {
         case .up:
-            model.moveMenuFocus(-1)
-            hoveredClipID = model.focusedMenuClip?.id
+            moveMenuFocus(-1)
         case .down:
-            model.moveMenuFocus(1)
-            hoveredClipID = model.focusedMenuClip?.id
+            moveMenuFocus(1)
         case .copy:
-            model.copyFocusedMenuClip()
+            copyFocusedFromMenu()
         case .preview:
             previewPinned.toggle()
         case .delete:
-            model.deleteFocusedMenuClip()
-            hoveredClipID = model.focusedMenuClip?.id
+            deleteFocusedMenuClip()
         case .pin:
-            model.togglePinnedFocusedMenuClip()
+            togglePinnedFocusedMenuClip()
         }
     }
+}
+
+private final class MenuWindowBox {
+    weak var window: NSWindow?
 }
 
 private struct MenuClipRow: View {
@@ -187,7 +257,7 @@ private struct MenuClipRow: View {
                         .font(.caption2.weight(.bold))
                         .foregroundStyle(.secondary)
                 }
-                Text(clip.createdAt, style: .relative)
+                ClipTimestampText(date: clip.createdAt)
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
@@ -224,17 +294,19 @@ private struct MenuClipThumbnail: View {
     var body: some View {
         Group {
             if clip.kind == .image,
-               let data = clip.previewData,
-               let image = NSImage(data: data) {
-                Image(nsImage: image)
-                    .resizable()
-                    .scaledToFill()
+               let data = clip.previewData {
+                CachedClipImageView(
+                    data: data,
+                    cacheKey: clip.previewImageCacheKey,
+                    contentMode: .fill,
+                    placeholderSystemImage: "photo"
+                )
             } else {
                 Image(systemName: icon(for: clip.kind))
                     .font(.system(size: size * 0.42))
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(.quaternary)
+                    .clipVaultGlassSurface(cornerRadius: 6)
             }
         }
         .frame(width: size, height: size)
@@ -286,7 +358,7 @@ private struct MenuClipPreview: View {
             previewBody
 
             HStack {
-                Text("Enter copies • Space pins preview • Delete removes • P pins")
+                Text("Enter copies • Space locks preview • Delete removes • P pins")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
                 Spacer()
@@ -298,17 +370,19 @@ private struct MenuClipPreview: View {
             }
         }
         .padding(14)
-        .background(.regularMaterial)
+        .clipVaultGlassSurface(cornerRadius: 0)
     }
 
     @ViewBuilder
     private var previewBody: some View {
         if clip.kind == .image,
-           let data = clip.previewData,
-           let image = NSImage(data: data) {
-            Image(nsImage: image)
-                .resizable()
-                .scaledToFit()
+           let data = clip.previewData {
+            CachedClipImageView(
+                data: data,
+                cacheKey: clip.previewImageCacheKey,
+                contentMode: .fit,
+                placeholderSystemImage: "photo"
+            )
                 .frame(maxWidth: .infinity, maxHeight: 260)
                 .background(.black.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
                 .clipShape(RoundedRectangle(cornerRadius: 8))
@@ -322,7 +396,7 @@ private struct MenuClipPreview: View {
                 }
                 .frame(maxHeight: 120)
                 .padding(8)
-                .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+                .clipVaultGlassSurface(cornerRadius: 10)
             }
         } else {
             ScrollView {
@@ -333,7 +407,7 @@ private struct MenuClipPreview: View {
             }
             .frame(maxHeight: 320)
             .padding(10)
-            .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+            .clipVaultGlassSurface(cornerRadius: 10)
         }
     }
 
@@ -354,12 +428,14 @@ private enum MenuKeyboardAction {
 
 private struct MenuKeyboardCatcher: NSViewRepresentable {
     var handle: (MenuKeyboardAction) -> Void
+    var onWindowChange: (NSWindow?) -> Void = { _ in }
 
     func makeNSView(context: Context) -> KeyView {
         let view = KeyView()
         view.handle = handle
         DispatchQueue.main.async {
             view.window?.makeFirstResponder(view)
+            onWindowChange(view.window)
         }
         return view
     }
@@ -368,6 +444,7 @@ private struct MenuKeyboardCatcher: NSViewRepresentable {
         nsView.handle = handle
         DispatchQueue.main.async {
             nsView.window?.makeFirstResponder(nsView)
+            onWindowChange(nsView.window)
         }
     }
 

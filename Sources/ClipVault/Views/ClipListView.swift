@@ -96,7 +96,7 @@ struct ClipListView: View {
                     .font(.caption)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
-                    .background(.quaternary, in: Capsule())
+                    .clipVaultGlassCapsule(tint: .accentColor.opacity(0.10))
             }
             Menu {
                 Button("Bulk Cleanup") {
@@ -114,7 +114,7 @@ struct ClipListView: View {
             .accessibilityLabel("Clip cleanup actions")
         }
         .padding(14)
-        .background(.bar)
+        .clipVaultGlassSurface(cornerRadius: 0)
         .sheet(isPresented: $showCleanup) {
             BulkCleanupView(model: model)
                 .frame(width: 560, height: 460)
@@ -154,7 +154,7 @@ struct ClipRowView: View {
             }
 
             Spacer(minLength: 8)
-            Text(result.clip.createdAt, style: .relative)
+            ClipTimestampText(date: result.clip.createdAt)
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
         }
@@ -164,11 +164,13 @@ struct ClipRowView: View {
     @ViewBuilder
     private var thumbnail: some View {
         if result.clip.kind == .image,
-           let data = result.clip.previewData,
-           let image = NSImage(data: data) {
-            Image(nsImage: image)
-                .resizable()
-                .scaledToFill()
+           let data = result.clip.previewData {
+            CachedClipImageView(
+                data: data,
+                cacheKey: result.clip.previewImageCacheKey,
+                contentMode: .fill,
+                placeholderSystemImage: "photo"
+            )
                 .frame(width: 34, height: 34)
                 .clipShape(RoundedRectangle(cornerRadius: 5))
                 .overlay {
@@ -180,23 +182,13 @@ struct ClipRowView: View {
         } else {
             Image(systemName: icon)
                 .symbolVariant(isSelectedForAI ? .fill : .none)
-                .foregroundStyle(isSelectedForAI ? Color.accentColor : Color.secondary)
+                .foregroundStyle(isSelectedForAI ? Color.accentColor : ClipVaultDesign.tint(for: result.clip.kind))
                 .frame(width: 34, height: 34)
         }
     }
 
     private var icon: String {
-        switch result.clip.kind {
-        case .text: "doc.text"
-        case .code: "curlybraces"
-        case .sql: "tablecells"
-        case .url: "link"
-        case .richText: "text.append"
-        case .image: "photo"
-        case .file: "folder"
-        case .error: "exclamationmark.triangle"
-        case .unknown: "doc"
-        }
+        ClipVaultDesign.icon(for: result.clip.kind)
     }
 }
 
@@ -204,6 +196,7 @@ struct BulkCleanupView: View {
     @Bindable var model: ClipVaultViewModel
     @Environment(\.dismiss) private var dismiss
     @State private var confirmDeleteMatches = false
+    @State private var candidates: [Clip] = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -229,13 +222,11 @@ struct BulkCleanupView: View {
             }
             .pickerStyle(.segmented)
 
-            let candidates = model.cleanupCandidates(for: model.cleanupFilter)
-
             List(candidates) { clip in
                 HStack {
-                    Image(systemName: icon(for: clip))
+                    Image(systemName: ClipVaultDesign.icon(for: clip.kind))
                         .frame(width: 24)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(ClipVaultDesign.tint(for: clip.kind))
                     VStack(alignment: .leading, spacing: 2) {
                         Text(clip.title)
                             .lineLimit(1)
@@ -265,11 +256,20 @@ struct BulkCleanupView: View {
                 Button("Delete Matches", role: .destructive) {
                     confirmDeleteMatches = true
                 }
+                .clipVaultGlassButtonStyle()
                 .disabled(candidates.isEmpty)
                 .help(candidates.isEmpty ? "No clips match the current cleanup filter" : "Delete clips matching the current cleanup filter")
             }
         }
         .padding(20)
+        .background(.regularMaterial)
+        .onAppear(perform: refreshCandidates)
+        .onChange(of: model.cleanupFilter) {
+            refreshCandidates()
+        }
+        .onChange(of: model.clips) {
+            refreshCandidates()
+        }
         .confirmationDialog("Delete Matching Clips?", isPresented: $confirmDeleteMatches) {
             Button("Delete Matches", role: .destructive) {
                 model.deleteCleanupCandidates(for: model.cleanupFilter)
@@ -277,20 +277,12 @@ struct BulkCleanupView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Delete \(model.cleanupCandidates(for: model.cleanupFilter).count) clips matching the current cleanup filter. This cannot be undone.")
+            Text("Delete \(candidates.count) clips matching the current cleanup filter. This cannot be undone.")
         }
     }
 
-    private func icon(for clip: Clip) -> String {
-        switch clip.kind {
-        case .image: "photo"
-        case .code: "curlybraces"
-        case .sql: "tablecells"
-        case .url: "link"
-        case .file: "folder"
-        case .error: "exclamationmark.triangle"
-        case .richText: "text.append"
-        case .text, .unknown: "doc.text"
-        }
+    private func refreshCandidates() {
+        candidates = model.cleanupCandidates(for: model.cleanupFilter)
     }
+
 }

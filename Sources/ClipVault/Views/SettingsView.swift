@@ -1,4 +1,6 @@
+import AppKit
 import ClipVaultCore
+import CoreGraphics
 import SwiftUI
 
 struct SettingsView: View {
@@ -26,9 +28,9 @@ struct SettingsView: View {
                 Label("Capture", systemImage: "doc.on.clipboard")
             }
 
-            PrivacySettingsTab()
+            PrivacyAccessSettingsTab()
                 .tabItem {
-                    Label("Privacy", systemImage: "lock.shield")
+                    Label("Access", systemImage: "checkmark.shield")
                 }
 
             AISettingsTab(
@@ -62,6 +64,10 @@ struct SettingsView: View {
         .onChange(of: dockKindBarsEnabled) { model.refreshDockTilePreferences() }
         .onChange(of: dockRecentClipLimit) { model.refreshDockTilePreferences() }
         .onChange(of: liveNotchEnabled) { model.refreshLiveNotchPreferences() }
+        .onAppear {
+            recoverClipVaultWindows(after: 0.05)
+            recoverClipVaultWindows(after: 0.3)
+        }
     }
 }
 
@@ -85,7 +91,12 @@ private struct GeneralSettingsTab: View {
             Section("Capture") {
                 Toggle("Clipboard capture", isOn: Binding(
                     get: { model.isCapturing },
-                    set: { _ in model.toggleCapture() }
+                    set: { newValue in
+                        guard newValue != model.isCapturing else {
+                            return
+                        }
+                        model.toggleCapture()
+                    }
                 ))
                 .help(model.isCapturing ? "Pause clipboard capture" : "Start clipboard capture")
 
@@ -151,13 +162,58 @@ private struct CaptureStorageSettingsTab: View {
     }
 }
 
-private struct PrivacySettingsTab: View {
+private struct PrivacyAccessSettingsTab: View {
+    @State private var screenCaptureAllowed = CGPreflightScreenCaptureAccess()
+
     var body: some View {
         Form {
             Section("Local Privacy") {
                 Label("Clipboard payloads are encrypted locally with a keychain-backed key.", systemImage: "key")
                 Label("Obvious secrets are excluded before storage and indexing.", systemImage: "lock.shield")
                 Label("Cloud AI providers are disabled until explicit opt-in configuration exists.", systemImage: "icloud.slash")
+            }
+
+            Section("Permissions") {
+                PermissionStatusRow(
+                    title: "Clipboard capture",
+                    detail: "Available while ClipVault is running; no extra System Settings grant is required.",
+                    state: .ready
+                )
+                PermissionStatusRow(
+                    title: "Screenshot capture",
+                    detail: screenCaptureAllowed
+                        ? "Screen Recording is allowed for screenshot capture."
+                        : "macOS may ask for Screen Recording the first time Shot is used.",
+                    state: screenCaptureAllowed ? .ready : .needsReview
+                )
+                PermissionStatusRow(
+                    title: "Local encryption key",
+                    detail: "Stored in Keychain and used only for ClipVault's encrypted local payloads.",
+                    state: .ready
+                )
+                PermissionStatusRow(
+                    title: "User-selected files",
+                    detail: "Read-only sandbox entitlement is included for files the user explicitly selects.",
+                    state: .ready
+                )
+            }
+
+            Section("Not Required") {
+                PermissionStatusRow(
+                    title: "Accessibility",
+                    detail: "Not required for normal capture, search, copy, or Settings workflows.",
+                    state: .notRequired
+                )
+                PermissionStatusRow(
+                    title: "Full Disk Access",
+                    detail: "Not required; ClipVault stores its own data in the app container.",
+                    state: .notRequired
+                )
+                PermissionStatusRow(
+                    title: "Cloud uploads",
+                    detail: "Disabled; local AI is preferred and cloud providers remain off.",
+                    state: .notRequired
+                )
             }
 
             Section("Sensitive Exclusion") {
@@ -172,8 +228,29 @@ private struct PrivacySettingsTab: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            Section("System Settings") {
+                Button {
+                    screenCaptureAllowed = CGPreflightScreenCaptureAccess()
+                } label: {
+                    Label("Check Screen Recording", systemImage: "arrow.clockwise")
+                }
+
+                Button {
+                    openScreenRecordingSettings()
+                } label: {
+                    Label("Open Screen Recording Settings", systemImage: "gearshape")
+                }
+            }
         }
         .formStyle(.grouped)
+    }
+
+    private func openScreenRecordingSettings() {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") else {
+            return
+        }
+        NSWorkspace.shared.open(url)
     }
 }
 
@@ -244,7 +321,7 @@ private struct DockSettingsTab: View {
 
             Section("Dock Tile") {
                 Toggle("Show clip count badge", isOn: $dockBadgeEnabled)
-                Toggle("Animate while capturing", isOn: $dockAnimationEnabled)
+                Toggle("Animate Dock tile while capturing", isOn: $dockAnimationEnabled)
                 Toggle("Show recent clip type colors", isOn: $dockKindBarsEnabled)
 
                 Text("Dock changes apply immediately to the running app.")
@@ -277,9 +354,7 @@ private struct AboutSettingsTab: View {
             }
 
             Section("Support") {
-                Link(destination: URL(string: "https://www.buymeacoffee.com/s1korrrr")!) {
-                    Label("Sponsor on Buy Me a Coffee", systemImage: "heart.fill")
-                }
+                SponsorButton(title: "Sponsor on Buy Me a Coffee")
                 Text("Sponsorship helps keep ClipVault local-first, polished, and actively maintained.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -304,5 +379,55 @@ private struct AboutSettingsTab: View {
 
     private var bundleID: String {
         Bundle.main.bundleIdentifier ?? "com.andrzej.ClipVault"
+    }
+}
+
+private enum PermissionStatusState {
+    case ready
+    case needsReview
+    case notRequired
+
+    var label: String {
+        switch self {
+        case .ready: "Ready"
+        case .needsReview: "Check"
+        case .notRequired: "Not required"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .ready: "checkmark.circle.fill"
+        case .needsReview: "exclamationmark.triangle.fill"
+        case .notRequired: "minus.circle.fill"
+        }
+    }
+
+    var tint: Color {
+        switch self {
+        case .ready: .green
+        case .needsReview: .orange
+        case .notRequired: .secondary
+        }
+    }
+}
+
+private struct PermissionStatusRow: View {
+    var title: String
+    var detail: String
+    var state: PermissionStatusState
+
+    var body: some View {
+        LabeledContent {
+            Label(state.label, systemImage: state.systemImage)
+                .foregroundStyle(state.tint)
+        } label: {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 }
