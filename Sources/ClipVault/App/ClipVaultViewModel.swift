@@ -404,11 +404,7 @@ final class ClipVaultViewModel {
             return
         }
 
-        let id = trimmed
-            .lowercased()
-            .replacingOccurrences(of: #"[^a-z0-9]+"#, with: "-", options: .regularExpression)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
-            + "-\(collections.count + 1)"
+        let id = WorkspaceCollectionID.make(for: trimmed)
         let collection = ClipCollection(id: id, title: trimmed, systemImage: "folder", kind: nil, isSmart: false)
         collections.append(collection)
         let folder = CollectionFolder(title: trimmed, collectionID: id)

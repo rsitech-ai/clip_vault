@@ -104,6 +104,30 @@ struct FolderTreeTests {
         #expect(reloaded.first { $0.id == "all" }?.title == "All Clips")
     }
 
+    @Test("same-title custom collection IDs stay distinct and readable")
+    func sameTitleCustomCollectionIDsStayDistinctAndReadable() throws {
+        let firstUUID = try #require(UUID(uuidString: "11111111-1111-1111-1111-111111111111"))
+        let secondUUID = try #require(UUID(uuidString: "22222222-2222-2222-2222-222222222222"))
+
+        let firstID = WorkspaceCollectionID.make(for: "Client / Work", uuid: firstUUID)
+        let secondID = WorkspaceCollectionID.make(for: "Client / Work", uuid: secondUUID)
+
+        #expect(firstID.hasPrefix("client-work-"))
+        #expect(firstID != secondID)
+        #expect(!ClipCollection.defaults.contains { $0.id == firstID })
+        #expect(!ClipCollection.defaults.contains { $0.id == secondID })
+    }
+
+    @Test("distinct custom collection IDs isolate assignment cleanup in both stores")
+    func distinctCustomCollectionIDsIsolateAssignmentCleanupInBothStores() throws {
+        let inMemoryStore = InMemoryClipStore()
+        try assertDistinctCustomCollectionAssignmentsAreIsolated(in: inMemoryStore)
+
+        try withTemporarySwiftDataStore { store in
+            try assertDistinctCustomCollectionAssignmentsAreIsolated(in: store)
+        }
+    }
+
     @Test("both stores reject invalid hierarchy moves and protect built-in nodes")
     func bothStoresRejectInvalidHierarchyMovesAndProtectBuiltInNodes() throws {
         let inMemoryStore = InMemoryClipStore()
@@ -167,6 +191,36 @@ struct FolderTreeTests {
         try store.deleteFolder(id: custom.id)
 
         #expect(!containsFolder(id: custom.id, in: try store.folders()))
+    }
+
+    private func assertDistinctCustomCollectionAssignmentsAreIsolated(in store: any ClipStoring) throws {
+        let firstID = WorkspaceCollectionID.make(
+            for: "Client / Work",
+            uuid: try #require(UUID(uuidString: "11111111-1111-1111-1111-111111111111"))
+        )
+        let secondID = WorkspaceCollectionID.make(
+            for: "Client / Work",
+            uuid: try #require(UUID(uuidString: "22222222-2222-2222-2222-222222222222"))
+        )
+        let firstFolder = CollectionFolder(id: "first-client-folder", title: "Client / Work", collectionID: firstID)
+        let secondFolder = CollectionFolder(id: "second-client-folder", title: "Client / Work", collectionID: secondID)
+        let clip = try #require(try store.save(
+            payload: ClipPayload(kind: .text, displayText: "shared client note", extractedText: "shared client note"),
+            sourceApp: "Tests"
+        ))
+
+        try store.saveFolder(firstFolder, parentID: nil, sortOrder: 20)
+        try store.saveFolder(secondFolder, parentID: nil, sortOrder: 21)
+        try store.addClips(ids: [clip.id], toCollectionID: firstID)
+        try store.addClips(ids: [clip.id], toCollectionID: secondID)
+
+        try store.deleteFolder(id: firstFolder.id)
+
+        let updatedClip = try #require(try store.allClips().first)
+        #expect(!updatedClip.collectionIDs.contains(firstID))
+        #expect(updatedClip.collectionIDs.contains(secondID))
+        #expect(!containsFolder(id: firstFolder.id, in: try store.folders()))
+        #expect(containsFolder(id: secondFolder.id, in: try store.folders()))
     }
 
     private func assertInvalidHierarchyOperationsAreRejected(by store: any ClipStoring) throws {
