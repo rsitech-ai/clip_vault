@@ -8,7 +8,8 @@ struct MenuBarView: View {
     @State private var hoveredClipID: String?
     @State private var previewPinned = false
     @State private var menuWindowBox = MenuWindowBox()
-    private let menuResultLimit = 18
+    @State private var keyboardScrollTargetID: String?
+    private let menuResultLimit = 80
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
@@ -25,12 +26,13 @@ struct MenuBarView: View {
                     .textFieldStyle(.roundedBorder)
                     .onChange(of: model.searchText) {
                         model.statusMenuFocusIndex = 0
+                        keyboardScrollTargetID = nil
                         hoveredClipID = nil
                     }
 
                 ScrollViewReader { proxy in
                     ScrollView {
-                        LazyVStack(spacing: 2) {
+                        VStack(spacing: 2) {
                             ForEach(Array(menuResults.enumerated()), id: \.element.id) { index, result in
                                 MenuClipRow(
                                     clip: result.clip,
@@ -68,9 +70,12 @@ struct MenuBarView: View {
                     .onChange(of: menuResultIDs) {
                         clampMenuFocus()
                     }
-                    .onChange(of: model.statusMenuFocusIndex) {
-                        guard menuClips.indices.contains(model.statusMenuFocusIndex) else { return }
-                        proxy.scrollTo(menuClips[model.statusMenuFocusIndex].id, anchor: .center)
+                    .onChange(of: keyboardScrollTargetID) {
+                        guard let keyboardScrollTargetID else { return }
+                        withAnimation(.snappy(duration: 0.12)) {
+                            proxy.scrollTo(keyboardScrollTargetID, anchor: .center)
+                        }
+                        self.keyboardScrollTargetID = nil
                     }
                 }
 
@@ -191,6 +196,7 @@ struct MenuBarView: View {
         model.statusMenuFocusIndex = nextIndex
         model.selectedClipID = menuClips[nextIndex].id
         hoveredClipID = menuClips[nextIndex].id
+        keyboardScrollTargetID = menuClips[nextIndex].id
     }
 
     private func deleteFocusedMenuClip() {

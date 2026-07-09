@@ -110,11 +110,13 @@ struct AIActionPanel: View {
     }
 
     private func actionButton(for action: AIActionKind) -> some View {
-        Button {
+        let tint = ClipVaultDesign.tint(for: action)
+        return Button {
             model.runAIAction(action)
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: ClipVaultDesign.icon(for: action))
+                    .foregroundStyle(tint)
                 Text(action.title)
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
@@ -123,26 +125,33 @@ struct AIActionPanel: View {
             .frame(maxWidth: .infinity)
             .frame(height: 30)
         }
+        .tint(tint)
         .clipVaultGlassButtonStyle()
         .disabled(model.isGenerating)
-        .help(model.isGenerating ? "Wait for the current AI action to finish" : action.title)
+        .help(model.isGenerating ? "Wait for the current AI action to finish" : actionHelp(for: action))
+        .accessibilityHint(ClipVaultDesign.hint(for: action))
     }
 
     private func compactActionButton(for action: AIActionKind) -> some View {
-        Button {
+        let tint = ClipVaultDesign.tint(for: action)
+        return Button {
             model.runAIAction(action)
         } label: {
-            Image(systemName: ClipVaultDesign.icon(for: action))
+            Label(action.title, systemImage: ClipVaultDesign.icon(for: action))
+                .labelStyle(.iconOnly)
                 .font(.caption.weight(.semibold))
+                .foregroundStyle(tint)
                 .frame(width: 32, height: 32)
                 .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
         .buttonStyle(.plain)
-        .clipVaultGlassSurface(cornerRadius: 8, tint: .secondary.opacity(0.06), interactive: true)
+        .clipVaultGlassSurface(cornerRadius: 8, tint: tint.opacity(0.12), interactive: true)
         .opacity(model.isGenerating ? 0.55 : 1)
         .disabled(model.isGenerating)
-        .help(model.isGenerating ? "Wait for the current AI action to finish" : action.title)
-        .accessibilityLabel(action.title)
+        .help(model.isGenerating ? "Wait for the current AI action to finish" : actionHelp(for: action))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(action.title))
+        .accessibilityHint(Text(ClipVaultDesign.hint(for: action)))
     }
 
     private var header: some View {
@@ -241,10 +250,12 @@ struct AIActionPanel: View {
                 }
                 .font(.caption.weight(.semibold))
             }
+            .tint(ClipVaultDesign.tint(for: .ask))
             .fixedSize(horizontal: true, vertical: false)
             .clipVaultGlassButtonStyle(prominent: true)
             .disabled(!model.canAskQuestion)
             .help(askHelp)
+            .accessibilityHint(ClipVaultDesign.hint(for: .ask))
         }
     }
 
@@ -256,6 +267,10 @@ struct AIActionPanel: View {
             return "Type a question first"
         }
         return "Ask a question about the selected clips"
+    }
+
+    private func actionHelp(for action: AIActionKind) -> String {
+        "\(action.title): \(ClipVaultDesign.hint(for: action))"
     }
 
     private var availabilityBadge: some View {
