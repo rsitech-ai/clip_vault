@@ -23,19 +23,17 @@ struct ClipVaultApp: App {
                             model.toggleCapture()
                         },
                         openWorkspace: {
-                            NSApp.activate(ignoringOtherApps: true)
-                            openWindow(id: "workspace")
-                            recoverClipVaultWindows(after: 0.4)
-                            recoverClipVaultWindows(after: 1.0)
+                            presentClipVaultWorkspace {
+                                openWindow(id: "workspace")
+                            }
                         }
                     )
                     NotchLiveActivityController.shared.configure(
                         model: model,
                         openWorkspace: {
-                            NSApp.activate(ignoringOtherApps: true)
-                            openWindow(id: "workspace")
-                            recoverClipVaultWindows(after: 0.4)
-                            recoverClipVaultWindows(after: 1.0)
+                            presentClipVaultWorkspace {
+                                openWindow(id: "workspace")
+                            }
                         }
                     )
                     await model.bootstrap()
@@ -46,10 +44,9 @@ struct ClipVaultApp: App {
         .commands {
             CommandGroup(after: .newItem) {
                 Button("Open ClipVault") {
-                    NSApp.activate(ignoringOtherApps: true)
-                    openWindow(id: "workspace")
-                    recoverClipVaultWindows(after: 0.4)
-                    recoverClipVaultWindows(after: 1.0)
+                    presentClipVaultWorkspace {
+                        openWindow(id: "workspace")
+                    }
                 }
                 .keyboardShortcut("v", modifiers: [.command, .shift])
 
@@ -62,10 +59,9 @@ struct ClipVaultApp: App {
 
         MenuBarExtra {
             MenuBarView(model: model) {
-                NSApp.activate(ignoringOtherApps: true)
-                openWindow(id: "workspace")
-                recoverClipVaultWindows(after: 0.4)
-                recoverClipVaultWindows(after: 1.0)
+                presentClipVaultWorkspace {
+                    openWindow(id: "workspace")
+                }
             }
         } label: {
             Label("ClipVault", systemImage: model.isCapturing ? "doc.on.clipboard.fill" : "doc.on.clipboard")
@@ -84,18 +80,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-            recoverOffscreenClipVaultWindows()
+            recoverOffscreenClipVaultWindows(makeKey: true)
         }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        recoverOffscreenClipVaultWindows()
-        NSApp.windows.first?.makeKeyAndOrderFront(nil)
+        NSApp.setActivationPolicy(.regular)
+        NSApp.unhide(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        recoverOffscreenClipVaultWindows(makeKey: true)
         return true
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
-        recoverClipVaultWindows(after: 0.5)
+        recoverClipVaultWindows(after: 0.1, makeKey: true)
     }
 
     func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
@@ -104,33 +102,67 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 @MainActor
-func recoverClipVaultWindows(after delay: TimeInterval = 0) {
+func presentClipVaultWorkspace(openWindow: @escaping () -> Void) {
+    NSApp.setActivationPolicy(.regular)
+    NSApp.unhide(nil)
+    NSApp.activate(ignoringOtherApps: true)
+    openWindow()
+    recoverClipVaultWindows(after: 0.05, makeKey: true)
+    recoverClipVaultWindows(after: 0.35, makeKey: true)
+    recoverClipVaultWindows(after: 1.0, makeKey: true)
+}
+
+@MainActor
+func recoverClipVaultWindows(after delay: TimeInterval = 0, makeKey: Bool = false) {
     DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-        recoverOffscreenClipVaultWindows()
+        recoverOffscreenClipVaultWindows(makeKey: makeKey)
     }
 }
 
 @MainActor
-func recoverOffscreenClipVaultWindows() {
+func recoverOffscreenClipVaultWindows(makeKey: Bool = false) {
     let visibleFrames = NSScreen.screens.map(\.visibleFrame)
-    guard let targetFrame = NSScreen.main?.visibleFrame ?? visibleFrames.first else {
+    guard let targetFrame = preferredRecoveryScreen()?.visibleFrame ?? NSScreen.main?.visibleFrame ?? visibleFrames.first else {
         return
     }
 
-    for window in NSApp.windows where !window.isMiniaturized {
-        let isOnVisibleDisplay = visibleFrames.contains { visibleFrame in
-            window.frame.intersects(visibleFrame.insetBy(dx: -40, dy: -40))
+    for window in NSApp.windows where shouldRecover(window) {
+        let isRecoverable = visibleFrames.contains { visibleFrame in
+            let paddedFrame = visibleFrame.insetBy(dx: -40, dy: -40)
+            return paddedFrame.intersects(window.frame)
+                && paddedFrame.contains(NSPoint(x: window.frame.midX, y: window.frame.midY))
         }
-        guard !isOnVisibleDisplay else {
-            continue
+        if !isRecoverable {
+            center(window, in: targetFrame)
         }
 
-        var frame = window.frame
-        frame.size.width = min(max(frame.width, 900), targetFrame.width * 0.92)
-        frame.size.height = min(max(frame.height, 620), targetFrame.height * 0.88)
-        frame.origin.x = targetFrame.midX - frame.width / 2
-        frame.origin.y = targetFrame.midY - frame.height / 2
-        window.setFrame(frame, display: true)
-        window.makeKeyAndOrderFront(nil)
+        if makeKey {
+            NSApp.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
+            window.orderFrontRegardless()
+        }
     }
+}
+
+@MainActor
+private func shouldRecover(_ window: NSWindow) -> Bool {
+    !window.isMiniaturized && window.canBecomeKey && window.title == "ClipVault"
+}
+
+@MainActor
+private func preferredRecoveryScreen() -> NSScreen? {
+    let mouseLocation = NSEvent.mouseLocation
+    return NSScreen.screens.first { screen in
+        screen.frame.contains(mouseLocation)
+    }
+}
+
+@MainActor
+private func center(_ window: NSWindow, in targetFrame: NSRect) {
+    var frame = window.frame
+    frame.size.width = min(max(frame.width, 900), targetFrame.width * 0.92)
+    frame.size.height = min(max(frame.height, 620), targetFrame.height * 0.88)
+    frame.origin.x = targetFrame.midX - frame.width / 2
+    frame.origin.y = targetFrame.midY - frame.height / 2
+    window.setFrame(frame, display: true)
 }
