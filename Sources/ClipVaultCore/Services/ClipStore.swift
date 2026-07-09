@@ -95,6 +95,54 @@ public enum FolderStoreError: Error, LocalizedError, Equatable {
     }
 }
 
+public enum WorkspaceFolderPolicy {
+    public static func isProtected(_ folder: CollectionFolder) -> Bool {
+        isProtected(
+            collectionID: folder.collectionID,
+            childCollectionIDs: Set(folder.children.compactMap(\.collectionID))
+        )
+    }
+
+    static func isProtected(collectionID: String?, childCollectionIDs: Set<String>) -> Bool {
+        if let collectionID {
+            return defaultCollectionIDs.contains(collectionID)
+        }
+        return defaultCollectionIDs.isSubset(of: childCollectionIDs)
+    }
+
+    private static let defaultCollectionIDs = Set(ClipCollection.defaults.map(\.id))
+}
+
+public enum WorkspaceCollectionCatalog {
+    public static func rebuild(from folders: [CollectionFolder]) -> [ClipCollection] {
+        var customCollections: [String: ClipCollection] = [:]
+
+        for folder in flatten(folders) {
+            guard let collectionID = folder.collectionID,
+                  !ClipCollection.defaults.contains(where: { $0.id == collectionID }) else {
+                continue
+            }
+            customCollections[collectionID] = ClipCollection(
+                id: collectionID,
+                title: folder.title,
+                systemImage: "folder",
+                kind: nil,
+                isSmart: false
+            )
+        }
+
+        return ClipCollection.defaults + customCollections.values.sorted {
+            $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
+        }
+    }
+
+    private static func flatten(_ folders: [CollectionFolder]) -> [CollectionFolder] {
+        folders.flatMap { folder in
+            [folder] + flatten(folder.children)
+        }
+    }
+}
+
 public final class SwiftDataClipStore: ClipStoring {
     private let context: ModelContext
     private let encryptor: any PayloadEncrypting
@@ -273,6 +321,7 @@ public final class SwiftDataClipStore: ClipStoring {
     }
 
     public func saveFolder(_ folder: CollectionFolder, parentID: String?, sortOrder: Int) throws {
+        try seedDefaultFoldersIfNeeded()
         context.insert(FolderRecord(folder: folder, parentID: parentID, sortOrder: sortOrder))
         try context.save()
     }
@@ -401,6 +450,13 @@ public final class SwiftDataClipStore: ClipStoring {
         }
     }
 
+    private func seedDefaultFoldersIfNeeded() throws {
+        guard try context.fetch(FetchDescriptor<FolderRecord>()).isEmpty else {
+            return
+        }
+        try seedDefaultFolders()
+    }
+
     private func saveFolderTree(_ folder: CollectionFolder, parentID: String?, sortOrder: Int) throws {
         context.insert(FolderRecord(folder: folder, parentID: parentID, sortOrder: sortOrder))
         for (index, child) in folder.children.enumerated() {
@@ -430,15 +486,12 @@ public final class SwiftDataClipStore: ClipStoring {
     }
 
     private func isProtectedFolder(_ record: FolderRecord, in records: [FolderRecord]) -> Bool {
-        if let collectionID = record.collectionID {
-            return Self.defaultCollectionIDs.contains(collectionID)
-        }
-        guard record.parentID == nil else {
-            return false
-        }
-        return records.contains { child in
-            child.parentID == record.id && child.collectionID.map(Self.defaultCollectionIDs.contains) == true
-        }
+        WorkspaceFolderPolicy.isProtected(
+            collectionID: record.collectionID,
+            childCollectionIDs: Set(records.lazy.compactMap { child in
+                child.parentID == record.id ? child.collectionID : nil
+            })
+        )
     }
 
     private func isDescendant(_ possibleDescendantID: String, of rootID: String, in records: [FolderRecord]) -> Bool {
@@ -480,8 +533,6 @@ public final class SwiftDataClipStore: ClipStoring {
         Array(Set(tags.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }))
             .sorted()
     }
-
-    private static let defaultCollectionIDs = Set(ClipCollection.defaults.map(\.id))
 
     private func title(for payload: ClipPayload) -> String {
         if payload.kind == .image {
@@ -771,13 +822,6 @@ public final class InMemoryClipStore: ClipStoring {
     }
 
     private func isProtectedFolder(_ folder: CollectionFolder) -> Bool {
-        if let collectionID = folder.collectionID {
-            return Self.defaultCollectionIDs.contains(collectionID)
-        }
-        return folder.collectionID == nil && allFolders(in: folder.children).contains { child in
-            child.collectionID.map(Self.defaultCollectionIDs.contains) == true
-        }
+        WorkspaceFolderPolicy.isProtected(folder)
     }
-
-    private static let defaultCollectionIDs = Set(ClipCollection.defaults.map(\.id))
 }
