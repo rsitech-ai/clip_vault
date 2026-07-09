@@ -6,31 +6,31 @@ struct AIActionPanel: View {
     var placement: AIActionPanelPlacement = .inspector
 
     var body: some View {
+        panelContent
+            .padding(placement.contentPadding)
+            .clipVaultGlassSurface(
+                cornerRadius: ClipVaultDesign.panelRadius,
+                tint: model.aiAvailability.isAvailable ? .accentColor.opacity(0.05) : .orange.opacity(0.08)
+            )
+            .clipVaultPanelShadow(active: placement.showsShadow)
+            .padding(placement.outerPadding)
+    }
+
+    @ViewBuilder
+    private var panelContent: some View {
+        switch placement {
+        case .inspector:
+            inspectorLayout
+        case .inline:
+            inlineLayout
+        }
+    }
+
+    private var inspectorLayout: some View {
         VStack(alignment: .leading, spacing: placement.verticalSpacing) {
             header
 
-            ClipVaultGlassContainer(spacing: 10) {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: placement.actionMinimumWidth), spacing: 8)], alignment: .leading, spacing: 8) {
-                    ForEach(AIActionKind.allCases.filter { $0 != .ask }, id: \.self) { action in
-                        Button {
-                            model.runAIAction(action)
-                        } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: ClipVaultDesign.icon(for: action))
-                                Text(action.title)
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(0.85)
-                            }
-                            .font(.caption.weight(.semibold))
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 30)
-                        }
-                        .clipVaultGlassButtonStyle()
-                        .disabled(model.isGenerating)
-                        .help(model.isGenerating ? "Wait for the current AI action to finish" : action.title)
-                    }
-                }
-            }
+            actionGrid
 
             ViewThatFits(in: .horizontal) {
                 askRow
@@ -56,16 +56,93 @@ struct AIActionPanel: View {
             Divider()
 
             resultArea
+                .frame(minHeight: placement.resultMinimumHeight, alignment: .topLeading)
 
             Spacer(minLength: 0)
         }
-        .padding(placement.contentPadding)
-        .clipVaultGlassSurface(
-            cornerRadius: ClipVaultDesign.panelRadius,
-            tint: model.aiAvailability.isAvailable ? .accentColor.opacity(0.05) : .orange.opacity(0.08)
-        )
-        .clipVaultPanelShadow(active: placement.showsShadow)
-        .padding(placement.outerPadding)
+    }
+
+    private var inlineLayout: some View {
+        VStack(alignment: .leading, spacing: placement.verticalSpacing) {
+            header
+
+            resultArea
+                .frame(
+                    maxWidth: .infinity,
+                    minHeight: placement.resultMinimumHeight,
+                    maxHeight: .infinity,
+                    alignment: .topLeading
+                )
+
+            Divider()
+
+            inlineControls
+        }
+    }
+
+    private var actionGrid: some View {
+        ClipVaultGlassContainer(spacing: 10) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: placement.actionMinimumWidth), spacing: 8)], alignment: .leading, spacing: 8) {
+                actionButtons
+            }
+        }
+    }
+
+    private var inlineControls: some View {
+        HStack(spacing: 8) {
+            ClipVaultGlassContainer(spacing: 6) {
+                HStack(spacing: 6) {
+                    ForEach(AIActionKind.allCases.filter { $0 != .ask }, id: \.self) { action in
+                        compactActionButton(for: action)
+                    }
+                }
+            }
+
+            askRow
+        }
+    }
+
+    @ViewBuilder
+    private var actionButtons: some View {
+        ForEach(AIActionKind.allCases.filter { $0 != .ask }, id: \.self) { action in
+            actionButton(for: action)
+        }
+    }
+
+    private func actionButton(for action: AIActionKind) -> some View {
+        Button {
+            model.runAIAction(action)
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: ClipVaultDesign.icon(for: action))
+                Text(action.title)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+            }
+            .font(.caption.weight(.semibold))
+            .frame(maxWidth: .infinity)
+            .frame(height: 30)
+        }
+        .clipVaultGlassButtonStyle()
+        .disabled(model.isGenerating)
+        .help(model.isGenerating ? "Wait for the current AI action to finish" : action.title)
+    }
+
+    private func compactActionButton(for action: AIActionKind) -> some View {
+        Button {
+            model.runAIAction(action)
+        } label: {
+            Image(systemName: ClipVaultDesign.icon(for: action))
+                .font(.caption.weight(.semibold))
+                .frame(width: 32, height: 32)
+                .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .clipVaultGlassSurface(cornerRadius: 8, tint: .secondary.opacity(0.06), interactive: true)
+        .opacity(model.isGenerating ? 0.55 : 1)
+        .disabled(model.isGenerating)
+        .help(model.isGenerating ? "Wait for the current AI action to finish" : action.title)
+        .accessibilityLabel(action.title)
     }
 
     private var header: some View {
@@ -99,10 +176,24 @@ struct AIActionPanel: View {
             } else if let result = model.aiResult {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 10) {
-                        Text(result.title)
-                            .font(.headline)
+                        HStack {
+                            Text(result.title)
+                                .font(.headline)
+                            Spacer()
+                            if result.isFallback {
+                                Text("Local")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .clipVaultGlassCapsule(tint: .secondary.opacity(0.10))
+                            }
+                        }
                         Text(result.content)
+                            .font(.callout)
+                            .lineSpacing(3)
                             .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
                         if !result.citedClipIDs.isEmpty {
                             Text("\(result.citedClipIDs.count) clips cited")
                                 .font(.caption)
@@ -110,6 +201,7 @@ struct AIActionPanel: View {
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.trailing, 4)
                 }
             } else {
                 VStack(alignment: .leading, spacing: 8) {
@@ -123,7 +215,7 @@ struct AIActionPanel: View {
             }
         }
         .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .clipVaultGlassSurface(cornerRadius: ClipVaultDesign.sectionRadius)
     }
 
@@ -135,10 +227,11 @@ struct AIActionPanel: View {
     }
 
     private var askRow: some View {
-        HStack {
+        HStack(spacing: 8) {
             TextField("Ask selected clips", text: $model.question)
                 .textFieldStyle(.roundedBorder)
                 .frame(minWidth: placement.askMinimumWidth)
+                .layoutPriority(1)
             Button {
                 model.runAIAction(.ask)
             } label: {
@@ -148,6 +241,7 @@ struct AIActionPanel: View {
                 }
                 .font(.caption.weight(.semibold))
             }
+            .fixedSize(horizontal: true, vertical: false)
             .clipVaultGlassButtonStyle(prominent: true)
             .disabled(!model.canAskQuestion)
             .help(askHelp)
@@ -212,7 +306,7 @@ enum AIActionPanelPlacement {
     var askMinimumWidth: CGFloat {
         switch self {
         case .inspector: 180
-        case .inline: 120
+        case .inline: 160
         }
     }
 
@@ -227,6 +321,13 @@ enum AIActionPanelPlacement {
         switch self {
         case .inspector: true
         case .inline: false
+        }
+    }
+
+    var resultMinimumHeight: CGFloat {
+        switch self {
+        case .inspector: 120
+        case .inline: 120
         }
     }
 }
