@@ -7,6 +7,8 @@ BUNDLE_ID="${APP_BUNDLE_ID:-com.andrzej.ClipVault}"
 STORE_NAME="ClipVault.store"
 SANDBOX_STORE="$HOME/Library/Containers/$BUNDLE_ID/Data/Library/Application Support/$STORE_NAME"
 FALLBACK_STORE="$HOME/Library/Application Support/$STORE_NAME"
+SQLITE_TIMEOUT_SECONDS="${SQLITE_TIMEOUT_SECONDS:-2}"
+SQLITE_WRAPPER="$ROOT_DIR/script/lib/sqlite_with_timeout.sh"
 
 cd "$ROOT_DIR"
 
@@ -23,6 +25,10 @@ fi
 
 TOKEN="ClipVault E2E $(date +%Y%m%d%H%M%S) duplicate persistence SELECT * FROM e2e_smoke;"
 
+sqlite_value() {
+  "$SQLITE_WRAPPER" "$SQLITE_TIMEOUT_SECONDS" "$STORE_PATH" "$1"
+}
+
 wait_for_sql_value() {
   local sql="$1"
   local expected="$2"
@@ -32,7 +38,15 @@ wait_for_sql_value() {
 
   while true; do
     local value
-    value="$(sqlite3 "$STORE_PATH" "$sql")"
+    local status
+    if value="$(sqlite_value "$sql")"; then
+      status=0
+    else
+      status=$?
+    fi
+    if [[ "$status" -ne 0 ]]; then
+      return "$status"
+    fi
     if [[ "$value" == "$expected" ]]; then
       return 0
     fi
@@ -53,8 +67,8 @@ wait_for_sql_value "SELECT count(*) FROM ZCLIPRECORD WHERE ZPREVIEW = '$TOKEN';"
 printf '%s' "$TOKEN" | pbcopy
 wait_for_sql_value "SELECT coalesce(max(ZCOPYCOUNT), 0) FROM ZCLIPRECORD WHERE ZPREVIEW = '$TOKEN';" "2"
 
-ROW_COUNT="$(sqlite3 "$STORE_PATH" "SELECT count(*) FROM ZCLIPRECORD WHERE ZPREVIEW = '$TOKEN';")"
-COPY_COUNT="$(sqlite3 "$STORE_PATH" "SELECT coalesce(max(ZCOPYCOUNT), 0) FROM ZCLIPRECORD WHERE ZPREVIEW = '$TOKEN';")"
+ROW_COUNT="$(sqlite_value "SELECT count(*) FROM ZCLIPRECORD WHERE ZPREVIEW = '$TOKEN';")"
+COPY_COUNT="$(sqlite_value "SELECT coalesce(max(ZCOPYCOUNT), 0) FROM ZCLIPRECORD WHERE ZPREVIEW = '$TOKEN';")"
 
 if [[ "$ROW_COUNT" != "1" ]]; then
   echo "Expected one deduplicated stored clip for E2E token, found $ROW_COUNT." >&2
@@ -70,7 +84,7 @@ pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 sleep 1
 ./script/build_and_run.sh --verify >/dev/null
 
-POST_RESTART_COUNT="$(sqlite3 "$STORE_PATH" "SELECT count(*) FROM ZCLIPRECORD WHERE ZPREVIEW = '$TOKEN';")"
+POST_RESTART_COUNT="$(sqlite_value "SELECT count(*) FROM ZCLIPRECORD WHERE ZPREVIEW = '$TOKEN';")"
 if [[ "$POST_RESTART_COUNT" != "1" ]]; then
   echo "Stored E2E clip did not survive restart." >&2
   exit 1
