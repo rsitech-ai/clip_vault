@@ -49,17 +49,25 @@ struct DetailWorkspaceView: View {
                 ClipDetailView(model: model)
                     .frame(minHeight: detailMinimumHeight(for: proxy.size), idealHeight: detailIdealHeight(for: proxy.size), maxHeight: .infinity)
                 AIActionPanel(model: model, placement: .inline)
-                    .frame(minHeight: 210, idealHeight: 270, maxHeight: 360)
+                    .frame(minHeight: aiMinimumHeight(for: proxy.size), idealHeight: aiIdealHeight(for: proxy.size), maxHeight: .infinity)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func detailMinimumHeight(for size: CGSize) -> CGFloat {
-        size.height < 640 ? 260 : 320
+        size.height < 640 ? 190 : 280
     }
 
     private func detailIdealHeight(for size: CGSize) -> CGFloat {
-        max(detailMinimumHeight(for: size), size.height * 0.62)
+        max(detailMinimumHeight(for: size), size.height * 0.46)
+    }
+
+    private func aiMinimumHeight(for size: CGSize) -> CGFloat {
+        size.height < 640 ? 260 : 320
+    }
+
+    private func aiIdealHeight(for size: CGSize) -> CGFloat {
+        max(aiMinimumHeight(for: size), size.height * 0.50)
     }
 }
