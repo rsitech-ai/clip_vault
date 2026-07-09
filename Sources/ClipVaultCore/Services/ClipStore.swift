@@ -154,12 +154,44 @@ public enum WorkspaceCollectionCatalog {
     }
 }
 
+enum WorkspaceFolderCreateValidator {
+    static func validate(
+        folder: CollectionFolder,
+        parentID: String?,
+        parent: CollectionFolder?
+    ) throws -> CollectionFolder {
+        let trimmedTitle = folder.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTitle.isEmpty else {
+            throw FolderStoreError.emptyTitle
+        }
+        guard parentID != folder.id else {
+            throw FolderStoreError.invalidMove
+        }
+        if parentID != nil {
+            guard let parent else {
+                throw FolderStoreError.notFound
+            }
+            guard parent.collectionID == nil else {
+                throw FolderStoreError.invalidMove
+            }
+        }
+
+        return CollectionFolder(
+            id: folder.id,
+            title: trimmedTitle,
+            collectionID: folder.collectionID,
+            createdAt: folder.createdAt
+        )
+    }
+}
+
 public final class SwiftDataClipStore: ClipStoring {
     private let context: ModelContext
     private let encryptor: any PayloadEncrypting
     private let sensitiveRules: SensitiveRuleEngine
     private let index: any SearchIndexing
     private let retentionPolicy: RetentionPolicy
+    private let saveFolderContext: (ModelContext) throws -> Void
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
 
@@ -175,6 +207,16 @@ public final class SwiftDataClipStore: ClipStoring {
         self.sensitiveRules = sensitiveRules
         self.index = index
         self.retentionPolicy = retentionPolicy
+        self.saveFolderContext = { try $0.save() }
+    }
+
+    init(context: ModelContext, saveContext: @escaping (ModelContext) throws -> Void) {
+        self.context = context
+        self.encryptor = LocalPayloadEncryptor()
+        self.sensitiveRules = .default
+        self.index = RustSearchIndexCore()
+        self.retentionPolicy = .default
+        self.saveFolderContext = saveContext
     }
 
     public func allClips() throws -> [Clip] {
@@ -332,75 +374,88 @@ public final class SwiftDataClipStore: ClipStoring {
     }
 
     public func saveFolder(_ folder: CollectionFolder, parentID: String?, sortOrder: Int) throws {
-        try seedDefaultFoldersIfNeeded()
-        context.insert(FolderRecord(folder: folder, parentID: parentID, sortOrder: sortOrder))
-        try context.save()
+        try withFolderRollback {
+            try seedDefaultFoldersIfNeeded()
+            let records = try context.fetch(FetchDescriptor<FolderRecord>())
+            let parent = records.first(where: { $0.id == parentID }).map(folder(from:))
+            let validatedFolder = try WorkspaceFolderCreateValidator.validate(
+                folder: folder,
+                parentID: parentID,
+                parent: parent
+            )
+            context.insert(FolderRecord(folder: validatedFolder, parentID: parentID, sortOrder: sortOrder))
+            try saveFolderContext(context)
+        }
     }
 
     public func updateFolder(id: String, title: String, parentID: String?) throws {
-        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            throw FolderStoreError.emptyTitle
-        }
-        guard parentID != id else {
-            throw FolderStoreError.invalidMove
-        }
-
-        let records = try context.fetch(FetchDescriptor<FolderRecord>())
-        guard let record = records.first(where: { $0.id == id }) else {
-            throw FolderStoreError.notFound
-        }
-        guard !isProtectedFolder(record, in: records) else {
-            throw FolderStoreError.protectedFolder
-        }
-        if let parentID {
-            guard let parent = records.first(where: { $0.id == parentID }) else {
-                throw FolderStoreError.notFound
+        try withFolderRollback {
+            let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                throw FolderStoreError.emptyTitle
             }
-            guard parent.collectionID == nil, !isDescendant(parentID, of: id, in: records) else {
+            guard parentID != id else {
                 throw FolderStoreError.invalidMove
             }
-        }
 
-        let didMove = record.parentID != parentID
-        record.title = trimmed
-        record.parentID = parentID
-        if didMove {
-            record.sortOrder = nextSortOrder(parentID: parentID, in: records)
+            let records = try context.fetch(FetchDescriptor<FolderRecord>())
+            guard let record = records.first(where: { $0.id == id }) else {
+                throw FolderStoreError.notFound
+            }
+            guard !isProtectedFolder(record, in: records) else {
+                throw FolderStoreError.protectedFolder
+            }
+            if let parentID {
+                guard let parent = records.first(where: { $0.id == parentID }) else {
+                    throw FolderStoreError.notFound
+                }
+                guard parent.collectionID == nil, !isDescendant(parentID, of: id, in: records) else {
+                    throw FolderStoreError.invalidMove
+                }
+            }
+
+            let didMove = record.parentID != parentID
+            record.title = trimmed
+            record.parentID = parentID
+            if didMove {
+                record.sortOrder = nextSortOrder(parentID: parentID, in: records)
+            }
+            try saveFolderContext(context)
         }
-        try context.save()
     }
 
     public func deleteFolder(id: String) throws {
-        let records = try context.fetch(FetchDescriptor<FolderRecord>())
-        guard let record = records.first(where: { $0.id == id }) else {
-            throw FolderStoreError.notFound
-        }
-
-        let recordsToDelete = descendantsAndSelf(of: record, in: records)
-        guard recordsToDelete.allSatisfy({ !isProtectedFolder($0, in: records) }) else {
-            throw FolderStoreError.protectedFolder
-        }
-
-        let removedCollectionIDs = Set(recordsToDelete.compactMap(\.collectionID))
-        for recordToDelete in recordsToDelete {
-            context.delete(recordToDelete)
-        }
-
-        if !removedCollectionIDs.isEmpty {
-            let clipRecords = try context.fetch(FetchDescriptor<ClipRecord>())
-            for clipRecord in clipRecords {
-                let existingIDs = split(clipRecord.collectionIDsRaw)
-                let updatedIDs = existingIDs.filter { !removedCollectionIDs.contains($0) }
-                guard updatedIDs != existingIDs else {
-                    continue
-                }
-                clipRecord.collectionIDsRaw = updatedIDs.joined(separator: ",")
-                clipRecord.updatedAt = Date()
+        try withFolderRollback {
+            let records = try context.fetch(FetchDescriptor<FolderRecord>())
+            guard let record = records.first(where: { $0.id == id }) else {
+                throw FolderStoreError.notFound
             }
-        }
 
-        try context.save()
+            let recordsToDelete = descendantsAndSelf(of: record, in: records)
+            guard recordsToDelete.allSatisfy({ !isProtectedFolder($0, in: records) }) else {
+                throw FolderStoreError.protectedFolder
+            }
+
+            let removedCollectionIDs = Set(recordsToDelete.compactMap(\.collectionID))
+            for recordToDelete in recordsToDelete {
+                context.delete(recordToDelete)
+            }
+
+            if !removedCollectionIDs.isEmpty {
+                let clipRecords = try context.fetch(FetchDescriptor<ClipRecord>())
+                for clipRecord in clipRecords {
+                    let existingIDs = split(clipRecord.collectionIDsRaw)
+                    let updatedIDs = existingIDs.filter { !removedCollectionIDs.contains($0) }
+                    guard updatedIDs != existingIDs else {
+                        continue
+                    }
+                    clipRecord.collectionIDsRaw = updatedIDs.joined(separator: ",")
+                    clipRecord.updatedAt = Date()
+                }
+            }
+
+            try saveFolderContext(context)
+        }
     }
 
     public func delete(id: String) throws {
@@ -456,8 +511,11 @@ public final class SwiftDataClipStore: ClipStoring {
     }
 
     private func seedDefaultFolders() throws {
-        for (index, folder) in CollectionFolder.defaults.enumerated() {
-            try saveFolderTree(folder, parentID: nil, sortOrder: index)
+        try withFolderRollback {
+            for (index, folder) in CollectionFolder.defaults.enumerated() {
+                insertFolderTree(folder, parentID: nil, sortOrder: index)
+            }
+            try saveFolderContext(context)
         }
     }
 
@@ -468,12 +526,11 @@ public final class SwiftDataClipStore: ClipStoring {
         try seedDefaultFolders()
     }
 
-    private func saveFolderTree(_ folder: CollectionFolder, parentID: String?, sortOrder: Int) throws {
+    private func insertFolderTree(_ folder: CollectionFolder, parentID: String?, sortOrder: Int) {
         context.insert(FolderRecord(folder: folder, parentID: parentID, sortOrder: sortOrder))
         for (index, child) in folder.children.enumerated() {
-            try saveFolderTree(child, parentID: folder.id, sortOrder: index)
+            insertFolderTree(child, parentID: folder.id, sortOrder: index)
         }
-        try context.save()
     }
 
     private func folderTree(from records: [FolderRecord], parentID: String?) -> [CollectionFolder] {
@@ -494,6 +551,24 @@ public final class SwiftDataClipStore: ClipStoring {
                     createdAt: record.createdAt
                 )
             }
+    }
+
+    private func folder(from record: FolderRecord) -> CollectionFolder {
+        CollectionFolder(
+            id: record.id,
+            title: record.title,
+            collectionID: record.collectionID,
+            createdAt: record.createdAt
+        )
+    }
+
+    private func withFolderRollback<Result>(_ operation: () throws -> Result) throws -> Result {
+        do {
+            return try operation()
+        } catch {
+            context.rollback()
+            throw error
+        }
     }
 
     private func isProtectedFolder(_ record: FolderRecord, in records: [FolderRecord]) -> Bool {
@@ -686,11 +761,19 @@ public final class InMemoryClipStore: ClipStoring {
     }
 
     public func saveFolder(_ folder: CollectionFolder, parentID: String?, sortOrder: Int) throws {
+        let parent = parentID.flatMap { findFolder(id: $0, in: storedFolders) }
+        let validatedFolder = try WorkspaceFolderCreateValidator.validate(
+            folder: folder,
+            parentID: parentID,
+            parent: parent
+        )
         guard let parentID else {
-            storedFolders.append(folder)
+            storedFolders.append(validatedFolder)
             return
         }
-        storedFolders = storedFolders.map { insert(folder, under: parentID, in: $0) }
+        guard insert(validatedFolder, under: parentID, in: &storedFolders) else {
+            throw FolderStoreError.notFound
+        }
     }
 
     public func updateFolder(id: String, title: String, parentID: String?) throws {
@@ -773,16 +856,6 @@ public final class InMemoryClipStore: ClipStoring {
         for id in expiredIDs {
             payloads.removeValue(forKey: id)
         }
-    }
-
-    private func insert(_ folder: CollectionFolder, under parentID: String, in root: CollectionFolder) -> CollectionFolder {
-        var copy = root
-        if copy.id == parentID {
-            copy.children.append(folder)
-            return copy
-        }
-        copy.children = copy.children.map { insert(folder, under: parentID, in: $0) }
-        return copy
     }
 
     private func insert(_ folder: CollectionFolder, under parentID: String, in roots: inout [CollectionFolder]) -> Bool {
