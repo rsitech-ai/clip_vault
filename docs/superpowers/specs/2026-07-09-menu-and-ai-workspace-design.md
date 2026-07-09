@@ -224,4 +224,3 @@ After the interaction sweep, inspect ClipVault-authored error and fault logs wit
 - Left-panel add, edit, remove, selection, and disclosure behavior works in the running Release app.
 - Built-in smart collections do not display invalid management actions.
 - Full tests, Release launch, interaction smoke, accessibility inspection, screenshots, and ClipVault-authored logs are clean.
-
