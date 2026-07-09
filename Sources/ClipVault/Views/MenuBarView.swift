@@ -128,6 +128,11 @@ struct MenuBarView: View {
                         .clipVaultGlassButtonStyle(prominent: model.isCapturing)
                         .help(model.isCapturing ? "Pause clipboard capture" : "Resume clipboard capture")
                         .accessibilityLabel(model.isCapturing ? "Pause clipboard capture" : "Resume clipboard capture")
+                        .accessibilityHint(
+                            model.isCapturing
+                                ? "Stops saving new clipboard items until capture is resumed."
+                                : "Starts saving new clipboard items to ClipVault."
+                        )
                     }
                 }
                 .font(.caption)
@@ -295,40 +300,42 @@ private struct MenuClipRow: View {
     var delete: () -> Void
 
     var body: some View {
-        HStack(spacing: 8) {
-            MenuClipThumbnail(clip: clip, size: 30)
+        Button(action: copy) {
+            HStack(spacing: 8) {
+                MenuClipThumbnail(clip: clip, size: 30)
 
-            Text(compactTitle)
-                .font(.callout.weight(.semibold))
-                .lineLimit(1)
-                .truncationMode(.middle)
+                Text(compactTitle)
+                    .font(.callout.weight(.semibold))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
 
-            Spacer(minLength: 8)
+                Spacer(minLength: 8)
 
-            if clip.isPinned {
-                Image(systemName: "pin.fill")
+                if clip.isPinned {
+                    Image(systemName: "pin.fill")
+                        .font(.caption2)
+                        .foregroundStyle(isHovered ? Color.white.opacity(0.9) : Color.orange)
+                }
+
+                if clip.copyCount > 1 {
+                    Text("x\(clip.copyCount)")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(isHovered ? Color.white.opacity(0.78) : Color.secondary)
+                        .monospacedDigit()
+                }
+
+                ClipTimestampText(date: clip.createdAt)
                     .font(.caption2)
-                    .foregroundStyle(isHovered ? Color.white.opacity(0.9) : Color.orange)
-            }
-
-            if clip.copyCount > 1 {
-                Text("x\(clip.copyCount)")
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle(isHovered ? Color.white.opacity(0.78) : Color.secondary)
+                    .foregroundStyle(isHovered ? Color.white.opacity(0.72) : Color.secondary.opacity(0.62))
                     .monospacedDigit()
             }
-
-            ClipTimestampText(date: clip.createdAt)
-                .font(.caption2)
-                .foregroundStyle(isHovered ? Color.white.opacity(0.72) : Color.secondary.opacity(0.62))
-                .monospacedDigit()
+            .frame(height: 36)
+            .padding(.horizontal, 8)
+            .contentShape(RoundedRectangle(cornerRadius: 6))
         }
-        .frame(height: 36)
-        .padding(.horizontal, 8)
+        .buttonStyle(.plain)
         .background(isHovered ? Color.accentColor : Color.clear, in: RoundedRectangle(cornerRadius: 6))
         .foregroundStyle(isHovered ? Color.white : Color.primary)
-        .contentShape(RoundedRectangle(cornerRadius: 6))
-        .onTapGesture(perform: copy)
         .contextMenu {
             Button("Copy") {
                 copy()
@@ -344,7 +351,7 @@ private struct MenuClipRow: View {
             }
         }
         .accessibilityLabel("\(clip.title), \(clip.kind.title)")
-        .accessibilityHint("Click to copy this clip. Open the context menu for pin, workspace, or delete actions.")
+        .accessibilityHint("Copies this clip to the clipboard. The context menu also opens, pins, or deletes it.")
         .help(clip.preview.isEmpty ? clip.title : clip.preview)
     }
 
