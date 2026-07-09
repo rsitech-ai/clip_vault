@@ -39,7 +39,7 @@ plutil -p "$PRIVACY_MANIFEST" | grep -q '"NSPrivacyTracking" => false'
 
 echo "== Signing =="
 codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE"
-codesign -dvv --entitlements :- "$APP_BUNDLE" 2>&1 | sed -n '1,80p'
+codesign -dvv --entitlements - "$APP_BUNDLE" 2>&1 | sed -n '1,80p'
 
 echo "== Local signing identities =="
 security find-identity -v -p codesigning || true

@@ -8,7 +8,7 @@ struct MenuBarView: View {
     @State private var hoveredClipID: String?
     @State private var previewPinned = false
     @State private var menuWindowBox = MenuWindowBox()
-    private let menuResultLimit = 12
+    private let menuResultLimit = 18
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
@@ -25,11 +25,12 @@ struct MenuBarView: View {
                     .textFieldStyle(.roundedBorder)
                     .onChange(of: model.searchText) {
                         model.statusMenuFocusIndex = 0
+                        hoveredClipID = nil
                     }
 
                 ScrollViewReader { proxy in
                     ScrollView {
-                        LazyVStack(spacing: 4) {
+                        LazyVStack(spacing: 2) {
                             ForEach(Array(menuResults.enumerated()), id: \.element.id) { index, result in
                                 MenuClipRow(
                                     clip: result.clip,
@@ -57,8 +58,16 @@ struct MenuBarView: View {
                                 .id(result.clip.id)
                             }
                         }
+                        .padding(.vertical, 2)
                     }
-                    .frame(maxHeight: 460)
+                    .frame(maxHeight: 470)
+                    .scrollIndicators(.visible)
+                    .onAppear {
+                        clampMenuFocus()
+                    }
+                    .onChange(of: menuResultIDs) {
+                        clampMenuFocus()
+                    }
                     .onChange(of: model.statusMenuFocusIndex) {
                         guard menuClips.indices.contains(model.statusMenuFocusIndex) else { return }
                         proxy.scrollTo(menuClips[model.statusMenuFocusIndex].id, anchor: .center)
@@ -136,6 +145,10 @@ struct MenuBarView: View {
         menuResults.map(\.clip)
     }
 
+    private var menuResultIDs: [String] {
+        menuResults.map(\.id)
+    }
+
     private var focusedMenuClip: Clip? {
         guard !menuClips.isEmpty else { return nil }
         let index = min(max(model.statusMenuFocusIndex, 0), menuClips.count - 1)
@@ -192,6 +205,23 @@ struct MenuBarView: View {
         model.togglePinned(clip)
     }
 
+    private func clampMenuFocus() {
+        guard !menuClips.isEmpty else {
+            model.statusMenuFocusIndex = 0
+            hoveredClipID = nil
+            return
+        }
+
+        let clamped = min(max(model.statusMenuFocusIndex, 0), menuClips.count - 1)
+        if clamped != model.statusMenuFocusIndex {
+            model.statusMenuFocusIndex = clamped
+        }
+
+        if let hoveredClipID, !menuClips.contains(where: { $0.id == hoveredClipID }) {
+            self.hoveredClipID = menuClips[clamped].id
+        }
+    }
+
     private func closeMenuWindow() {
         guard let window = menuWindowBox.window else { return }
         window.resignKey()
@@ -229,40 +259,35 @@ private struct MenuClipRow: View {
     var delete: () -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
-            MenuClipThumbnail(clip: clip, size: 48)
+        HStack(spacing: 8) {
+            MenuClipThumbnail(clip: clip, size: 30)
 
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    Text(clip.title)
-                        .font(.callout.weight(.semibold))
-                        .lineLimit(1)
-                    if clip.isPinned {
-                        Image(systemName: "pin.fill")
-                            .font(.caption2)
-                            .foregroundStyle(.orange)
-                    }
-                }
-                Text(clip.preview)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            }
+            Text(compactTitle)
+                .font(.callout.weight(.semibold))
+                .lineLimit(1)
+                .truncationMode(.middle)
 
             Spacer(minLength: 8)
 
-            VStack(alignment: .trailing, spacing: 4) {
-                if clip.copyCount > 1 {
-                    Text("x\(clip.copyCount)")
-                        .font(.caption2.weight(.bold))
-                        .foregroundStyle(.secondary)
-                }
-                ClipTimestampText(date: clip.createdAt)
+            if clip.isPinned {
+                Image(systemName: "pin.fill")
                     .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(isHovered ? Color.white.opacity(0.9) : Color.orange)
             }
+
+            if clip.copyCount > 1 {
+                Text("x\(clip.copyCount)")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(isHovered ? Color.white.opacity(0.78) : Color.secondary)
+                    .monospacedDigit()
+            }
+
+            ClipTimestampText(date: clip.createdAt)
+                .font(.caption2)
+                .foregroundStyle(isHovered ? Color.white.opacity(0.72) : Color.secondary.opacity(0.62))
+                .monospacedDigit()
         }
-        .frame(height: 56)
+        .frame(height: 36)
         .padding(.horizontal, 8)
         .background(isHovered ? Color.accentColor : Color.clear, in: RoundedRectangle(cornerRadius: 6))
         .foregroundStyle(isHovered ? Color.white : Color.primary)
@@ -284,6 +309,11 @@ private struct MenuClipRow: View {
         }
         .accessibilityLabel("\(clip.title), \(clip.kind.title)")
         .accessibilityHint("Click to copy this clip. Open the context menu for pin, workspace, or delete actions.")
+        .help(clip.preview.isEmpty ? clip.title : clip.preview)
+    }
+
+    private var compactTitle: String {
+        MenuText.short(clip.title.isEmpty ? clip.preview : clip.title, limit: 30)
     }
 }
 
@@ -414,6 +444,21 @@ private struct MenuClipPreview: View {
     private var metadata: String {
         let source = clip.sourceApp ?? "Unknown app"
         return "\(clip.kind.title) • \(source) • \(clip.createdAt.formatted(date: .abbreviated, time: .shortened))"
+    }
+}
+
+private enum MenuText {
+    static func short(_ value: String, limit: Int) -> String {
+        let trimmed = value
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count > limit else {
+            return trimmed
+        }
+
+        let headCount = max(8, (limit - 1) / 2)
+        let tailCount = max(6, limit - headCount - 1)
+        return "\(trimmed.prefix(headCount))…\(trimmed.suffix(tailCount))"
     }
 }
 
