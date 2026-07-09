@@ -136,29 +136,33 @@ struct ClipRowView: View {
             .help(isSelectedForAI ? "Remove clip from AI selection" : "Add clip to AI selection")
             .accessibilityLabel(isSelectedForAI ? "Remove clip from AI selection" : "Add clip to AI selection")
 
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text(result.clip.title)
-                        .font(.callout.weight(.medium))
-                        .lineLimit(1)
-                    if result.clip.isPinned {
-                        Image(systemName: "pin.fill")
-                            .font(.caption2)
-                            .foregroundStyle(.orange)
-                    }
-                }
-                Text(result.clip.preview)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            }
+            Text(result.clip.title)
+                .font(.callout.weight(.medium))
+                .lineLimit(1)
+                .truncationMode(.middle)
 
             Spacer(minLength: 8)
+
+            if result.clip.isPinned {
+                Image(systemName: "pin.fill")
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+            }
+
+            if result.clip.copyCount > 1 {
+                Text("x\(result.clip.copyCount)")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+
             ClipTimestampText(date: result.clip.createdAt)
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
+                .monospacedDigit()
         }
-        .padding(.vertical, 6)
+        .frame(height: 36)
+        .help(result.clip.preview.isEmpty ? result.clip.title : result.clip.preview)
     }
 
     @ViewBuilder
@@ -183,7 +187,7 @@ struct ClipRowView: View {
             Image(systemName: icon)
                 .symbolVariant(isSelectedForAI ? .fill : .none)
                 .foregroundStyle(isSelectedForAI ? Color.accentColor : ClipVaultDesign.tint(for: result.clip.kind))
-                .frame(width: 34, height: 34)
+                .frame(width: 28, height: 28)
         }
     }
 

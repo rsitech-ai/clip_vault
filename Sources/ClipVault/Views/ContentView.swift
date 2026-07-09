@@ -29,13 +29,13 @@ struct ContentView: View {
     private var workspace: some View {
         NavigationSplitView {
             SidebarView(model: model)
-                .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 280)
+                .navigationSplitViewColumnWidth(min: 160, ideal: 210, max: 280)
         } content: {
             ClipListView(model: model)
-                .navigationSplitViewColumnWidth(min: 260, ideal: 320, max: 360)
+                .navigationSplitViewColumnWidth(min: 240, ideal: 300, max: 360)
         } detail: {
             DetailWorkspaceView(model: model)
-                .navigationSplitViewColumnWidth(min: 540, ideal: 680, max: 1_000)
+                .navigationSplitViewColumnWidth(min: 420, ideal: 660, max: 1_000)
         }
     }
 }
@@ -45,22 +45,21 @@ struct DetailWorkspaceView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            if proxy.size.width < 540 {
-                VSplitView {
-                    ClipDetailView(model: model)
-                        .frame(minHeight: 260, idealHeight: 460, maxHeight: .infinity)
-                    AIActionPanel(model: model)
-                        .frame(minHeight: 220, idealHeight: 340, maxHeight: .infinity)
-                }
-            } else {
-                HSplitView {
-                    ClipDetailView(model: model)
-                        .frame(minWidth: 280)
-                    AIActionPanel(model: model)
-                        .frame(minWidth: 240, idealWidth: 320, maxWidth: 500)
-                }
+            VSplitView {
+                ClipDetailView(model: model)
+                    .frame(minHeight: detailMinimumHeight(for: proxy.size), idealHeight: detailIdealHeight(for: proxy.size), maxHeight: .infinity)
+                AIActionPanel(model: model, placement: .inline)
+                    .frame(minHeight: 210, idealHeight: 270, maxHeight: 360)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func detailMinimumHeight(for size: CGSize) -> CGFloat {
+        size.height < 640 ? 260 : 320
+    }
+
+    private func detailIdealHeight(for size: CGSize) -> CGFloat {
+        max(detailMinimumHeight(for: size), size.height * 0.62)
     }
 }
