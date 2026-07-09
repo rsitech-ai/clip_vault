@@ -42,4 +42,29 @@ enum ClipVaultDesign {
         case .ask: "arrow.up.circle"
         }
     }
+
+    static func tint(for action: AIActionKind) -> Color {
+        switch action {
+        case .summarize: .cyan
+        case .explain: .indigo
+        case .email: .teal
+        case .todos: .green
+        case .ask: .accentColor
+        }
+    }
+
+    static func hint(for action: AIActionKind) -> String {
+        switch action {
+        case .summarize:
+            "Condense selected clips into the key points."
+        case .explain:
+            "Explain what the selected clip means and why it matters."
+        case .email:
+            "Draft a clear email from the selected clip context."
+        case .todos:
+            "Extract concrete follow-up tasks from selected clips."
+        case .ask:
+            "Ask a custom question about the selected clips."
+        }
+    }
 }
