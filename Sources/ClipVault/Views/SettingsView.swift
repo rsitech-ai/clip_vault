@@ -362,8 +362,8 @@ private struct AboutSettingsTab: View {
 
             Section("Release Readiness") {
                 Label("Sandbox entitlement and privacy manifest are included.", systemImage: "checkmark.seal")
-                Label("Mac installer distribution certificate is still required for App Store upload.", systemImage: "shippingbox")
-                    .foregroundStyle(.orange)
+                Label("Complete App Store Connect metadata, upload validation, and review before delivery.", systemImage: "shippingbox")
+                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
