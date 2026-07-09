@@ -3,13 +3,14 @@ import SwiftUI
 
 struct AIActionPanel: View {
     @Bindable var model: ClipVaultViewModel
+    var placement: AIActionPanelPlacement = .inspector
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: placement.verticalSpacing) {
             header
 
             ClipVaultGlassContainer(spacing: 10) {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 106), spacing: 8)], alignment: .leading, spacing: 8) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: placement.actionMinimumWidth), spacing: 8)], alignment: .leading, spacing: 8) {
                     ForEach(AIActionKind.allCases.filter { $0 != .ask }, id: \.self) { action in
                         Button {
                             model.runAIAction(action)
@@ -47,8 +48,8 @@ struct AIActionPanel: View {
                         .frame(maxWidth: .infinity)
                     }
                     .clipVaultGlassButtonStyle(prominent: true)
-                    .disabled(model.isGenerating)
-                    .help(model.isGenerating ? "Wait for the current AI action to finish" : "Ask a question about the selected clips")
+                    .disabled(!model.canAskQuestion)
+                    .help(askHelp)
                 }
             }
 
@@ -58,13 +59,13 @@ struct AIActionPanel: View {
 
             Spacer(minLength: 0)
         }
-        .padding(18)
+        .padding(placement.contentPadding)
         .clipVaultGlassSurface(
             cornerRadius: ClipVaultDesign.panelRadius,
             tint: model.aiAvailability.isAvailable ? .accentColor.opacity(0.05) : .orange.opacity(0.08)
         )
-        .clipVaultPanelShadow()
-        .padding(10)
+        .clipVaultPanelShadow(active: placement.showsShadow)
+        .padding(placement.outerPadding)
     }
 
     private var header: some View {
@@ -80,14 +81,7 @@ struct AIActionPanel: View {
 
             Spacer(minLength: 8)
 
-            Label(model.aiAvailability.isAvailable ? "Ready" : "Local fallback", systemImage: model.aiAvailability.isAvailable ? "sparkles" : "exclamationmark.triangle")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(model.aiAvailability.isAvailable ? Color.accentColor : Color.orange)
-                .lineLimit(1)
-                .padding(.horizontal, 9)
-                .padding(.vertical, 5)
-                .clipVaultGlassCapsule(tint: model.aiAvailability.isAvailable ? .accentColor.opacity(0.10) : .orange.opacity(0.10))
-                .help(availabilityText)
+            availabilityBadge
         }
     }
 
@@ -144,7 +138,7 @@ struct AIActionPanel: View {
         HStack {
             TextField("Ask selected clips", text: $model.question)
                 .textFieldStyle(.roundedBorder)
-                .frame(minWidth: 180)
+                .frame(minWidth: placement.askMinimumWidth)
             Button {
                 model.runAIAction(.ask)
             } label: {
@@ -155,8 +149,84 @@ struct AIActionPanel: View {
                 .font(.caption.weight(.semibold))
             }
             .clipVaultGlassButtonStyle(prominent: true)
-            .disabled(model.isGenerating)
-            .help(model.isGenerating ? "Wait for the current AI action to finish" : "Ask a question about the selected clips")
+            .disabled(!model.canAskQuestion)
+            .help(askHelp)
+        }
+    }
+
+    private var askHelp: String {
+        if model.isGenerating {
+            return "Wait for the current AI action to finish"
+        }
+        if model.question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return "Type a question first"
+        }
+        return "Ask a question about the selected clips"
+    }
+
+    private var availabilityBadge: some View {
+        Label(model.aiAvailability.isAvailable ? "Ready" : "Local fallback", systemImage: model.aiAvailability.isAvailable ? "sparkles" : "exclamationmark.triangle")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(model.aiAvailability.isAvailable ? Color.accentColor : Color.orange)
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+            .padding(.horizontal, placement.badgeHorizontalPadding)
+            .padding(.vertical, 5)
+            .clipVaultGlassCapsule(tint: model.aiAvailability.isAvailable ? .accentColor.opacity(0.10) : .orange.opacity(0.10))
+            .help(availabilityText)
+    }
+}
+
+enum AIActionPanelPlacement {
+    case inspector
+    case inline
+
+    var contentPadding: CGFloat {
+        switch self {
+        case .inspector: 18
+        case .inline: 12
+        }
+    }
+
+    var outerPadding: CGFloat {
+        switch self {
+        case .inspector: 10
+        case .inline: 6
+        }
+    }
+
+    var verticalSpacing: CGFloat {
+        switch self {
+        case .inspector: 16
+        case .inline: 12
+        }
+    }
+
+    var actionMinimumWidth: CGFloat {
+        switch self {
+        case .inspector: 106
+        case .inline: 92
+        }
+    }
+
+    var askMinimumWidth: CGFloat {
+        switch self {
+        case .inspector: 180
+        case .inline: 120
+        }
+    }
+
+    var badgeHorizontalPadding: CGFloat {
+        switch self {
+        case .inspector: 9
+        case .inline: 7
+        }
+    }
+
+    var showsShadow: Bool {
+        switch self {
+        case .inspector: true
+        case .inline: false
         }
     }
 }

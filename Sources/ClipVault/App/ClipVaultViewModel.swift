@@ -37,6 +37,10 @@ final class ClipVaultViewModel {
     var statusMenuFocusIndex = 0
     var cleanupFilter: CleanupFilter = .unpinned
 
+    var canAskQuestion: Bool {
+        !isGenerating && !question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     private let captureService = ClipboardCaptureService()
     private let pasteboardWriter = ClipPayloadPasteboardWriter()
     private let searcher = ClipSearcher()
@@ -439,21 +443,38 @@ final class ClipVaultViewModel {
 
     func runAIAction(_ kind: AIActionKind) {
         let selection = selectedClips.isEmpty ? selectedClip.map { [$0] } ?? [] : selectedClips
+        let trimmedQuestion = question.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !selection.isEmpty else {
+            aiResult = nil
+            aiError = AIActionError.emptySelection.localizedDescription
+            return
+        }
+        if kind == .ask, trimmedQuestion.isEmpty {
+            aiResult = nil
+            aiError = AIActionError.emptyQuestion.localizedDescription
+            return
+        }
+
+        let request = AIActionRequest(kind: kind, clips: selection, question: trimmedQuestion)
+        let provider = aiProvider
         isGenerating = true
         aiError = nil
         aiResult = nil
 
         Task {
             do {
-                let result = try await aiProvider.perform(
-                    AIActionRequest(kind: kind, clips: selection, question: question)
-                )
-                aiResult = result
-        } catch {
-            Self.logger.error("AI action failed: \(error.localizedDescription, privacy: .public)")
-            aiError = error.localizedDescription
-        }
-            isGenerating = false
+                let result = try await provider.perform(request)
+                await MainActor.run {
+                    aiResult = result
+                    isGenerating = false
+                }
+            } catch {
+                await MainActor.run {
+                    Self.logger.error("AI action failed: \(error.localizedDescription, privacy: .public)")
+                    aiError = error.localizedDescription
+                    isGenerating = false
+                }
+            }
         }
     }
 
