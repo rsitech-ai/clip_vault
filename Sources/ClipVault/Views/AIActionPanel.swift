@@ -10,13 +10,13 @@ struct AIActionPanel: View {
         switch placement {
         case .inspector:
             inspectorLayout
-                .padding(placement.contentPadding)
+                .padding(18)
                 .clipVaultGlassSurface(
                     cornerRadius: ClipVaultDesign.panelRadius,
                     tint: panelTint
                 )
                 .clipVaultPanelShadow(active: true)
-                .padding(placement.outerPadding)
+                .padding(10)
         case .inline:
             inlineLayout
                 .padding(.horizontal, 16)
@@ -31,7 +31,7 @@ struct AIActionPanel: View {
     }
 
     private var inspectorLayout: some View {
-        VStack(alignment: .leading, spacing: placement.verticalSpacing) {
+        VStack(alignment: .leading, spacing: 16) {
             header
 
             actionGrid
@@ -60,7 +60,7 @@ struct AIActionPanel: View {
             Divider()
 
             resultArea
-                .frame(minHeight: placement.resultMinimumHeight, alignment: .topLeading)
+                .frame(minHeight: 120, alignment: .topLeading)
 
             Spacer(minLength: 0)
         }
@@ -74,7 +74,7 @@ struct AIActionPanel: View {
             inlineResultArea
                 .frame(
                     maxWidth: .infinity,
-                    minHeight: placement.resultMinimumHeight,
+                    minHeight: 120,
                     maxHeight: .infinity,
                     alignment: .topLeading
                 )
@@ -86,7 +86,7 @@ struct AIActionPanel: View {
 
     private var actionGrid: some View {
         ClipVaultGlassContainer(spacing: 10) {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: placement.actionMinimumWidth), spacing: 8)], alignment: .leading, spacing: 8) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 106), spacing: 8)], alignment: .leading, spacing: 8) {
                 actionButtons
             }
         }
@@ -314,7 +314,7 @@ struct AIActionPanel: View {
                 .foregroundStyle(model.aiAvailability.isAvailable ? Color.accentColor : Color.orange)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
-                .padding(.horizontal, placement.badgeHorizontalPadding)
+                .padding(.horizontal, 9)
                 .padding(.vertical, 5)
                 .clipVaultGlassCapsule(tint: model.aiAvailability.isAvailable ? .accentColor.opacity(0.10) : .orange.opacity(0.10))
                 .help(availabilityText)
@@ -344,52 +344,10 @@ enum AIActionPanelPlacement {
     case inspector
     case inline
 
-    var contentPadding: CGFloat {
-        switch self {
-        case .inspector: 18
-        case .inline: 12
-        }
-    }
-
-    var outerPadding: CGFloat {
-        switch self {
-        case .inspector: 10
-        case .inline: 6
-        }
-    }
-
-    var verticalSpacing: CGFloat {
-        switch self {
-        case .inspector: 16
-        case .inline: 12
-        }
-    }
-
-    var actionMinimumWidth: CGFloat {
-        switch self {
-        case .inspector: 106
-        case .inline: 92
-        }
-    }
-
     var askMinimumWidth: CGFloat {
         switch self {
         case .inspector: 180
         case .inline: 160
-        }
-    }
-
-    var badgeHorizontalPadding: CGFloat {
-        switch self {
-        case .inspector: 9
-        case .inline: 7
-        }
-    }
-
-    var resultMinimumHeight: CGFloat {
-        switch self {
-        case .inspector: 120
-        case .inline: 120
         }
     }
 }
