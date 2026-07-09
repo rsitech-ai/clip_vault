@@ -222,7 +222,7 @@ struct AIActionPanel: View {
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
             if !result.citedClipIDs.isEmpty {
-                Text("\(result.citedClipIDs.count) clips cited")
+                Text(clipCountText(result.citedClipIDs.count, suffix: "cited"))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -233,7 +233,7 @@ struct AIActionPanel: View {
 
     private var emptyResultState: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label("\(model.selectedClips.count) clips selected", systemImage: "checkmark.circle")
+            Label(clipCountText(model.selectedClips.count, suffix: "selected"), systemImage: "checkmark.circle")
                 .font(.callout)
             Text("Use an action above, or ask a custom question. When nothing is selected, ClipVault uses the open clip.")
                 .font(.caption)
@@ -251,12 +251,16 @@ struct AIActionPanel: View {
 
     private var contextText: String {
         if !model.selectedClips.isEmpty {
-            return "\(model.selectedClips.count) clips selected"
+            return clipCountText(model.selectedClips.count, suffix: "selected")
         }
         if model.selectedClip != nil {
             return "Using open clip"
         }
         return "No clip available"
+    }
+
+    private func clipCountText(_ count: Int, suffix: String) -> String {
+        "\(count) \(count == 1 ? "clip" : "clips") \(suffix)"
     }
 
     private var askRow: some View {
