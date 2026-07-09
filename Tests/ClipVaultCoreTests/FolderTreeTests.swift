@@ -149,6 +149,15 @@ struct FolderTreeTests {
         }
     }
 
+    @Test("both stores reject non-leaf folder creates without stripping children")
+    func bothStoresRejectNonLeafFolderCreates() throws {
+        try assertNonLeafFolderCreateIsRejected(by: InMemoryClipStore())
+
+        try withTemporarySwiftDataStore { store in
+            try assertNonLeafFolderCreateIsRejected(by: store)
+        }
+    }
+
     @Test("recursive deletion retains clips and unrelated assignments in both stores")
     func recursiveDeletionRetainsClipsAndUnrelatedAssignmentsInBothStores() throws {
         let inMemoryStore = InMemoryClipStore()
@@ -384,6 +393,24 @@ struct FolderTreeTests {
         for rejectedID in rejectedIDs {
             #expect(!containsFolder(id: rejectedID, in: folders))
         }
+    }
+
+    private func assertNonLeafFolderCreateIsRejected(by store: any ClipStoring) throws {
+        let child = CollectionFolder(id: "nested-create-child", title: "Child")
+        let parent = CollectionFolder(
+            id: "nested-create-parent",
+            title: "Parent",
+            children: [child]
+        )
+
+        #expect(throws: FolderStoreError.nonLeafCreate) {
+            try store.saveFolder(parent, parentID: nil, sortOrder: 22)
+        }
+
+        let folders = try store.folders()
+        #expect(!containsFolder(id: parent.id, in: folders))
+        #expect(!containsFolder(id: child.id, in: folders))
+        #expect(parent.children.map(\.id) == [child.id])
     }
 
     private func arrangeRecursiveDeletion(in store: any ClipStoring) throws -> String {

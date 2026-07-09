@@ -80,6 +80,7 @@ public enum FolderStoreError: Error, LocalizedError, Equatable {
     case notFound
     case protectedFolder
     case invalidMove
+    case nonLeafCreate
 
     public var errorDescription: String? {
         switch self {
@@ -91,6 +92,8 @@ public enum FolderStoreError: Error, LocalizedError, Equatable {
             "Built-in workspace folders cannot be changed."
         case .invalidMove:
             "Folder cannot be moved there."
+        case .nonLeafCreate:
+            "Create folders one at a time; a new folder cannot include children."
         }
     }
 }
@@ -163,6 +166,9 @@ enum WorkspaceFolderCreateValidator {
         let trimmedTitle = folder.title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTitle.isEmpty else {
             throw FolderStoreError.emptyTitle
+        }
+        guard folder.children.isEmpty else {
+            throw FolderStoreError.nonLeafCreate
         }
         guard parentID != folder.id else {
             throw FolderStoreError.invalidMove
