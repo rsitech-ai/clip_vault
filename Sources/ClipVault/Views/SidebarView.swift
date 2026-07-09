@@ -66,6 +66,7 @@ struct SidebarView: View {
                 }
                 .help("Create a new folder")
                 .accessibilityLabel("Create a new folder")
+                .accessibilityHint("Opens the new folder form at the workspace root.")
 
                 Button {
                     prompt = SidebarPrompt(kind: .collection, parentID: model.folders.first?.id)
@@ -77,6 +78,7 @@ struct SidebarView: View {
                 }
                 .help("Create a new collection")
                 .accessibilityLabel("Create a new collection")
+                .accessibilityHint("Opens the new collection form inside Collections.")
             }
             .labelStyle(.titleAndIcon)
             .font(.caption.weight(.medium))
@@ -181,6 +183,7 @@ private struct FolderNodeView: View {
                 .fixedSize()
                 .help("Manage \(folder.title)")
                 .accessibilityLabel("Manage \(folder.title)")
+                .accessibilityHint(managementAccessibilityHint)
             }
         }
         .accessibilityElement(children: .contain)
@@ -213,6 +216,16 @@ private struct FolderNodeView: View {
             return "Show clips in this collection"
         }
         return isExpanded ? "Collapse this folder" : "Expand this folder"
+    }
+
+    private var managementAccessibilityHint: String {
+        guard model.canManageWorkspaceFolder(folder) else {
+            return "Opens actions to add a subfolder or collection."
+        }
+        if folder.collectionID == nil {
+            return "Opens actions to add, edit, or remove this folder."
+        }
+        return "Opens actions to add clips, edit, or remove this collection."
     }
 
     @ViewBuilder
