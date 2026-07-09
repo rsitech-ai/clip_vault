@@ -282,7 +282,7 @@ private struct AISettingsTab: View {
             }
 
             Section("Actions") {
-                ForEach(AIActionKind.allCases, id: \.self) { action in
+                ForEach([AIActionKind.summarize, .explain, .todos, .ask], id: \.self) { action in
                     Label(action.title, systemImage: icon(for: action))
                 }
             }
