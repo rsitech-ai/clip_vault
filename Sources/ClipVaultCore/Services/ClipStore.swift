@@ -113,6 +113,17 @@ public enum WorkspaceFolderPolicy {
     private static let defaultCollectionIDs = Set(ClipCollection.defaults.map(\.id))
 }
 
+public enum WorkspaceCollectionID {
+    public static func make(for title: String, uuid: UUID = UUID()) -> String {
+        let slug = title
+            .lowercased()
+            .replacingOccurrences(of: #"[^a-z0-9]+"#, with: "-", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        let readableSlug = slug.isEmpty ? "collection" : slug
+        return "\(readableSlug)-\(uuid.uuidString.lowercased())"
+    }
+}
+
 public enum WorkspaceCollectionCatalog {
     public static func rebuild(from folders: [CollectionFolder]) -> [ClipCollection] {
         var customCollections: [String: ClipCollection] = [:]
