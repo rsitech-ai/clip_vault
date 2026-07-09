@@ -468,7 +468,7 @@ final class ClipVaultViewModel {
         do {
             try store?.updateFolder(id: id, title: title, parentID: parentFolderID)
             reload()
-            captureStatus = "Updated folder"
+            captureStatus = "Updated workspace item"
         } catch {
             Self.logger.error("Failed to update folder: \(error.localizedDescription, privacy: .public)")
             captureStatus = error.localizedDescription
@@ -656,24 +656,7 @@ final class ClipVaultViewModel {
     }
 
     private func syncCollectionsFromFolders() {
-        var merged = Dictionary(uniqueKeysWithValues: collections.map { ($0.id, $0) })
-        for folder in flatten(folders) {
-            guard let collectionID = folder.collectionID else {
-                continue
-            }
-            if merged[collectionID] == nil {
-                merged[collectionID] = ClipCollection(
-                    id: collectionID,
-                    title: folder.title,
-                    systemImage: "folder",
-                    kind: nil,
-                    isSmart: false
-                )
-            }
-        }
-        collections = ClipCollection.defaults + merged.values
-            .filter { !ClipCollection.defaults.map(\.id).contains($0.id) }
-            .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+        collections = WorkspaceCollectionCatalog.rebuild(from: folders)
     }
 
     private func folderTitle(forCollectionID collectionID: String, in folders: [CollectionFolder]) -> String? {
@@ -732,13 +715,8 @@ final class ClipVaultViewModel {
     }
 
     private func isProtectedWorkspaceFolder(_ folder: CollectionFolder) -> Bool {
-        if let collectionID = folder.collectionID {
-            return Self.defaultCollectionIDs.contains(collectionID)
-        }
-        return folder.title == "Collections"
+        WorkspaceFolderPolicy.isProtected(folder)
     }
-
-    private static let defaultCollectionIDs = Set(ClipCollection.defaults.map(\.id))
 }
 
 struct FolderParentOption: Identifiable, Hashable {
