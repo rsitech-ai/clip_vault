@@ -5,6 +5,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @Bindable var model: ClipVaultViewModel
+    var openWorkspace: () -> Void
     @AppStorage(ClipVaultSettingsKey.ordinaryClipRetentionDays) private var retentionDays = ClipVaultSettingsDefault.ordinaryClipRetentionDays
     @AppStorage(ClipVaultSettingsKey.cloudAIEnabled) private var cloudAIEnabled = ClipVaultSettingsDefault.cloudAIEnabled
     @AppStorage(ClipVaultSettingsKey.dockBadgeEnabled) private var dockBadgeEnabled = ClipVaultSettingsDefault.dockBadgeEnabled
@@ -15,7 +16,7 @@ struct SettingsView: View {
 
     var body: some View {
         TabView {
-            GeneralSettingsTab(model: model)
+            GeneralSettingsTab(model: model, openWorkspace: openWorkspace)
                 .tabItem {
                     Label("General", systemImage: "gearshape")
                 }
@@ -68,12 +69,12 @@ struct SettingsView: View {
             recoverClipVaultWindows(after: 0.05)
             recoverClipVaultWindows(after: 0.3)
         }
-        .captureConsentDisclosure(model: model)
     }
 }
 
 private struct GeneralSettingsTab: View {
     @Bindable var model: ClipVaultViewModel
+    var openWorkspace: () -> Void
 
     var body: some View {
         Form {
@@ -97,6 +98,9 @@ private struct GeneralSettingsTab: View {
                             return
                         }
                         model.toggleCapture()
+                        if model.isCaptureConsentDisclosurePresented {
+                            openWorkspace()
+                        }
                     }
                 ))
                 .help(model.isCapturing ? "Pause clipboard capture" : "Start clipboard capture")
