@@ -47,7 +47,7 @@
 - Integration tests or mocks: named NSPasteboard writer tests and real-app smoke script for capture/restart persistence.
 - UI/manual smoke: launch `dist/ClipVault.app`, capture text/image clips, hover/copy from menu bar, annotate screenshot, delete/cleanup, relaunch.
 - Release smoke: `./script/app_store_check.sh` inspects bundle, plist, privacy manifest, entitlements, signing state, and certificate inventory.
-- E2E database probes: every `sqlite3` process is owned by a repo-owned Perl parent with a two-second monotonic deadline and process-group cleanup; host container access timeouts exit `74` with an explicit permissions diagnostic instead of blocking the outer 20-second polling loop.
+- E2E persistence probe: the signed app accepts one explicit read-only verification token, reads its own sandbox store, reports only exact row/copy counts, and exits before starting capture or UI services. This avoids granting the automation host direct container access.
 - Commands:
   - `./script/test.sh`
   - `swift build -c release`
@@ -74,7 +74,7 @@
 - Metadata: draft exists in `AppStore/metadata.md`.
 - Review notes: state that clipboard processing is local, sensitive items are excluded before storage, and cloud AI is disabled in MVP.
 - Local package identities: `Apple Distribution: Rafal Sikora (2NY8A789TN)` and `3rd Party Mac Developer Installer: Rafal Sikora (2NY8A789TN)` are both present; local package creation succeeds.
-- Final implementation package: `dist/AppStore/ClipVault-0.1.0-1.pkg` was regenerated after the final source fixes; it is version `0.1.0` build `1`, 2,636,979 bytes, SHA-256 `d3f20f0dd510d466e20dfe8ccf35665a299a6c5175864782495f8e17c851e8bc`, and has a valid 3rd Party Mac Developer Installer chain.
+- Final implementation package: `dist/AppStore/ClipVault-0.1.0-1.pkg` was regenerated after the final source fixes; it is version `0.1.0` build `1`, 2,637,676 bytes, SHA-256 `436faff9cac2f0c356b86ee7b3837c9da682d457583b7c533725cf8336e15f99`, and has a valid 3rd Party Mac Developer Installer chain.
 - Remaining external gates: finalize the App Store name, bundle ID, company-account choice, metadata, privacy answers, and screenshots; create/confirm the App Store Connect record; upload the package; complete server-side validation and App Review. No upload was attempted and App Store Connect was not contacted in this review.
 - Remaining manual gates: complete the MenuBarExtra dismissal/non-dismissal matrix, destructive workspace confirmation against controlled persisted data, result-text selection, compact splitter, light appearance, large-window, and clean-account package-install checks.
 
@@ -88,6 +88,17 @@
 | 2026-07-10 | Task 4 review remediation | `8e42fbd` fixes singular AI count grammar in every visible cited/selected count path; `7afed72` removes the approved design-spec EOF whitespace. | `swift build -c release -Xswiftc -warnings-as-errors` passed; `./script/test.sh` passed (Rust 2/2, Swift 32/32); `git diff --check` and `git diff --check 80db368..HEAD` are clean. | Manual MenuBarExtra/destructive-workspace/text-selection/splitter/light/large coverage and external App Store packaging decisions remain; no code defect from this review is known to remain. |
 | 2026-07-10 | Whole-branch final review fixes | Corrected application/installer identity policies, made SwiftData folder changes rollback-safe, centralized create validation across both stores, added reopened-container regressions, made menu rows semantic buttons, added outcome hints, and removed dead AI placement metrics. | Identity shell test passed; `FolderTreeTests` 14/14; `./script/test.sh` Rust 2/2 and Swift 36/36; Release warnings-as-errors build passed; final `build_and_run.sh --verify` exited 0; final `app_store_check.sh` exited 0; strict codesign and package signature checks passed. | Final `e2e_smoke.sh` could not read the sandbox store from the automation host and was interrupted after blocking in `open(2)`; refresh the package from the final implementation head, then complete App Store Connect metadata/account/upload validation. |
 | 2026-07-10 | Final-fix review closeout | Removed the obsolete Settings certificate blocker, made folder creation explicitly leaf-only in both stores, and bounded every E2E SQLite process with cleanup and a distinct host-access timeout. | Timeout shell test passed with successful and blocking fakes; `FolderTreeTests` 15/15; `./script/test.sh` Rust 2/2 and Swift 37/37; Release warnings-as-errors and `build_and_run.sh --verify` exited 0; stale Settings text is absent from source, staged executable, and packaged executable; E2E exited `74` in 4.71 seconds; `app_store_check.sh`, strict codesign, package signature/payload checks, and subsystem logs passed. | Complete the manual UI matrix and external App Store Connect/account/metadata/upload/server-review gates; no local certificate blocker remains. |
+| 2026-07-10 | End-to-end ship gate | Fixed boosted nonmatch search, folder/store parity, stale duplicate payload fields, preview locking, compact-window clipping, Rust FFI contracts, AI context copy, and the sandbox-host E2E architecture; removed the worldwide external sponsor purchase CTA and obsolete timeout stack. | `./script/test.sh` Rust 3/3 and Swift 42/42; warnings-as-errors Release build, Rust fmt/Clippy, ASan, live signed capture/dedupe/restart smoke, Computer Use workspace/Settings/search/resize/cancel flows, clean logs, strict codesign, App Store readiness, and package signing passed. | Complete the status-item manual matrix, clean-account package install, and external App Store Connect metadata/upload/review gates. |
+
+## End-to-End Ship Gate (2026-07-10)
+
+- Canonical report: `docs/release-audit-2026-07-10.md`.
+- The live E2E no longer depends on host SQLite access. A strict launch parser enables a read-only signed-app probe for one exact token; capture, dedupe, copy count, restart, and post-restart persistence now pass from the sandbox owner.
+- The previous process-owning SQLite timeout helper and its timing-heavy test were deleted after the app-owned probe made them unreachable production code.
+- Search now rejects lexical nonmatches before applying recency/pin boosts. Real UI verification returned `All Clips 0 visible` and `No matching clips` for `zzqxy`.
+- The compact workspace now declares content-minimum resize behavior and the offscreen recovery path never calls `setFrame` below 900 x 520; a live smaller resize attempt remained 900 x 572 without clipping.
+- The App Review payment audit removed the worldwide Buy Me a Coffee call to action. Any future developer tip must use an allowed StoreKit/In-App Purchase path or a storefront-compliant distribution configuration.
+- Final subsystem error/fault logs were empty. Strict distribution-app signature, installer signature, privacy manifest, entitlements, linked Rust dylib, and package SHA-256 checks passed.
 
 ## Release Verification Evidence (2026-07-10)
 

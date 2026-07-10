@@ -6,7 +6,7 @@
 
 **Architecture:** Keep `ClipVaultViewModel`, `ClipStore`, the Foundation Models provider, and the existing `NavigationSplitView`/`VSplitView` structure. Centralize menu dismissal in `MenuBarView`, expose only valid sidebar management actions, and give `AIActionPanel` separate inspector and inline presentation shells so the inline pane does not inherit the inspector card treatment.
 
-**Tech Stack:** Swift 6, SwiftUI, AppKit interop for `NSWindow` and `NSWorkspace`, SwiftData, Swift Package Manager, XCTest, macOS Accessibility inspection, and the repository's build/run/E2E scripts.
+**Tech Stack:** Swift 6, SwiftUI, AppKit interop for `NSWindow`, SwiftData, Swift Package Manager, XCTest, macOS Accessibility inspection, and the repository's build/run/E2E scripts.
 
 **Design contract:** Implement against `docs/superpowers/specs/2026-07-09-menu-and-ai-workspace-design.md`. Use Apple's current macOS design resources as reference, without adding downloaded UI-kit assets to the repository: <https://developer.apple.com/design/resources/>.
 
@@ -16,44 +16,15 @@
 
 **Files:**
 - Modify: `Sources/ClipVault/Views/MenuBarView.swift`
-- Modify: `Sources/ClipVault/Views/SponsorButton.swift`
 
 ### Step 1: Record the failing runtime behavior
 
 - [ ] Run `./script/build_and_run.sh --verify` and confirm `dist/ClipVault.app` launches.
-- [ ] Activate Workspace, Shot, Sponsor, Settings, and Pause/Resume from the menu extra.
+- [ ] Activate Workspace, Shot, Settings, and Pause/Resume from the menu extra.
 - [ ] Record the red condition: completed footer actions do not all dismiss reliably.
 - [ ] Confirm row click/Enter already copies and dismisses, while search, scroll, Up/Down, hover, and Space preview intentionally stay open.
 
-### Step 2: Make `SponsorButton` action-injectable without changing its fixed URL
-
-- [ ] Replace the hard-coded button action with this interface:
-
-```swift
-struct SponsorButton: View {
-    var title = "Sponsor"
-    var action: () -> Void = Self.openSponsorPage
-
-    var body: some View {
-        Button(action: action) {
-            Label(title, systemImage: "heart.fill")
-        }
-        .help("Open the fixed Buy Me a Coffee sponsor page in your browser")
-        .accessibilityHint("Opens the fixed Buy Me a Coffee sponsor page in your browser.")
-    }
-
-    @MainActor
-    static func openSponsorPage() {
-        if !NSWorkspace.shared.open(ClipVaultSupport.buyMeACoffeeURL) {
-            NSSound.beep()
-        }
-    }
-}
-```
-
-This keeps `ClipVaultSupport.buyMeACoffeeURL` as the non-editable source of truth.
-
-### Step 3: Add one synchronous menu action boundary
+### Step 2: Add one synchronous menu action boundary
 
 - [ ] Add `@Environment(\.openSettings) private var openSettings` beside the existing model property.
 - [ ] Add these helpers beside `closeMenuWindow()`:
@@ -75,7 +46,7 @@ private func captureAfterClosingMenu() {
 
 `performAndClose` must execute the action even when the weak AppKit window reference is unavailable.
 
-### Step 4: Route every completed footer action through the boundary
+### Step 3: Route every completed footer action through the boundary
 
 - [ ] Replace the footer action bodies with:
 
@@ -92,10 +63,6 @@ Button {
     Label("Shot", systemImage: "camera.viewfinder")
 }
 
-SponsorButton(action: {
-    performAndClose(SponsorButton.openSponsorPage)
-})
-
 Button {
     performAndClose { openSettings() }
 } label: {
@@ -111,7 +78,7 @@ Button {
 
 - [ ] Preserve all existing styles, help text, and accessibility labels.
 
-### Step 5: Route row and keyboard commands through the same boundary
+### Step 4: Route row and keyboard commands through the same boundary
 
 - [ ] Make `copyFromMenu` and `copyFocusedFromMenu` use `performAndClose`.
 - [ ] Wrap the row completion closures:
@@ -134,17 +101,17 @@ delete: {
 - [ ] Make keyboard Delete and P dismiss after completion. Keep Up, Down, and Space open.
 - [ ] Verify context-menu actions reuse the same row closures.
 
-### Step 6: Compile, run, and commit the focused menu slice
+### Step 5: Compile, run, and commit the focused menu slice
 
 - [ ] Run `swift build -Xswiftc -warnings-as-errors`; expect exit 0 with no warnings.
 - [ ] Run `./script/build_and_run.sh --verify`.
-- [ ] Verify row click/Enter, Workspace, Open in Workspace, Shot, Sponsor, Settings, Pause/Resume, Pin/Unpin, and Delete all dismiss after completion.
+- [ ] Verify row click/Enter, Workspace, Open in Workspace, Shot, Settings, Pause/Resume, Pin/Unpin, and Delete all dismiss after completion.
 - [ ] Verify search, scroll, hover, Up/Down, and Space do not dismiss.
-- [ ] Confirm Shot closes before the capture overlay and Sponsor opens the fixed URL only after closing.
+- [ ] Confirm Shot closes before the capture overlay.
 - [ ] Commit only this slice:
 
 ```bash
-git add Sources/ClipVault/Views/MenuBarView.swift Sources/ClipVault/Views/SponsorButton.swift
+git add Sources/ClipVault/Views/MenuBarView.swift
 git commit -m "Fix menu action dismissal"
 ```
 

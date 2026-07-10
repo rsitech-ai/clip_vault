@@ -81,6 +81,7 @@ public enum FolderStoreError: Error, LocalizedError, Equatable {
     case protectedFolder
     case invalidMove
     case nonLeafCreate
+    case duplicateID
 
     public var errorDescription: String? {
         switch self {
@@ -94,6 +95,8 @@ public enum FolderStoreError: Error, LocalizedError, Equatable {
             "Folder cannot be moved there."
         case .nonLeafCreate:
             "Create folders one at a time; a new folder cannot include children."
+        case .duplicateID:
+            "A workspace item with that identifier already exists."
         }
     }
 }
@@ -157,11 +160,28 @@ public enum WorkspaceCollectionCatalog {
     }
 }
 
+enum BuiltInCollectionAssignment {
+    static func ids(for kind: ClipKind) -> [String] {
+        switch kind {
+        case .code: ["code"]
+        case .sql: ["sql", "code"]
+        case .url: ["links"]
+        case .richText: ["drafts"]
+        case .image: ["images"]
+        case .file: ["files"]
+        case .error: ["errors", "code"]
+        case .text: ["research"]
+        case .unknown: []
+        }
+    }
+}
+
 enum WorkspaceFolderCreateValidator {
     static func validate(
         folder: CollectionFolder,
         parentID: String?,
-        parent: CollectionFolder?
+        parent: CollectionFolder?,
+        existingIDs: Set<String>
     ) throws -> CollectionFolder {
         let trimmedTitle = folder.title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTitle.isEmpty else {
@@ -169,6 +189,9 @@ enum WorkspaceFolderCreateValidator {
         }
         guard folder.children.isEmpty else {
             throw FolderStoreError.nonLeafCreate
+        }
+        guard !existingIDs.contains(folder.id) else {
+            throw FolderStoreError.duplicateID
         }
         guard parentID != folder.id else {
             throw FolderStoreError.invalidMove
@@ -286,7 +309,7 @@ public final class SwiftDataClipStore: ClipStoring {
             title: title(for: payload),
             preview: payload.displayText,
             extractedText: payload.extractedText,
-            collectionIDs: collectionIDs(for: payload),
+            collectionIDs: BuiltInCollectionAssignment.ids(for: payload.kind),
             sourceApp: sourceApp,
             fingerprint: fingerprint,
             previewData: payload.previewData,
@@ -387,7 +410,8 @@ public final class SwiftDataClipStore: ClipStoring {
             let validatedFolder = try WorkspaceFolderCreateValidator.validate(
                 folder: folder,
                 parentID: parentID,
-                parent: parent
+                parent: parent,
+                existingIDs: Set(records.map(\.id))
             )
             context.insert(FolderRecord(folder: validatedFolder, parentID: parentID, sortOrder: sortOrder))
             try saveFolderContext(context)
@@ -647,19 +671,6 @@ public final class SwiftDataClipStore: ClipStoring {
         return payload.kind.title
     }
 
-    private func collectionIDs(for payload: ClipPayload) -> [String] {
-        switch payload.kind {
-        case .code: ["code"]
-        case .sql: ["sql", "code"]
-        case .url: ["links"]
-        case .richText: ["drafts"]
-        case .image: ["images"]
-        case .file: ["files"]
-        case .error: ["errors", "code"]
-        case .text: ["research"]
-        case .unknown: []
-        }
-    }
 }
 
 public final class InMemoryClipStore: ClipStoring {
@@ -697,6 +708,10 @@ public final class InMemoryClipStore: ClipStoring {
         if let existingIndex = clips.firstIndex(where: { $0.fingerprint == fingerprint }) {
             clips[existingIndex].copyCount += 1
             clips[existingIndex].updatedAt = Date()
+            clips[existingIndex].preview = payload.displayText
+            clips[existingIndex].extractedText = payload.extractedText
+            clips[existingIndex].previewData = payload.previewData
+            clips[existingIndex].metadata = payload.metadata
             payloads[clips[existingIndex].id] = payload
             return clips[existingIndex]
         }
@@ -706,7 +721,7 @@ public final class InMemoryClipStore: ClipStoring {
             title: payload.displayText.isEmpty ? payload.kind.title : String(payload.displayText.prefix(80)),
             preview: payload.displayText,
             extractedText: payload.extractedText,
-            collectionIDs: [payload.kind.rawValue],
+            collectionIDs: BuiltInCollectionAssignment.ids(for: payload.kind),
             sourceApp: sourceApp,
             fingerprint: fingerprint,
             previewData: payload.previewData,
@@ -771,7 +786,8 @@ public final class InMemoryClipStore: ClipStoring {
         let validatedFolder = try WorkspaceFolderCreateValidator.validate(
             folder: folder,
             parentID: parentID,
-            parent: parent
+            parent: parent,
+            existingIDs: Set(allFolders(in: storedFolders).map(\.id))
         )
         guard let parentID else {
             storedFolders.append(validatedFolder)
