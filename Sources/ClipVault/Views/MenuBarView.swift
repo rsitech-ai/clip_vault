@@ -151,6 +151,7 @@ struct MenuBarView: View {
         .task {
             await model.bootstrap()
         }
+        .captureConsentDisclosure(model: model)
     }
 
     private var menuResults: [SearchResult] {

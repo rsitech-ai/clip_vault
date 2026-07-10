@@ -31,6 +31,11 @@ struct ClipVaultApp: App {
                         },
                         toggleCapture: {
                             model.toggleCapture()
+                            if model.isCaptureConsentDisclosurePresented {
+                                presentClipVaultWorkspace {
+                                    openWindow(id: "workspace")
+                                }
+                            }
                         },
                         openWorkspace: {
                             presentClipVaultWorkspace {
