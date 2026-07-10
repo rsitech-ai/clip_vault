@@ -215,12 +215,15 @@ struct ClipStorageEncryptionTests {
         #expect(!context.hasChanges)
     }
 
-    @Test("corrupt legacy list payload recovers from canonical payload only for legacy rows")
-    func corruptLegacyListPayloadRecoversForLegacyRows() throws {
+    @Test("legacy list decryption failure recovers from canonical payload only for legacy rows")
+    func legacyListDecryptionFailureRecoversForLegacyRows() throws {
         let directory = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
-        let (_, context, store) = try makeStore(at: directory.appendingPathComponent("ClipVault.sqlite"))
-        let encryptor = MarkerHidingEncryptor()
+        let encryptor = SelectiveThrowingEncryptor()
+        let (_, context, store) = try makeStore(
+            at: directory.appendingPathComponent("ClipVault.sqlite"),
+            encryptor: encryptor
+        )
         let payload = ClipPayload(
             kind: .text,
             displayText: "legacy-canonical-preview-35C18E4A",
@@ -236,11 +239,10 @@ struct ClipStorageEncryptionTests {
             userNote: "legacy-corrupt-note-4D8E103A",
             tags: ["legacy-corrupt-tag-F19C62B7"]
         )
-        let corruptLegacyList = try encryptor.encrypt(Data("not-json-list-payload".utf8))
         let record = makeLegacyRecordForTests(
             clip: clip,
             encryptedPayload: try encryptor.encrypt(JSONEncoder().encode(payload)),
-            encryptedListPayload: corruptLegacyList
+            encryptedListPayload: encryptor.rejectedCiphertext
         )
         context.insert(record)
         try context.save()
@@ -254,7 +256,7 @@ struct ClipStorageEncryptionTests {
         #expect(recovered.sourceApp == clip.sourceApp)
         #expect(recovered.userNote == clip.userNote)
         #expect(recovered.tags == clip.tags)
-        #expect(record.encryptedListPayload != corruptLegacyList)
+        #expect(record.encryptedListPayload != encryptor.rejectedCiphertext)
         #expect(record.title.isEmpty)
         #expect(record.preview.isEmpty)
         #expect(record.sourceApp == nil)
@@ -263,7 +265,10 @@ struct ClipStorageEncryptionTests {
         #expect(!context.hasChanges)
     }
 
-    private func makeStore(at url: URL) throws -> (ModelContainer, ModelContext, SwiftDataClipStore) {
+    private func makeStore(
+        at url: URL,
+        encryptor: any PayloadEncrypting = MarkerHidingEncryptor()
+    ) throws -> (ModelContainer, ModelContext, SwiftDataClipStore) {
         let schema = Schema([ClipRecord.self, FolderRecord.self])
         let configuration = ModelConfiguration(
             "ClipStorageEncryptionTests-\(UUID().uuidString)",
@@ -274,7 +279,7 @@ struct ClipStorageEncryptionTests {
         let context = ModelContext(container)
         let store = SwiftDataClipStore(
             context: context,
-            encryptor: MarkerHidingEncryptor(),
+            encryptor: encryptor,
             saveContext: { try $0.save() },
             previewTransformer: { $0 }
         )
@@ -343,4 +348,24 @@ private struct MarkerHidingEncryptor: PayloadEncrypting {
     func decrypt(_ data: Data) throws -> Data {
         try encrypt(data)
     }
+}
+
+private struct SelectiveThrowingEncryptor: PayloadEncrypting {
+    let rejectedCiphertext = Data("authenticated-list-ciphertext-failure".utf8)
+    private let base = MarkerHidingEncryptor()
+
+    func encrypt(_ data: Data) throws -> Data {
+        try base.encrypt(data)
+    }
+
+    func decrypt(_ data: Data) throws -> Data {
+        guard data != rejectedCiphertext else {
+            throw SelectiveDecryptionError.rejectedListCiphertext
+        }
+        return try base.decrypt(data)
+    }
+}
+
+private enum SelectiveDecryptionError: Error {
+    case rejectedListCiphertext
 }

@@ -719,7 +719,12 @@ public final class SwiftDataClipStore: ClipStoring {
 
     private func details(from record: ClipRecord) throws -> EncryptedClipDetails {
         if let encryptedListPayload = record.encryptedListPayload {
-            let decrypted = try encryptor.decrypt(encryptedListPayload)
+            let decrypted: Data
+            do {
+                decrypted = try encryptor.decrypt(encryptedListPayload)
+            } catch {
+                return try recoverLegacyDetails(for: record, after: error)
+            }
             if let header = try? decoder.decode(EncryptedClipDetailsHeader.self, from: decrypted) {
                 guard header.version == EncryptedClipDetails.currentVersion else {
                     throw EncryptedClipDetailsError.unsupportedVersion(header.version)
@@ -733,11 +738,7 @@ public final class SwiftDataClipStore: ClipStoring {
             do {
                 legacyListPayload = try decoder.decode(ClipPayload.self, from: decrypted)
             } catch {
-                guard hasLegacyPlaintextDetails(record) else {
-                    throw error
-                }
-                let legacyPayload = try payload(from: record)
-                return try migrateDetails(for: record, listPayload: listPayload(for: legacyPayload))
+                return try recoverLegacyDetails(for: record, after: error)
             }
             return try migrateDetails(for: record, listPayload: legacyListPayload)
         }
@@ -777,6 +778,17 @@ public final class SwiftDataClipStore: ClipStoring {
             || record.sourceApp != nil
             || record.userNote != nil
             || record.tagsRaw != nil
+    }
+
+    private func recoverLegacyDetails(
+        for record: ClipRecord,
+        after error: any Error
+    ) throws -> EncryptedClipDetails {
+        guard hasLegacyPlaintextDetails(record) else {
+            throw error
+        }
+        let legacyPayload = try payload(from: record)
+        return try migrateDetails(for: record, listPayload: listPayload(for: legacyPayload))
     }
 
     private func listPayload(for payload: ClipPayload) -> ClipPayload {
