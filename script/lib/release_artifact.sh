@@ -11,10 +11,10 @@ binary_rpaths() {
   /usr/bin/otool -l "$1" | rpaths_from_otool
 }
 
-is_build_host_rpath() {
+is_allowed_macho_path() {
   local path="$1"
   case "$path" in
-    /Applications/Xcode*.app/* | /Users/* | /private/* | /var/folders/* | /Volumes/* | */.build/*)
+    @rpath | @rpath/* | @loader_path | @loader_path/* | @executable_path | @executable_path/* | /usr/lib | /usr/lib/* | /System/Library | /System/Library/*)
       return 0
       ;;
     *)
@@ -23,29 +23,45 @@ is_build_host_rpath() {
   esac
 }
 
-strip_build_host_rpaths() {
+strip_nonallowlisted_rpaths() {
   local binary="$1"
   local path
   while IFS= read -r path; do
     [[ -n "$path" ]] || continue
-    if is_build_host_rpath "$path"; then
+    if ! is_allowed_macho_path "$path"; then
       /usr/bin/install_name_tool -delete_rpath "$path" "$binary"
     fi
   done < <(binary_rpaths "$binary")
 }
 
-assert_no_build_host_rpaths() {
-  local binary="$1"
+assert_allowed_macho_paths() {
+  local artifact="$1"
+  local kind="$2"
   local path
-  local found=0
   while IFS= read -r path; do
     [[ -n "$path" ]] || continue
-    if is_build_host_rpath "$path"; then
-      printf 'Forbidden build-host LC_RPATH in %s: %s\n' "$binary" "$path" >&2
-      found=1
+    if ! is_allowed_macho_path "$path"; then
+      printf 'Non-allowlisted %s in %s: %s\n' "$kind" "$artifact" "$path" >&2
+      return 1
     fi
-  done < <(binary_rpaths "$binary")
-  [[ "$found" -eq 0 ]]
+  done
+}
+
+dependencies_from_otool() {
+  awk 'NR > 1 && NF > 0 { print $1 }'
+}
+
+install_names_from_otool() {
+  awk 'NR > 1 && NF > 0 { print $1 }'
+}
+
+assert_macho_paths_allowed() {
+  local artifact="$1"
+  binary_rpaths "$artifact" | assert_allowed_macho_paths "$artifact" "LC_RPATH"
+  /usr/bin/otool -L "$artifact" | dependencies_from_otool | \
+    assert_allowed_macho_paths "$artifact" "dependency load path"
+  /usr/bin/otool -D "$artifact" | install_names_from_otool | \
+    assert_allowed_macho_paths "$artifact" "dylib install name"
 }
 
 uuids_from_dwarfdump() {
@@ -68,4 +84,30 @@ assert_matching_uuids() {
       "$executable_uuids" "$dsym_uuids" >&2
     return 1
   fi
+}
+
+codesign_details() {
+  /usr/bin/codesign -dvvv "$1" 2>&1
+}
+
+assert_hardened_runtime() {
+  local artifact="$1"
+  local details
+  details="$(codesign_details "$artifact")"
+  if ! grep -Eq ' flags=.*\(.*runtime.*\)' <<<"$details"; then
+    printf 'Hardened runtime flag is missing from %s.\n' "$artifact" >&2
+    return 1
+  fi
+}
+
+team_identifier_from_codesign_details() {
+  awk -F= '$1 == "TeamIdentifier" { print $2; exit }'
+}
+
+installer_identity_from_pkg_signature() {
+  awk '/^[[:space:]]*1[.] / { sub(/^[[:space:]]*1[.] /, ""); print; exit }'
+}
+
+team_identifier_from_identity() {
+  printf '%s\n' "$1" | sed -n 's/.*(\([A-Z0-9]\{10\}\))$/\1/p'
 }
