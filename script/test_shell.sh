@@ -7,3 +7,4 @@ cd "$ROOT_DIR"
 ./script/test_signing_identities.sh
 ./script/test_release_artifact_helpers.sh
 ./script/test_upload_app_store.sh
+./script/test_build_and_run_consent.sh
