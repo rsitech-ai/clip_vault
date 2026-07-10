@@ -29,11 +29,4 @@ struct ClipTimeFormatterTests {
             calendar: calendar
         ) == "2 days ago")
     }
-
-    @Test("sponsor URL is fixed")
-    func sponsorURLIsFixed() {
-        #expect(ClipVaultSupport.buyMeACoffeeURL.scheme == "https")
-        #expect(ClipVaultSupport.buyMeACoffeeURL.host == "www.buymeacoffee.com")
-        #expect(ClipVaultSupport.buyMeACoffeeURL.path == "/s1korrrr")
-    }
 }

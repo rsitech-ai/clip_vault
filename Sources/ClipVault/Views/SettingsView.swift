@@ -282,7 +282,7 @@ private struct AISettingsTab: View {
             }
 
             Section("Actions") {
-                ForEach(AIActionKind.allCases, id: \.self) { action in
+                ForEach([AIActionKind.summarize, .explain, .todos, .ask], id: \.self) { action in
                     Label(action.title, systemImage: icon(for: action))
                 }
             }
@@ -353,17 +353,10 @@ private struct AboutSettingsTab: View {
                 LabeledContent("Category", value: "Productivity")
             }
 
-            Section("Support") {
-                SponsorButton(title: "Sponsor on Buy Me a Coffee")
-                Text("Sponsorship helps keep ClipVault local-first, polished, and actively maintained.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
             Section("Release Readiness") {
                 Label("Sandbox entitlement and privacy manifest are included.", systemImage: "checkmark.seal")
-                Label("Mac installer distribution certificate is still required for App Store upload.", systemImage: "shippingbox")
-                    .foregroundStyle(.orange)
+                Label("Complete App Store Connect metadata, upload validation, and review before delivery.", systemImage: "shippingbox")
+                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)

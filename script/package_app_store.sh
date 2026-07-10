@@ -29,14 +29,17 @@ RUST_DYLIB_SOURCE="$ROOT_DIR/rust/SearchIndexCore/target/release/deps/$RUST_DYLI
 RUST_DYLIB_BUNDLE="$APP_FRAMEWORKS/$RUST_DYLIB_NAME"
 PKG_PATH="$DIST_ROOT/$APP_NAME-$APP_VERSION-$APP_BUILD.pkg"
 
+# shellcheck source=lib/signing_identities.sh
+source "$ROOT_DIR/script/lib/signing_identities.sh"
+
 cd "$ROOT_DIR"
 
 if [[ -z "$APP_SIGNING_IDENTITY" ]]; then
-  APP_SIGNING_IDENTITY="$(security find-identity -v -p codesigning | sed -nE 's/.*"((Apple Distribution|Mac App Distribution|3rd Party Mac Developer Application):[^"]*)".*/\1/p' | head -1)"
+  APP_SIGNING_IDENTITY="$(find_application_signing_identity || true)"
 fi
 
 if [[ -z "$INSTALLER_SIGNING_IDENTITY" ]]; then
-  INSTALLER_SIGNING_IDENTITY="$(security find-identity -v -p codesigning | sed -nE 's/.*"((3rd Party Mac Developer Installer|Mac Installer Distribution):[^"]*)".*/\1/p' | head -1)"
+  INSTALLER_SIGNING_IDENTITY="$(find_installer_signing_identity || true)"
 fi
 
 if [[ -z "$APPLE_TEAM_ID" && -n "$APP_SIGNING_IDENTITY" ]]; then
@@ -51,7 +54,7 @@ fi
 
 if [[ -z "$INSTALLER_SIGNING_IDENTITY" ]]; then
   echo "Missing INSTALLER_SIGNING_IDENTITY. Install a 3rd Party Mac Developer Installer certificate first." >&2
-  security find-identity -v -p codesigning >&2 || true
+  security_identities basic >&2 || true
   exit 2
 fi
 

@@ -9,6 +9,9 @@ ENTITLEMENTS="$ROOT_DIR/Packaging/ClipVault.entitlements"
 PRIVACY_MANIFEST="$APP_BUNDLE/Contents/Resources/PrivacyInfo.xcprivacy"
 ICON="$APP_BUNDLE/Contents/Resources/AppIcon.icns"
 
+# shellcheck source=lib/signing_identities.sh
+source "$ROOT_DIR/script/lib/signing_identities.sh"
+
 cd "$ROOT_DIR"
 
 if [[ ! -d "$APP_BUNDLE" ]]; then
@@ -41,19 +44,24 @@ echo "== Signing =="
 codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE"
 codesign -dvv --entitlements - "$APP_BUNDLE" 2>&1 | sed -n '1,80p'
 
-echo "== Local signing identities =="
-security find-identity -v -p codesigning || true
+echo "== Local application signing identities (codesigning policy) =="
+APPLICATION_IDENTITIES="$(security_identities codesigning || true)"
+printf '%s\n' "$APPLICATION_IDENTITIES"
+
+echo "== Local installer signing identities (basic policy) =="
+INSTALLER_IDENTITIES="$(security_identities basic || true)"
+printf '%s\n' "$INSTALLER_IDENTITIES"
 
 MISSING=0
 
-if security find-identity -v -p codesigning | grep -Eq 'Apple Distribution|3rd Party Mac Developer Application|Mac App Distribution'; then
+if [[ -n "$(printf '%s\n' "$APPLICATION_IDENTITIES" | application_signing_identity_from_output)" ]]; then
   echo "Application distribution identity: present"
 else
   echo "Application distribution identity: missing"
   MISSING=1
 fi
 
-if security find-identity -v -p codesigning | grep -Eq '3rd Party Mac Developer Installer|Mac Installer Distribution'; then
+if [[ -n "$(printf '%s\n' "$INSTALLER_IDENTITIES" | installer_signing_identity_from_output)" ]]; then
   echo "Installer distribution identity: present"
 else
   echo "Installer distribution identity: missing"

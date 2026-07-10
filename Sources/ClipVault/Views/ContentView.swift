@@ -64,7 +64,8 @@ struct DetailWorkspaceView: View {
     }
 
     private func aiMinimumHeight(for size: CGSize) -> CGFloat {
-        size.height < 640 ? 260 : 320
+        // Preserve the 120-point result canvas with the inline header, toolbar, divider, and composer.
+        size.height < 640 ? 300 : 320
     }
 
     private func aiIdealHeight(for size: CGSize) -> CGFloat {
