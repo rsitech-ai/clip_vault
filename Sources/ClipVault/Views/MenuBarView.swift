@@ -19,7 +19,9 @@ struct MenuBarView: View {
                 MenuClipPreview(clip: previewClip, isPinned: previewPinned)
                     .frame(width: 360)
                     .frame(minHeight: 280, maxHeight: 540)
-                    .transition(.opacity.combined(with: .move(edge: .leading)))
+                    .id(previewClip.id)
+                    .transition(.opacity)
+                    .animation(.easeOut(duration: 0.11), value: hoveredClipID)
                 Divider()
             }
 
@@ -81,9 +83,7 @@ struct MenuBarView: View {
                     }
                     .onChange(of: keyboardScrollTargetID) {
                         guard let keyboardScrollTargetID else { return }
-                        withAnimation(.snappy(duration: 0.12)) {
-                            proxy.scrollTo(keyboardScrollTargetID, anchor: .center)
-                        }
+                        proxy.scrollTo(keyboardScrollTargetID, anchor: .center)
                         self.keyboardScrollTargetID = nil
                     }
                 }
@@ -148,7 +148,6 @@ struct MenuBarView: View {
                 }
             )
         )
-        .animation(.snappy(duration: 0.16), value: hoveredClipID)
         .task {
             await model.bootstrap()
         }
@@ -214,7 +213,6 @@ struct MenuBarView: View {
         let nextIndex = min(max(model.statusMenuFocusIndex + delta, 0), menuClips.count - 1)
         model.statusMenuFocusIndex = nextIndex
         model.selectedClipID = menuClips[nextIndex].id
-        hoveredClipID = menuClips[nextIndex].id
         keyboardScrollTargetID = menuClips[nextIndex].id
     }
 
