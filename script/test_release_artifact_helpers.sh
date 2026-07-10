@@ -31,10 +31,30 @@ ACTUAL_RPATHS="$(printf '%s\n' "$OTOOL_FIXTURE" | rpaths_from_otool)"
 for allowed_path in \
   "/usr/lib/swift" \
   "/System/Library/Frameworks/AppKit.framework/Versions/C/AppKit" \
-  "@loader_path" \
+  "@loader_path/libsearch_index_core.dylib" \
   "@rpath/libsearch_index_core.dylib" \
   "@executable_path/../Frameworks/libsearch_index_core.dylib"; do
   is_allowed_macho_path "$allowed_path" || fail "allowlisted Mach-O path was rejected: $allowed_path"
+done
+
+APP_ARTIFACT="/tmp/ClipVault.app/Contents/MacOS/ClipVault"
+DYLIB_ARTIFACT="/tmp/ClipVault.app/Contents/Frameworks/libsearch_index_core.dylib"
+is_allowed_macho_path \
+  "@executable_path/../Frameworks/libsearch_index_core.dylib" "$APP_ARTIFACT" || \
+  fail "legitimate executable-relative Frameworks path must remain inside the app"
+is_allowed_macho_path \
+  "@loader_path/libhelper.dylib" "$DYLIB_ARTIFACT" || \
+  fail "legitimate loader-relative sibling path must remain inside the app"
+
+for rejected_context_path in \
+  "@executable_path/../../../../tmp/evil.dylib" \
+  "@loader_path/../../../opt/evil.dylib" \
+  "@rpath/../../evil.dylib" \
+  "@executable_path//evil.dylib" \
+  "@loader_path/./evil.dylib"; do
+  if is_allowed_macho_path "$rejected_context_path" "$DYLIB_ARTIFACT"; then
+    fail "escaping or ambiguous token path was accepted: $rejected_context_path"
+  fi
 done
 
 for rejected_path in \
