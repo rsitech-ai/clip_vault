@@ -117,7 +117,12 @@ struct MenuBarView: View {
                         .accessibilityLabel("Open ClipVault settings")
 
                         Button {
-                            performAndClose { model.toggleCapture() }
+                            performAndClose {
+                                model.toggleCapture()
+                                if model.isCaptureConsentDisclosurePresented {
+                                    openWorkspace()
+                                }
+                            }
                         } label: {
                             Image(systemName: model.isCapturing ? "pause.circle" : "play.circle")
                         }
@@ -151,7 +156,6 @@ struct MenuBarView: View {
         .task {
             await model.bootstrap()
         }
-        .captureConsentDisclosure(model: model)
     }
 
     private var menuResults: [SearchResult] {

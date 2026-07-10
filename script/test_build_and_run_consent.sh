@@ -58,4 +58,14 @@ assert_preseed_and_restore() {
 assert_preseed_and_restore absent
 assert_preseed_and_restore false
 
+VIEW_MODEL="$ROOT_DIR/Sources/ClipVault/App/ClipVaultViewModel.swift"
+STOP_CAPTURE_BODY="$(sed -n '/private func stopCapture()/,/^    }/p' "$VIEW_MODEL")"
+[[ "$STOP_CAPTURE_BODY" == *'captureService.stop()'* ]]
+[[ "$STOP_CAPTURE_BODY" == *'removeObject(forKey: ClipVaultSettingsKey.captureReadyProcessID)'* ]]
+[[ "$(rg -c 'captureService\.stop\(\)' "$VIEW_MODEL")" == "1" ]]
+
+DISCLOSURE_HOST_COUNT="$(rg -l 'captureConsentDisclosure\(model: model\)' "$ROOT_DIR/Sources/ClipVault/Views" | wc -l | tr -d ' ')"
+[[ "$DISCLOSURE_HOST_COUNT" == "1" ]]
+rg -q 'captureConsentDisclosure\(model: model\)' "$ROOT_DIR/Sources/ClipVault/Views/ContentView.swift"
+
 echo "Temporary capture-consent preference restore tests passed."
