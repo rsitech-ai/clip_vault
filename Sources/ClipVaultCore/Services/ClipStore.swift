@@ -729,7 +729,16 @@ public final class SwiftDataClipStore: ClipStoring {
                 return details
             }
 
-            let legacyListPayload = try decoder.decode(ClipPayload.self, from: decrypted)
+            let legacyListPayload: ClipPayload
+            do {
+                legacyListPayload = try decoder.decode(ClipPayload.self, from: decrypted)
+            } catch {
+                guard hasLegacyPlaintextDetails(record) else {
+                    throw error
+                }
+                let legacyPayload = try payload(from: record)
+                return try migrateDetails(for: record, listPayload: listPayload(for: legacyPayload))
+            }
             return try migrateDetails(for: record, listPayload: legacyListPayload)
         }
 
@@ -760,6 +769,14 @@ public final class SwiftDataClipStore: ClipStoring {
         record.sourceApp = nil
         record.userNote = nil
         record.tagsRaw = nil
+    }
+
+    private func hasLegacyPlaintextDetails(_ record: ClipRecord) -> Bool {
+        !record.title.isEmpty
+            || !record.preview.isEmpty
+            || record.sourceApp != nil
+            || record.userNote != nil
+            || record.tagsRaw != nil
     }
 
     private func listPayload(for payload: ClipPayload) -> ClipPayload {
