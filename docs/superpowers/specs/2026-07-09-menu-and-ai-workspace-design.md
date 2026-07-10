@@ -1,7 +1,7 @@
 # ClipVault Menu Bar and AI Workspace Design
 
 Date: 2026-07-09
-Status: Approved for implementation planning
+Status: Implemented; App Review payment amendment applied 2026-07-10
 
 ## Context
 
@@ -49,7 +49,6 @@ The menu bar window closes before these actions execute:
 - open a clip in Workspace
 - open Workspace from the footer
 - start Shot capture
-- open the sponsor page
 - open Settings
 - pause or resume clipboard capture
 - pin or unpin a clip
@@ -73,7 +72,7 @@ These interactions do not complete a command and should not interrupt retrieval.
 
 `MenuBarView` owns one named dismiss-then-perform path. It closes the captured `NSWindow` first and then invokes the action on the main actor.
 
-Most commands may run on the next main-loop turn. Shot capture waits briefly after dismissal before starting the screenshot controller so the menu window cannot appear in the captured area. External URL and Settings failures retain their existing user feedback behavior.
+Most commands may run on the next main-loop turn. Shot capture waits briefly after dismissal before starting the screenshot controller so the menu window cannot appear in the captured area. Settings failures retain their existing user feedback behavior.
 
 The AppKit boundary remains limited to the existing weak menu window reference and `NSWindow.orderOut`. SwiftUI and `ClipVaultViewModel` remain the sources of truth for action state.
 
@@ -176,7 +175,6 @@ Removing a custom folder or collection requires confirmation. The dialog states 
 ## Error Handling
 
 - Missing menu window references must not block the requested action.
-- Failed sponsor URL opening retains an audible failure signal.
 - Screenshot capture begins only after menu dismissal.
 - AI errors remain visible in the result canvas and do not collapse the pane.
 - Folder validation errors continue through the view model/store boundary without deleting clips.

@@ -353,13 +353,6 @@ private struct AboutSettingsTab: View {
                 LabeledContent("Category", value: "Productivity")
             }
 
-            Section("Support") {
-                SponsorButton(title: "Sponsor on Buy Me a Coffee")
-                Text("Sponsorship helps keep ClipVault local-first, polished, and actively maintained.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
             Section("Release Readiness") {
                 Label("Sandbox entitlement and privacy manifest are included.", systemImage: "checkmark.seal")
                 Label("Complete App Store Connect metadata, upload validation, and review before delivery.", systemImage: "shippingbox")

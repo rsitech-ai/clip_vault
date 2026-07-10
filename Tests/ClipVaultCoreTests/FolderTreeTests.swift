@@ -158,6 +158,15 @@ struct FolderTreeTests {
         }
     }
 
+    @Test("both stores reject duplicate folder IDs before mutation")
+    func bothStoresRejectDuplicateFolderIDsBeforeMutation() throws {
+        try assertDuplicateFolderIDsAreRejected(by: InMemoryClipStore())
+
+        try withTemporarySwiftDataStore { store in
+            try assertDuplicateFolderIDsAreRejected(by: store)
+        }
+    }
+
     @Test("recursive deletion retains clips and unrelated assignments in both stores")
     func recursiveDeletionRetainsClipsAndUnrelatedAssignmentsInBothStores() throws {
         let inMemoryStore = InMemoryClipStore()
@@ -413,6 +422,19 @@ struct FolderTreeTests {
         #expect(parent.children.map(\.id) == [child.id])
     }
 
+    private func assertDuplicateFolderIDsAreRejected(by store: any ClipStoring) throws {
+        let original = CollectionFolder(id: "duplicate-create", title: "Original")
+        let duplicate = CollectionFolder(id: original.id, title: "Duplicate")
+        try store.saveFolder(original, parentID: nil, sortOrder: 22)
+
+        #expect(throws: FolderStoreError.duplicateID) {
+            try store.saveFolder(duplicate, parentID: nil, sortOrder: 23)
+        }
+
+        let matchingFolders = allFolders(in: try store.folders()).filter { $0.id == original.id }
+        #expect(matchingFolders.map(\.title) == [original.title])
+    }
+
     private func arrangeRecursiveDeletion(in store: any ClipStoring) throws -> String {
         let parent = CollectionFolder(id: "recursive-parent", title: "Parent")
         let nested = CollectionFolder(id: "recursive-nested", title: "Nested")
@@ -530,6 +552,12 @@ struct FolderTreeTests {
     private func containsFolder(id: String, in folders: [CollectionFolder]) -> Bool {
         folders.contains { folder in
             folder.id == id || containsFolder(id: id, in: folder.children)
+        }
+    }
+
+    private func allFolders(in folders: [CollectionFolder]) -> [CollectionFolder] {
+        folders.flatMap { folder in
+            [folder] + allFolders(in: folder.children)
         }
     }
 }
