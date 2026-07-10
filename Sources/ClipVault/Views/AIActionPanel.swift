@@ -4,6 +4,7 @@ import SwiftUI
 struct AIActionPanel: View {
     @Bindable var model: ClipVaultViewModel
     var placement: AIActionPanelPlacement = .inspector
+    var collapse: (() -> Void)?
 
     @ViewBuilder
     var body: some View {
@@ -166,6 +167,19 @@ struct AIActionPanel: View {
             Spacer(minLength: 8)
 
             availabilityBadge
+
+            if placement == .inline, let collapse {
+                Button(action: collapse) {
+                    Image(systemName: "chevron.down")
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help("Collapse AI Workspace")
+                .accessibilityLabel("Collapse AI Workspace")
+                .accessibilityHint("Returns the AI Workspace to its compact shelf.")
+            }
         }
     }
 
@@ -250,13 +264,7 @@ struct AIActionPanel: View {
     }
 
     private var contextText: String {
-        if !model.selectedClips.isEmpty {
-            return clipCountText(model.selectedClips.count, suffix: "selected")
-        }
-        if model.selectedClip != nil {
-            return "Using open clip"
-        }
-        return "No clip available"
+        aiWorkspaceContextText(for: model)
     }
 
     private func clipCountText(_ count: Int, suffix: String) -> String {
@@ -338,6 +346,57 @@ struct AIActionPanel: View {
     }
 
     private static let visibleActionKinds: [AIActionKind] = [.summarize, .explain, .todos]
+}
+
+struct AIWorkspaceShelf: View {
+    @Bindable var model: ClipVaultViewModel
+    var expand: () -> Void
+
+    var body: some View {
+        Button(action: expand) {
+            HStack(spacing: 10) {
+                Image(systemName: "sparkles")
+                    .foregroundStyle(Color.accentColor)
+                Text("AI Workspace")
+                    .font(.callout.weight(.semibold))
+                Text(aiWorkspaceContextText(for: model))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                Circle()
+                    .fill(model.aiAvailability.isAvailable ? Color.green : Color.orange)
+                    .frame(width: 6, height: 6)
+                Text(model.aiAvailability.isAvailable ? "Ready" : "Fallback")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                Image(systemName: "chevron.up")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 16)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(.regularMaterial)
+        .help("Expand AI Workspace")
+        .accessibilityLabel("Expand AI Workspace")
+        .accessibilityValue(aiWorkspaceContextText(for: model))
+        .accessibilityHint("Shows AI actions, results, and questions.")
+    }
+}
+
+@MainActor
+private func aiWorkspaceContextText(for model: ClipVaultViewModel) -> String {
+    if !model.selectedClips.isEmpty {
+        let count = model.selectedClips.count
+        return "\(count) \(count == 1 ? "clip" : "clips") selected"
+    }
+    if model.selectedClip != nil {
+        return "Using open clip"
+    }
+    return "No clip available"
 }
 
 enum AIActionPanelPlacement {

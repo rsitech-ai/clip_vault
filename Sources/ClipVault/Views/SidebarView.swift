@@ -54,50 +54,40 @@ struct SidebarView: View {
     }
 
     private var sidebarFooter: some View {
-        VStack(spacing: 8) {
-            HStack(spacing: 8) {
+        HStack(spacing: 10) {
+            Menu {
                 Button {
                     prompt = SidebarPrompt(kind: .folder, parentID: nil)
                 } label: {
-                    Label("Folder", systemImage: "folder.badge.plus")
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.75)
-                        .frame(maxWidth: .infinity)
+                    Label("New Folder", systemImage: "folder.badge.plus")
                 }
-                .help("Create a new folder")
-                .accessibilityLabel("Create a new folder")
-                .accessibilityHint("Opens the new folder form at the workspace root.")
 
                 Button {
                     prompt = SidebarPrompt(kind: .collection, parentID: model.folders.first?.id)
                 } label: {
-                    Label("Collection", systemImage: "plus")
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.75)
-                        .frame(maxWidth: .infinity)
+                    Label("New Collection", systemImage: "tray.full")
                 }
-                .help("Create a new collection")
-                .accessibilityLabel("Create a new collection")
-                .accessibilityHint("Opens the new collection form inside Collections.")
+            } label: {
+                Label("Add", systemImage: "plus")
             }
-            .labelStyle(.titleAndIcon)
-            .font(.caption.weight(.medium))
+            .menuStyle(.button)
             .controlSize(.small)
+            .help("Add a folder or collection")
+            .accessibilityLabel("Add workspace item")
+            .accessibilityHint("Creates a folder or collection.")
 
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(model.isCapturing ? .green : .secondary)
-                    .frame(width: 8, height: 8)
-                Text(model.captureStatus)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                Spacer()
-            }
+            Spacer(minLength: 0)
+
+            Circle()
+                .fill(model.isCapturing ? .green : .secondary)
+                .frame(width: 8, height: 8)
+            Text(model.captureStatus)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .clipVaultGlassSurface(cornerRadius: 0)
     }
 
     private var deleteDialogTitle: String {
@@ -256,13 +246,9 @@ private struct FolderNodeView: View {
     }
 
     private var iconColor: Color {
-        switch folder.collectionID {
-        case "code", "sql": .blue
-        case "errors": .red
-        case "links": .teal
-        case "images": .pink
-        default: .secondary
-        }
+        folder.collectionID == "errors"
+            ? .red
+            : folder.collectionID == nil ? .secondary : .accentColor
     }
 }
 

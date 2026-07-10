@@ -81,6 +81,10 @@ final class ClipVaultViewModel {
         }
         captureService.start()
         isCapturing = true
+        UserDefaults.standard.set(
+            Int(ProcessInfo.processInfo.processIdentifier),
+            forKey: ClipVaultSettingsKey.captureReadyProcessID
+        )
         captureStatus = screenshotHotKeyRegistered ? "Watching clipboard" : "Watching clipboard, screenshot shortcut unavailable"
         reload()
         pruneExpiredClips(retentionDays: configuredRetentionDays, updatesStatus: false)

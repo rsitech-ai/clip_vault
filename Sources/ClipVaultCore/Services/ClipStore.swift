@@ -18,8 +18,9 @@ public final class ClipRecord {
     public var tagsRaw: String?
     public var copyCount: Int?
     @Attribute(.externalStorage) public var encryptedPayload: Data
+    @Attribute(.externalStorage) public var encryptedListPayload: Data?
 
-    public init(clip: Clip, encryptedPayload: Data) {
+    public init(clip: Clip, encryptedPayload: Data, encryptedListPayload: Data? = nil) {
         self.id = clip.id
         self.createdAt = clip.createdAt
         self.updatedAt = clip.updatedAt
@@ -35,6 +36,7 @@ public final class ClipRecord {
         self.tagsRaw = clip.tags.joined(separator: ",")
         self.copyCount = clip.copyCount
         self.encryptedPayload = encryptedPayload
+        self.encryptedListPayload = encryptedListPayload
     }
 }
 
@@ -221,6 +223,7 @@ public final class SwiftDataClipStore: ClipStoring {
     private let index: any SearchIndexing
     private let retentionPolicy: RetentionPolicy
     private let saveFolderContext: (ModelContext) throws -> Void
+    private let previewTransformer: (Data) -> Data?
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
 
@@ -237,22 +240,33 @@ public final class SwiftDataClipStore: ClipStoring {
         self.index = index
         self.retentionPolicy = retentionPolicy
         self.saveFolderContext = { try $0.save() }
+        self.previewTransformer = ClipPreviewThumbnailer.thumbnailData
     }
 
-    init(context: ModelContext, saveContext: @escaping (ModelContext) throws -> Void) {
+    init(
+        context: ModelContext,
+        encryptor: any PayloadEncrypting = LocalPayloadEncryptor(),
+        saveContext: @escaping (ModelContext) throws -> Void,
+        previewTransformer: @escaping (Data) -> Data? = ClipPreviewThumbnailer.thumbnailData
+    ) {
         self.context = context
-        self.encryptor = LocalPayloadEncryptor()
+        self.encryptor = encryptor
         self.sensitiveRules = .default
         self.index = RustSearchIndexCore()
         self.retentionPolicy = .default
         self.saveFolderContext = saveContext
+        self.previewTransformer = previewTransformer
     }
 
     public func allClips() throws -> [Clip] {
         let descriptor = FetchDescriptor<ClipRecord>(
             sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
         )
-        return try context.fetch(descriptor).compactMap(recordToClip)
+        let clips = try context.fetch(descriptor).compactMap(recordToClip)
+        if context.hasChanges {
+            try context.save()
+        }
+        return clips
     }
 
     public func folders() throws -> [CollectionFolder] {
@@ -300,25 +314,32 @@ public final class SwiftDataClipStore: ClipStoring {
             existing.preview = payload.displayText
             let data = try encoder.encode(payload)
             existing.encryptedPayload = try encryptor.encrypt(data)
+            existing.encryptedListPayload = try encryptedListPayload(for: payload)
             try context.save()
             return try recordToClip(existing)
         }
 
+        let listPayload = listPayload(for: payload)
         let clip = Clip(
-            kind: payload.kind,
-            title: title(for: payload),
-            preview: payload.displayText,
-            extractedText: payload.extractedText,
-            collectionIDs: BuiltInCollectionAssignment.ids(for: payload.kind),
+            kind: listPayload.kind,
+            title: title(for: listPayload),
+            preview: listPayload.displayText,
+            extractedText: listPayload.extractedText,
+            collectionIDs: BuiltInCollectionAssignment.ids(for: listPayload.kind),
             sourceApp: sourceApp,
             fingerprint: fingerprint,
-            previewData: payload.previewData,
-            metadata: payload.metadata
+            previewData: listPayload.previewData,
+            metadata: listPayload.metadata
         )
 
         let data = try encoder.encode(payload)
         let encrypted = try encryptor.encrypt(data)
-        context.insert(ClipRecord(clip: clip, encryptedPayload: encrypted))
+        let encryptedListPayload = try encryptor.encrypt(encoder.encode(listPayload))
+        context.insert(ClipRecord(
+            clip: clip,
+            encryptedPayload: encrypted,
+            encryptedListPayload: encryptedListPayload
+        ))
         try context.save()
         return clip
     }
@@ -517,7 +538,7 @@ public final class SwiftDataClipStore: ClipStoring {
     }
 
     private func recordToClip(_ record: ClipRecord) throws -> Clip? {
-        let payload = try payload(from: record)
+        let payload = try listPayload(from: record)
 
         return Clip(
             id: record.id,
@@ -636,6 +657,38 @@ public final class SwiftDataClipStore: ClipStoring {
     private func payload(from record: ClipRecord) throws -> ClipPayload {
         let payloadData = try encryptor.decrypt(record.encryptedPayload)
         return try decoder.decode(ClipPayload.self, from: payloadData)
+    }
+
+    private func listPayload(from record: ClipRecord) throws -> ClipPayload {
+        if let encryptedListPayload = record.encryptedListPayload,
+           let payload = try? decoder.decode(
+               ClipPayload.self,
+               from: encryptor.decrypt(encryptedListPayload)
+           ) {
+            return payload
+        }
+
+        let payload = try payload(from: record)
+        let listPayload = listPayload(for: payload)
+        record.encryptedListPayload = try encryptor.encrypt(encoder.encode(listPayload))
+        return listPayload
+    }
+
+    private func encryptedListPayload(for payload: ClipPayload) throws -> Data {
+        try encryptor.encrypt(encoder.encode(listPayload(for: payload)))
+    }
+
+    private func listPayload(for payload: ClipPayload) -> ClipPayload {
+        ClipPayload(
+            kind: payload.kind,
+            displayText: payload.displayText,
+            extractedText: payload.extractedText,
+            metadata: payload.metadata,
+            previewData: payload.kind == .image
+                ? payload.previewData.flatMap(previewTransformer)
+                : nil,
+            uniformTypeIdentifiers: payload.uniformTypeIdentifiers
+        )
     }
 
     private func split(_ raw: String) -> [String] {
