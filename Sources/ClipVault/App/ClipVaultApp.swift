@@ -111,6 +111,10 @@ struct ClipVaultApp: App {
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        UserDefaults.standard.removeObject(forKey: ClipVaultSettingsKey.captureReadyProcessID)
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
