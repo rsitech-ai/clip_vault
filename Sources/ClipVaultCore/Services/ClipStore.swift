@@ -40,6 +40,36 @@ public final class ClipRecord {
     }
 }
 
+private struct EncryptedClipDetails: Codable {
+    static let currentVersion = 1
+
+    var version: Int
+    var listPayload: ClipPayload
+    var title: String
+    var userNote: String
+    var tags: [String]
+    var sourceApp: String?
+
+    init(
+        listPayload: ClipPayload,
+        title: String,
+        userNote: String,
+        tags: [String],
+        sourceApp: String?
+    ) {
+        self.version = Self.currentVersion
+        self.listPayload = listPayload
+        self.title = title
+        self.userNote = userNote
+        self.tags = tags
+        self.sourceApp = sourceApp
+    }
+}
+
+private enum EncryptedClipDetailsError: Error {
+    case unsupportedVersion(Int)
+}
+
 @Model
 public final class FolderRecord {
     @Attribute(.unique) public var id: String
@@ -293,6 +323,10 @@ public final class SwiftDataClipStore: ClipStoring {
             return nil
         }
 
+        _ = try details(from: record)
+        if context.hasChanges {
+            try context.save()
+        }
         return try payload(from: record)
     }
 
@@ -309,12 +343,14 @@ public final class SwiftDataClipStore: ClipStoring {
         let existing = try context.fetch(existingDescriptor).first
 
         if let existing {
+            var details = try details(from: existing)
             existing.copyCount = (existing.copyCount ?? 1) + 1
             existing.updatedAt = Date()
-            existing.preview = payload.displayText
             let data = try encoder.encode(payload)
             existing.encryptedPayload = try encryptor.encrypt(data)
-            existing.encryptedListPayload = try encryptedListPayload(for: payload)
+            details.listPayload = listPayload(for: payload)
+            existing.encryptedListPayload = try encryptedDetailsPayload(details)
+            clearPlaintextDetails(on: existing)
             try context.save()
             return try recordToClip(existing)
         }
@@ -334,12 +370,20 @@ public final class SwiftDataClipStore: ClipStoring {
 
         let data = try encoder.encode(payload)
         let encrypted = try encryptor.encrypt(data)
-        let encryptedListPayload = try encryptor.encrypt(encoder.encode(listPayload))
-        context.insert(ClipRecord(
+        let encryptedDetails = try encryptedDetailsPayload(EncryptedClipDetails(
+            listPayload: listPayload,
+            title: clip.title,
+            userNote: clip.userNote,
+            tags: clip.tags,
+            sourceApp: clip.sourceApp
+        ))
+        let record = ClipRecord(
             clip: clip,
             encryptedPayload: encrypted,
-            encryptedListPayload: encryptedListPayload
-        ))
+            encryptedListPayload: encryptedDetails
+        )
+        clearPlaintextDetails(on: record)
+        context.insert(record)
         try context.save()
         return clip
     }
@@ -388,7 +432,10 @@ public final class SwiftDataClipStore: ClipStoring {
             return
         }
 
-        record.userNote = note
+        var details = try details(from: record)
+        details.userNote = note
+        record.encryptedListPayload = try encryptedDetailsPayload(details)
+        clearPlaintextDetails(on: record)
         record.updatedAt = Date()
         try context.save()
     }
@@ -405,7 +452,10 @@ public final class SwiftDataClipStore: ClipStoring {
         guard !trimmed.isEmpty else {
             return
         }
-        record.title = trimmed
+        var details = try details(from: record)
+        details.title = trimmed
+        record.encryptedListPayload = try encryptedDetailsPayload(details)
+        clearPlaintextDetails(on: record)
         record.updatedAt = Date()
         try context.save()
     }
@@ -418,7 +468,10 @@ public final class SwiftDataClipStore: ClipStoring {
             return
         }
 
-        record.tagsRaw = normalizedTags(tags).joined(separator: ",")
+        var details = try details(from: record)
+        details.tags = normalizedTags(tags)
+        record.encryptedListPayload = try encryptedDetailsPayload(details)
+        clearPlaintextDetails(on: record)
         record.updatedAt = Date()
         try context.save()
     }
@@ -538,25 +591,26 @@ public final class SwiftDataClipStore: ClipStoring {
     }
 
     private func recordToClip(_ record: ClipRecord) throws -> Clip? {
-        let payload = try listPayload(from: record)
+        let details = try details(from: record)
+        let payload = details.listPayload
 
         return Clip(
             id: record.id,
             createdAt: record.createdAt,
             updatedAt: record.updatedAt,
             kind: ClipKind(rawValue: record.kindRaw) ?? .unknown,
-            title: record.title,
-            preview: record.preview,
+            title: details.title,
+            preview: payload.displayText,
             extractedText: payload.extractedText,
             isPinned: record.isPinned,
             collectionIDs: split(record.collectionIDsRaw),
             pinboardIDs: split(record.pinboardIDsRaw),
-            sourceApp: record.sourceApp,
+            sourceApp: details.sourceApp,
             fingerprint: record.fingerprintValue,
             previewData: payload.previewData,
             metadata: payload.metadata,
-            userNote: record.userNote ?? "",
-            tags: split(record.tagsRaw ?? ""),
+            userNote: details.userNote,
+            tags: details.tags,
             copyCount: record.copyCount ?? 1
         )
     }
@@ -659,23 +713,49 @@ public final class SwiftDataClipStore: ClipStoring {
         return try decoder.decode(ClipPayload.self, from: payloadData)
     }
 
-    private func listPayload(from record: ClipRecord) throws -> ClipPayload {
-        if let encryptedListPayload = record.encryptedListPayload,
-           let payload = try? decoder.decode(
-               ClipPayload.self,
-               from: encryptor.decrypt(encryptedListPayload)
-           ) {
-            return payload
+    private func details(from record: ClipRecord) throws -> EncryptedClipDetails {
+        if let encryptedListPayload = record.encryptedListPayload {
+            let decrypted = try encryptor.decrypt(encryptedListPayload)
+            if let details = try? decoder.decode(EncryptedClipDetails.self, from: decrypted) {
+                guard details.version == EncryptedClipDetails.currentVersion else {
+                    throw EncryptedClipDetailsError.unsupportedVersion(details.version)
+                }
+                clearPlaintextDetails(on: record)
+                return details
+            }
+
+            if let legacyListPayload = try? decoder.decode(ClipPayload.self, from: decrypted) {
+                return try migrateDetails(for: record, listPayload: legacyListPayload)
+            }
         }
 
-        let payload = try payload(from: record)
-        let listPayload = listPayload(for: payload)
-        record.encryptedListPayload = try encryptor.encrypt(encoder.encode(listPayload))
-        return listPayload
+        let legacyPayload = try payload(from: record)
+        return try migrateDetails(for: record, listPayload: listPayload(for: legacyPayload))
     }
 
-    private func encryptedListPayload(for payload: ClipPayload) throws -> Data {
-        try encryptor.encrypt(encoder.encode(listPayload(for: payload)))
+    private func migrateDetails(for record: ClipRecord, listPayload: ClipPayload) throws -> EncryptedClipDetails {
+        let details = EncryptedClipDetails(
+            listPayload: listPayload,
+            title: record.title.isEmpty ? title(for: listPayload) : record.title,
+            userNote: record.userNote ?? "",
+            tags: split(record.tagsRaw ?? ""),
+            sourceApp: record.sourceApp
+        )
+        record.encryptedListPayload = try encryptedDetailsPayload(details)
+        clearPlaintextDetails(on: record)
+        return details
+    }
+
+    private func encryptedDetailsPayload(_ details: EncryptedClipDetails) throws -> Data {
+        try encryptor.encrypt(encoder.encode(details))
+    }
+
+    private func clearPlaintextDetails(on record: ClipRecord) {
+        record.title = ""
+        record.preview = ""
+        record.sourceApp = nil
+        record.userNote = nil
+        record.tagsRaw = nil
     }
 
     private func listPayload(for payload: ClipPayload) -> ClipPayload {
