@@ -34,6 +34,7 @@ struct ContentView: View {
                 .help("Refresh clips from storage")
             }
         }
+        .captureConsentDisclosure(model: model)
     }
 
     private var workspace: some View {

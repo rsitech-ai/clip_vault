@@ -68,6 +68,7 @@ struct SettingsView: View {
             recoverClipVaultWindows(after: 0.05)
             recoverClipVaultWindows(after: 0.3)
         }
+        .captureConsentDisclosure(model: model)
     }
 }
 
@@ -78,7 +79,7 @@ private struct GeneralSettingsTab: View {
         Form {
             Section("Status") {
                 LabeledContent("Capture") {
-                    Label(model.isCapturing ? "Watching clipboard" : "Paused", systemImage: model.isCapturing ? "checkmark.circle.fill" : "pause.circle")
+                    Label(model.captureStateTitle, systemImage: model.isCapturing ? "checkmark.circle.fill" : "pause.circle")
                         .foregroundStyle(model.isCapturing ? .green : .secondary)
                 }
                 LabeledContent("Indexed clips", value: "\(model.clips.count)")
@@ -103,6 +104,17 @@ private struct GeneralSettingsTab: View {
                 Text("When capture is paused, existing clips remain searchable and copyable.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                if model.hasCaptureConsent {
+                    Button("Revoke Clipboard Capture Consent", role: .destructive) {
+                        model.revokeCaptureConsent()
+                    }
+                    .help("Stop capture and require the disclosure before capture can be enabled again")
+                } else {
+                    Label("Capture remains off until you enable it from the disclosure.", systemImage: "hand.raised")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             Section("Workspace") {
