@@ -233,7 +233,7 @@ struct AIActionPanel: View {
 
     private var emptyResultState: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label(clipCountText(model.selectedClips.count, suffix: "selected"), systemImage: "checkmark.circle")
+            Label(contextText, systemImage: "checkmark.circle")
                 .font(.callout)
             Text("Use an action above, or ask a custom question. When nothing is selected, ClipVault uses the open clip.")
                 .font(.caption)

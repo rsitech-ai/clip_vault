@@ -1,5 +1,6 @@
 import AppKit
 import ClipVaultCore
+import Darwin
 import SwiftData
 import SwiftUI
 
@@ -7,13 +8,22 @@ import SwiftUI
 struct ClipVaultApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @Environment(\.openWindow) private var openWindow
-    @State private var model = ClipVaultViewModel()
+    @State private var model: ClipVaultViewModel
+
+    init() {
+        let model = ClipVaultViewModel()
+        _model = State(initialValue: model)
+
+        if let request = ClipVaultStoreProbeRequest.parse(arguments: CommandLine.arguments) {
+            Self.runStoreProbe(request, model: model)
+        }
+    }
 
     var body: some Scene {
         WindowGroup("ClipVault", id: "workspace") {
             ContentView(model: model)
                 .modelContainer(model.container)
-                .frame(minWidth: 760, minHeight: 520)
+                .frame(minWidth: 900, minHeight: 520)
                 .task {
                     DockTileController.shared.configure(
                         copyClip: { id in
@@ -41,6 +51,7 @@ struct ClipVaultApp: App {
         }
         .defaultLaunchBehavior(.presented)
         .restorationBehavior(.disabled)
+        .windowResizability(.contentMinSize)
         .commands {
             CommandGroup(after: .newItem) {
                 Button("Open ClipVault") {
@@ -70,6 +81,30 @@ struct ClipVaultApp: App {
 
         Settings {
             SettingsView(model: model)
+        }
+    }
+
+    private static func runStoreProbe(
+        _ request: ClipVaultStoreProbeRequest,
+        model: ClipVaultViewModel
+    ) -> Never {
+        if let storageStartupError = model.storageStartupError {
+            let message = "CLIPVAULT_STORE_PROBE_ERROR \(storageStartupError)\n"
+            FileHandle.standardError.write(Data(message.utf8))
+            Darwin.exit(EX_IOERR)
+        }
+
+        do {
+            let store = SwiftDataClipStore(context: ModelContext(model.container))
+            let matches = try store.allClips().filter { $0.preview == request.token }
+            let copyCount = matches.map(\.copyCount).max() ?? 0
+            print("CLIPVAULT_STORE_PROBE row_count=\(matches.count) copy_count=\(copyCount)")
+            fflush(stdout)
+            Darwin.exit(EXIT_SUCCESS)
+        } catch {
+            let message = "CLIPVAULT_STORE_PROBE_ERROR \(error.localizedDescription)\n"
+            FileHandle.standardError.write(Data(message.utf8))
+            Darwin.exit(EX_IOERR)
         }
     }
 }
@@ -160,8 +195,13 @@ private func preferredRecoveryScreen() -> NSScreen? {
 @MainActor
 private func center(_ window: NSWindow, in targetFrame: NSRect) {
     var frame = window.frame
-    frame.size.width = min(max(frame.width, 900), targetFrame.width * 0.92)
-    frame.size.height = min(max(frame.height, 620), targetFrame.height * 0.88)
+    let minimumSize = NSSize(width: 900, height: 520)
+    let maximumSize = NSSize(
+        width: max(minimumSize.width, targetFrame.width * 0.92),
+        height: max(minimumSize.height, targetFrame.height * 0.88)
+    )
+    frame.size.width = min(max(frame.width, minimumSize.width), maximumSize.width)
+    frame.size.height = min(max(frame.height, minimumSize.height), maximumSize.height)
     frame.origin.x = targetFrame.midX - frame.width / 2
     frame.origin.y = targetFrame.midY - frame.height / 2
     window.setFrame(frame, display: true)

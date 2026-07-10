@@ -8,6 +8,7 @@ struct MenuBarView: View {
     var openWorkspace: () -> Void
     @State private var hoveredClipID: String?
     @State private var previewPinned = false
+    @State private var pinnedPreviewClipID: String?
     @State private var menuWindowBox = MenuWindowBox()
     @State private var keyboardScrollTargetID: String?
     private let menuResultLimit = 80
@@ -76,6 +77,7 @@ struct MenuBarView: View {
                     }
                     .onChange(of: menuResultIDs) {
                         clampMenuFocus()
+                        clampPinnedPreview()
                     }
                     .onChange(of: keyboardScrollTargetID) {
                         guard let keyboardScrollTargetID else { return }
@@ -104,12 +106,6 @@ struct MenuBarView: View {
                         }
                         .clipVaultGlassButtonStyle()
                         .help("Capture a custom area or window screenshot with Command-Shift-2")
-
-                        SponsorButton(action: {
-                            performAndClose(SponsorButton.openSponsorPage)
-                        })
-                            .clipVaultGlassButtonStyle()
-                            .help("Support ClipVault on Buy Me a Coffee")
 
                         Button {
                             performAndClose { openSettings() }
@@ -177,6 +173,11 @@ struct MenuBarView: View {
     }
 
     private var previewClip: Clip? {
+        if previewPinned,
+           let pinnedPreviewClipID,
+           let pinned = menuClips.first(where: { $0.id == pinnedPreviewClipID }) {
+            return pinned
+        }
         if let focused = focusedMenuClip {
             return focused
         }
@@ -250,6 +251,25 @@ struct MenuBarView: View {
         }
     }
 
+    private func clampPinnedPreview() {
+        guard let pinnedPreviewClipID,
+              menuClips.contains(where: { $0.id == pinnedPreviewClipID }) else {
+            previewPinned = false
+            self.pinnedPreviewClipID = nil
+            return
+        }
+    }
+
+    private func togglePreviewLock() {
+        if previewPinned {
+            previewPinned = false
+            pinnedPreviewClipID = nil
+        } else if let focusedMenuClip {
+            previewPinned = true
+            pinnedPreviewClipID = focusedMenuClip.id
+        }
+    }
+
     private func closeMenuWindow() {
         guard let window = menuWindowBox.window else { return }
         window.resignKey()
@@ -278,7 +298,7 @@ struct MenuBarView: View {
         case .copy:
             copyFocusedFromMenu()
         case .preview:
-            previewPinned.toggle()
+            togglePreviewLock()
         case .delete:
             deleteFocusedMenuClip()
         case .pin:

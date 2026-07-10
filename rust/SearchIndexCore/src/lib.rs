@@ -26,6 +26,10 @@ pub fn fingerprint(input: &str) -> u64 {
 }
 
 #[must_use]
+#[allow(
+    clippy::cast_precision_loss,
+    reason = "term counts are bounded by the input string length and remain exactly representable at app-scale sizes"
+)]
 pub fn lexical_score(query: &str, text: &str) -> f64 {
     let query_normalized = normalize_text(query);
     let text_normalized = normalize_text(text);
@@ -63,10 +67,9 @@ pub fn lexical_score(query: &str, text: &str) -> f64 {
     };
     let intent_bonus = domain_intent_bonus(&query_terms, &text_normalized);
 
-    let score =
-        ((exact_hits as f64) + (fuzzy_hits as f64 * 0.45)) / (query_terms.len() as f64)
-            + phrase_bonus
-            + intent_bonus;
+    let score = ((exact_hits as f64) + (fuzzy_hits as f64 * 0.45)) / (query_terms.len() as f64)
+        + phrase_bonus
+        + intent_bonus;
 
     score.clamp(0.0, 1.0)
 }
@@ -111,7 +114,7 @@ fn domain_intent_bonus(query_terms: &HashSet<String>, text: &str) -> f64 {
 }
 
 #[allow(unsafe_code)]
-fn string_from_raw_parts(input: *const u8, len: usize) -> String {
+unsafe fn string_from_raw_parts(input: *const u8, len: usize) -> String {
     if input.is_null() || len == 0 {
         return String::new();
     }
@@ -129,33 +132,64 @@ fn c_string(value: String) -> *mut c_char {
 
 #[unsafe(no_mangle)]
 #[allow(unsafe_code)]
-pub extern "C" fn cv_normalize_text(input: *const u8, len: usize) -> *mut c_char {
-    c_string(normalize_text(&string_from_raw_parts(input, len)))
+/// Normalizes a UTF-8 byte buffer and returns an owned C string.
+///
+/// # Safety
+///
+/// When `input` is non-null and `len` is nonzero, `input` must reference at
+/// least `len` readable bytes for the duration of this call. The returned
+/// pointer must be released exactly once with [`cv_free_string`].
+pub unsafe extern "C" fn cv_normalize_text(input: *const u8, len: usize) -> *mut c_char {
+    // SAFETY: The caller upholds the byte-buffer contract documented above.
+    c_string(normalize_text(&unsafe {
+        string_from_raw_parts(input, len)
+    }))
 }
 
 #[unsafe(no_mangle)]
 #[allow(unsafe_code)]
-pub extern "C" fn cv_fingerprint(input: *const u8, len: usize) -> u64 {
-    fingerprint(&string_from_raw_parts(input, len))
+/// Computes a stable fingerprint for a UTF-8 byte buffer.
+///
+/// # Safety
+///
+/// When `input` is non-null and `len` is nonzero, `input` must reference at
+/// least `len` readable bytes for the duration of this call.
+pub unsafe extern "C" fn cv_fingerprint(input: *const u8, len: usize) -> u64 {
+    // SAFETY: The caller upholds the byte-buffer contract documented above.
+    fingerprint(&unsafe { string_from_raw_parts(input, len) })
 }
 
 #[unsafe(no_mangle)]
 #[allow(unsafe_code)]
-pub extern "C" fn cv_lexical_score(
+/// Scores a query byte buffer against a text byte buffer.
+///
+/// # Safety
+///
+/// Each non-null pointer with a nonzero corresponding length must reference at
+/// least that many readable bytes for the duration of this call.
+pub unsafe extern "C" fn cv_lexical_score(
     query: *const u8,
     query_len: usize,
     text: *const u8,
     text_len: usize,
 ) -> c_double {
     lexical_score(
-        &string_from_raw_parts(query, query_len),
-        &string_from_raw_parts(text, text_len),
+        // SAFETY: The caller upholds both byte-buffer contracts documented above.
+        &unsafe { string_from_raw_parts(query, query_len) },
+        // SAFETY: The caller upholds both byte-buffer contracts documented above.
+        &unsafe { string_from_raw_parts(text, text_len) },
     )
 }
 
 #[unsafe(no_mangle)]
 #[allow(unsafe_code)]
-pub extern "C" fn cv_free_string(value: *mut c_char) {
+/// Releases a C string allocated by this library.
+///
+/// # Safety
+///
+/// `value` must be null or a live pointer returned by [`cv_normalize_text`]
+/// that has not already been released.
+pub unsafe extern "C" fn cv_free_string(value: *mut c_char) {
     if value.is_null() {
         return;
     }
@@ -168,7 +202,13 @@ pub extern "C" fn cv_free_string(value: *mut c_char) {
 
 #[unsafe(no_mangle)]
 #[allow(unsafe_code)]
-pub extern "C" fn cv_is_same_normalized(left: *const c_char, right: *const c_char) -> bool {
+/// Compares two NUL-terminated strings after normalization.
+///
+/// # Safety
+///
+/// Each non-null pointer must reference a readable NUL-terminated C string for
+/// the duration of this call.
+pub unsafe extern "C" fn cv_is_same_normalized(left: *const c_char, right: *const c_char) -> bool {
     if left.is_null() || right.is_null() {
         return false;
     }
@@ -187,16 +227,44 @@ mod tests {
 
     #[test]
     fn normalization_is_stable() {
-        assert_eq!(normalize_text("  SELECT  *\nFROM Users  "), "select * from users");
+        assert_eq!(
+            normalize_text("  SELECT  *\nFROM Users  "),
+            "select * from users"
+        );
         assert_eq!(fingerprint("Hello   World"), fingerprint(" hello world "));
     }
 
     #[test]
     fn lexical_score_prefers_matching_content() {
-        let sql = lexical_score("copied sql last week", "SELECT id FROM users WHERE active = true");
+        let sql = lexical_score(
+            "copied sql last week",
+            "SELECT id FROM users WHERE active = true",
+        );
         let unrelated = lexical_score("copied sql last week", "Meeting notes about launch copy");
 
         assert!(sql > unrelated);
         assert!(sql > 0.0);
+    }
+
+    #[test]
+    #[allow(unsafe_code)]
+    fn ffi_string_round_trip_and_comparison_are_consistent() {
+        let input = b"  Hello   World  ";
+        // SAFETY: `input` is readable for its exact length for the duration of the call.
+        let normalized = unsafe { cv_normalize_text(input.as_ptr(), input.len()) };
+        assert!(!normalized.is_null());
+
+        // SAFETY: `normalized` is a live NUL-terminated string returned above.
+        assert_eq!(
+            unsafe { CStr::from_ptr(normalized) }.to_bytes(),
+            b"hello world"
+        );
+
+        let expected = CString::new("hello world").expect("test string contains no NUL");
+        // SAFETY: Both pointers reference live NUL-terminated strings for this call.
+        assert!(unsafe { cv_is_same_normalized(normalized, expected.as_ptr()) });
+
+        // SAFETY: `normalized` was returned by `cv_normalize_text` and is released once.
+        unsafe { cv_free_string(normalized) };
     }
 }

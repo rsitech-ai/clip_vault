@@ -13,7 +13,7 @@
 
 1. Create App Store Connect app record.
 2. Register bundle ID `com.andrzej.ClipVault` or change `APP_BUNDLE_ID` in scripts before packaging.
-3. Create/install Mac App Store distribution signing assets:
+3. Confirm or renew the installed Mac App Store distribution signing assets before upload:
    - Apple Distribution / Mac App Distribution application signing identity.
    - Mac Installer Distribution / 3rd Party Mac Developer Installer identity for `.pkg` upload.
    - Matching provisioning profile if required by your account configuration.
@@ -36,8 +36,7 @@ Official Apple references:
 ./script/app_store_check.sh
 ```
 
-`app_store_check.sh` exits with code `3` when the local bundle is valid but
-distribution signing identities are missing.
+`app_store_check.sh` currently finds both required local distribution identities and exits zero. It exits with code `3` when the local bundle is valid but either required identity is missing.
 
 ## Package Command
 
@@ -82,3 +81,12 @@ package exists and API key values are supplied.
 - Clipboard managers can be scrutinized for privacy. Keep the product copy explicit that capture is local and user-controllable.
 - App Sandbox is enabled. Re-test pasteboard capture under a distribution-signed sandboxed build before upload.
 - Cloud/BYO AI is disabled in MVP. Do not mention active cloud AI features on the App Store page until implemented and disclosed.
+- The former external Buy Me a Coffee button was removed. Developer tips in a future build must follow the current App Review payment rules, normally through In-App Purchase unless a storefront-specific allowance applies.
+
+## Verified Local Candidate (2026-07-10)
+
+- Package: `dist/AppStore/ClipVault-0.1.0-1.pkg`
+- Size: 2,637,676 bytes
+- SHA-256: `436faff9cac2f0c356b86ee7b3837c9da682d457583b7c533725cf8336e15f99`
+- Local checks: app distribution signature, installer signature, entitlements, privacy manifest, dylib linkage, live sandbox persistence smoke, and ClipVault-authored error/fault logs all pass.
+- Still external: App Store Connect record/metadata/privacy answers/screenshots, upload validation, clean-account package installation, and App Review.
