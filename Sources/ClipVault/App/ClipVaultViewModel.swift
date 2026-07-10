@@ -109,8 +109,7 @@ final class ClipVaultViewModel {
         if captureConsentPolicy.isCapturing {
             startCapture()
         } else {
-            captureService.stop()
-            isCapturing = false
+            stopCapture()
         }
         reload()
         pruneExpiredClips(retentionDays: configuredRetentionDays, updatesStatus: false)
@@ -184,8 +183,7 @@ final class ClipVaultViewModel {
     func toggleCapture() {
         if isCapturing {
             captureConsentPolicy.pause()
-            captureService.stop()
-            isCapturing = false
+            stopCapture()
             captureStatus = "Paused"
         } else {
             captureConsentPolicy.requestResume()
@@ -209,8 +207,7 @@ final class ClipVaultViewModel {
 
     func declineCaptureConsent() {
         captureConsentPolicy.decline()
-        captureService.stop()
-        isCapturing = false
+        stopCapture()
         captureStatus = "Capture paused — consent required"
         updateDockTile()
     }
@@ -218,8 +215,7 @@ final class ClipVaultViewModel {
     func revokeCaptureConsent() {
         captureConsentPolicy.revoke()
         UserDefaults.standard.removeObject(forKey: ClipVaultSettingsKey.clipboardCaptureConsentGranted)
-        captureService.stop()
-        isCapturing = false
+        stopCapture()
         captureStatus = "Capture paused — consent revoked"
         updateDockTile()
     }
@@ -231,6 +227,13 @@ final class ClipVaultViewModel {
             Int(ProcessInfo.processInfo.processIdentifier),
             forKey: ClipVaultSettingsKey.captureReadyProcessID
         )
+    }
+
+    private func stopCapture() {
+        captureService.stop()
+        isCapturing = false
+        UserDefaults.standard.removeObject(forKey: ClipVaultSettingsKey.captureReadyProcessID)
+        Self.logger.info("Clipboard capture stopped")
     }
 
     func togglePinned(_ clip: Clip) {

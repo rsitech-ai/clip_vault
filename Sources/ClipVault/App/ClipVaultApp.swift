@@ -85,7 +85,11 @@ struct ClipVaultApp: App {
         .menuBarExtraStyle(.window)
 
         Settings {
-            SettingsView(model: model)
+            SettingsView(model: model) {
+                presentClipVaultWorkspace {
+                    openWindow(id: "workspace")
+                }
+            }
         }
     }
 

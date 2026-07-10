@@ -62,7 +62,6 @@ struct LiveActivityIslandView: View {
         .animation(.snappy(duration: 0.18), value: model.captureStatus)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("ClipVault live activity, \(model.captureStatus), \(model.clips.count) clips")
-        .captureConsentDisclosure(model: model)
     }
 
     private var compactIsland: some View {
@@ -140,6 +139,9 @@ struct LiveActivityIslandView: View {
 
                 Button {
                     model.toggleCapture()
+                    if model.isCaptureConsentDisclosurePresented {
+                        openWorkspace()
+                    }
                 } label: {
                     Label(model.isCapturing ? "Pause" : "Resume", systemImage: model.isCapturing ? "pause.fill" : "play.fill")
                 }
