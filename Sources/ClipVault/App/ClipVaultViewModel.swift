@@ -399,17 +399,25 @@ final class ClipVaultViewModel {
         guard !trimmed.isEmpty else {
             return
         }
+        guard canUseAsFolderParent(parentFolderID) else {
+            captureStatus = FolderStoreError.invalidMove.localizedDescription
+            return
+        }
 
-        let id = trimmed
-            .lowercased()
-            .replacingOccurrences(of: #"[^a-z0-9]+"#, with: "-", options: .regularExpression)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
-            + "-\(collections.count + 1)"
+        let id = WorkspaceCollectionID.make(for: trimmed)
         let collection = ClipCollection(id: id, title: trimmed, systemImage: "folder", kind: nil, isSmart: false)
         collections.append(collection)
         let folder = CollectionFolder(title: trimmed, collectionID: id)
-        try? store?.saveFolder(folder, parentID: parentFolderID, sortOrder: collections.count)
-        insert(folder, under: parentFolderID)
+        do {
+            try store?.saveFolder(folder, parentID: parentFolderID, sortOrder: collections.count)
+            insert(folder, under: parentFolderID)
+            captureStatus = "Created collection"
+        } catch {
+            collections.removeAll { $0.id == id }
+            Self.logger.error("Failed to create collection: \(error.localizedDescription, privacy: .public)")
+            captureStatus = error.localizedDescription
+        }
+        updateDockTile()
     }
 
     func addSelectedClips(toCollectionID collectionID: String) {
@@ -436,9 +444,78 @@ final class ClipVaultViewModel {
         guard !trimmed.isEmpty else {
             return
         }
+        guard canUseAsFolderParent(parentFolderID) else {
+            captureStatus = FolderStoreError.invalidMove.localizedDescription
+            return
+        }
         let folder = CollectionFolder(title: trimmed)
-        try? store?.saveFolder(folder, parentID: parentFolderID, sortOrder: folders.count)
-        insert(folder, under: parentFolderID)
+        do {
+            try store?.saveFolder(folder, parentID: parentFolderID, sortOrder: folders.count)
+            insert(folder, under: parentFolderID)
+            captureStatus = "Created folder"
+        } catch {
+            Self.logger.error("Failed to create folder: \(error.localizedDescription, privacy: .public)")
+            captureStatus = error.localizedDescription
+        }
+        updateDockTile()
+    }
+
+    func updateFolder(id: String, title: String, parentFolderID: String?) {
+        do {
+            try store?.updateFolder(id: id, title: title, parentID: parentFolderID)
+            reload()
+            captureStatus = "Updated workspace item"
+        } catch {
+            Self.logger.error("Failed to update folder: \(error.localizedDescription, privacy: .public)")
+            captureStatus = error.localizedDescription
+            updateDockTile()
+        }
+    }
+
+    func deleteFolder(_ folder: CollectionFolder) {
+        do {
+            let removedCollectionIDs = Set(flatten([folder]).compactMap(\.collectionID))
+            try store?.deleteFolder(id: folder.id)
+            if removedCollectionIDs.contains(selectedCollectionID) {
+                selectedCollectionID = "all"
+            }
+            selectedClipIDs.removeAll()
+            reload()
+            captureStatus = folder.collectionID == nil ? "Removed folder" : "Removed collection"
+        } catch {
+            Self.logger.error("Failed to delete folder: \(error.localizedDescription, privacy: .public)")
+            captureStatus = error.localizedDescription
+            updateDockTile()
+        }
+    }
+
+    func canManageWorkspaceFolder(_ folder: CollectionFolder) -> Bool {
+        !isProtectedWorkspaceFolder(folder)
+    }
+
+    func parentFolderID(for folderID: String) -> String? {
+        parentFolderID(for: folderID, in: folders)
+    }
+
+    func folderParentOptions(excluding folderID: String? = nil) -> [FolderParentOption] {
+        let excludedIDs: Set<String>
+        if let folderID, let folder = findFolder(withID: folderID, in: folders) {
+            excludedIDs = Set(flatten([folder]).map(\.id))
+        } else {
+            excludedIDs = []
+        }
+
+        let folderOnlyOptions = flatten(folders)
+            .filter { $0.collectionID == nil }
+            .filter { !excludedIDs.contains($0.id) }
+            .map { folder in
+                FolderParentOption(
+                    folderID: folder.id,
+                    title: folder.path(in: folderRoot(containing: folder.id) ?? folder) ?? folder.title
+                )
+            }
+
+        return [FolderParentOption.root] + folderOnlyOptions
     }
 
     func runAIAction(_ kind: AIActionKind) {
@@ -575,24 +652,7 @@ final class ClipVaultViewModel {
     }
 
     private func syncCollectionsFromFolders() {
-        var merged = Dictionary(uniqueKeysWithValues: collections.map { ($0.id, $0) })
-        for folder in flatten(folders) {
-            guard let collectionID = folder.collectionID else {
-                continue
-            }
-            if merged[collectionID] == nil {
-                merged[collectionID] = ClipCollection(
-                    id: collectionID,
-                    title: folder.title,
-                    systemImage: "folder",
-                    kind: nil,
-                    isSmart: false
-                )
-            }
-        }
-        collections = ClipCollection.defaults + merged.values
-            .filter { !ClipCollection.defaults.map(\.id).contains($0.id) }
-            .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+        collections = WorkspaceCollectionCatalog.rebuild(from: folders)
     }
 
     private func folderTitle(forCollectionID collectionID: String, in folders: [CollectionFolder]) -> String? {
@@ -611,6 +671,59 @@ final class ClipVaultViewModel {
         folders.flatMap { folder in
             [folder] + flatten(folder.children)
         }
+    }
+
+    private func parentFolderID(for targetID: String, in folders: [CollectionFolder]) -> String? {
+        for folder in folders {
+            if folder.children.contains(where: { $0.id == targetID }) {
+                return folder.id
+            }
+            if let nested = parentFolderID(for: targetID, in: folder.children) {
+                return nested
+            }
+        }
+        return nil
+    }
+
+    private func findFolder(withID targetID: String, in folders: [CollectionFolder]) -> CollectionFolder? {
+        for folder in folders {
+            if folder.id == targetID {
+                return folder
+            }
+            if let nested = findFolder(withID: targetID, in: folder.children) {
+                return nested
+            }
+        }
+        return nil
+    }
+
+    private func folderRoot(containing targetID: String) -> CollectionFolder? {
+        folders.first { folder in
+            folder.id == targetID || findFolder(withID: targetID, in: folder.children) != nil
+        }
+    }
+
+    private func canUseAsFolderParent(_ parentFolderID: String?) -> Bool {
+        guard let parentFolderID else {
+            return true
+        }
+        return findFolder(withID: parentFolderID, in: folders)?.collectionID == nil
+    }
+
+    private func isProtectedWorkspaceFolder(_ folder: CollectionFolder) -> Bool {
+        WorkspaceFolderPolicy.isProtected(folder)
+    }
+}
+
+struct FolderParentOption: Identifiable, Hashable {
+    static let rootID = "__root__"
+    static let root = FolderParentOption(folderID: nil, title: "Workspace root")
+
+    var folderID: String?
+    var title: String
+
+    var id: String {
+        folderID ?? Self.rootID
     }
 }
 

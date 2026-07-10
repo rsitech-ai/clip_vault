@@ -21,4 +21,28 @@ struct SearchIndexCoreTests {
         #expect(sqlScore > unrelatedScore)
         #expect(sqlScore > 0)
     }
+
+    @Test("nonmatching queries exclude recent and pinned clips")
+    func nonmatchingQueriesExcludeBoostedClips() {
+        let recent = Clip(
+            kind: .text,
+            title: "Recent meeting notes",
+            preview: "Launch discussion",
+            extractedText: "Launch discussion"
+        )
+        let pinned = Clip(
+            kind: .text,
+            title: "Pinned roadmap",
+            preview: "Quarterly roadmap",
+            extractedText: "Quarterly roadmap",
+            isPinned: true
+        )
+
+        let results = ClipSearcher().search(
+            [recent, pinned],
+            query: SearchQuery(text: "zzqxywplmnoabc")
+        )
+
+        #expect(results.isEmpty)
+    }
 }

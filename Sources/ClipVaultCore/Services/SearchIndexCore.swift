@@ -99,13 +99,15 @@ public struct ClipSearcher: Sendable {
                 }
                 return clip.collectionIDs.contains(collectionID)
             }
-            .map { clip in
+            .compactMap { clip -> SearchResult? in
                 let lexical = trimmed.isEmpty ? 0.2 : index.lexicalScore(query: trimmed, text: clip.searchableContent)
+                guard trimmed.isEmpty || lexical > 0 else {
+                    return nil
+                }
                 let pinBoost = clip.isPinned ? 0.08 : 0
                 let recencyBoost = max(0, 0.1 - Date().timeIntervalSince(clip.createdAt) / 86_400 * 0.002)
                 return SearchResult(clip: clip, score: min(1, lexical + pinBoost + recencyBoost))
             }
-            .filter { trimmed.isEmpty || $0.score > 0 }
             .sorted { lhs, rhs in
                 if lhs.score == rhs.score {
                     return lhs.clip.createdAt > rhs.clip.createdAt
