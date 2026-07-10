@@ -30,7 +30,7 @@ struct ClipListView: View {
                     )
                     .tag(result.clip.id)
                     .contentShape(Rectangle())
-                    .onTapGesture {
+                    .onTapGesture(count: 2) {
                         model.selectAndCopy(result.clip)
                     }
                     .contextMenu {
@@ -49,7 +49,11 @@ struct ClipListView: View {
                     }
                 }
                 .listStyle(.inset)
-                .animation(.snappy, value: model.visibleResults.map(\.id))
+                .onKeyPress(.return) {
+                    guard let selectedClip = model.selectedClip else { return .ignored }
+                    model.copyToClipboard(selectedClip)
+                    return .handled
+                }
             }
         }
         .background(.regularMaterial)
@@ -114,7 +118,10 @@ struct ClipListView: View {
             .accessibilityLabel("Clip cleanup actions")
         }
         .padding(14)
-        .clipVaultGlassSurface(cornerRadius: 0)
+        .background(.regularMaterial)
+        .overlay(alignment: .bottom) {
+            Divider()
+        }
         .sheet(isPresented: $showCleanup) {
             BulkCleanupView(model: model)
                 .frame(width: 560, height: 460)
@@ -130,11 +137,18 @@ struct ClipRowView: View {
     var body: some View {
         HStack(spacing: 10) {
             Button(action: toggleAISelection) {
-                thumbnail
+                Image(systemName: isSelectedForAI ? "checkmark.circle.fill" : "circle")
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(isSelectedForAI ? Color.accentColor : Color.secondary)
+                    .frame(width: 20, height: 28)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .help(isSelectedForAI ? "Remove clip from AI selection" : "Add clip to AI selection")
             .accessibilityLabel(isSelectedForAI ? "Remove clip from AI selection" : "Add clip to AI selection")
+
+            thumbnail
+                .accessibilityHidden(true)
 
             Text(result.clip.title)
                 .font(.callout.weight(.medium))
@@ -177,16 +191,9 @@ struct ClipRowView: View {
             )
                 .frame(width: 34, height: 34)
                 .clipShape(RoundedRectangle(cornerRadius: 5))
-                .overlay {
-                    if isSelectedForAI {
-                        RoundedRectangle(cornerRadius: 5)
-                            .stroke(Color.accentColor, lineWidth: 2)
-                    }
-                }
         } else {
             Image(systemName: icon)
-                .symbolVariant(isSelectedForAI ? .fill : .none)
-                .foregroundStyle(isSelectedForAI ? Color.accentColor : ClipVaultDesign.tint(for: result.clip.kind))
+                .foregroundStyle(ClipVaultDesign.tint(for: result.clip.kind))
                 .frame(width: 28, height: 28)
         }
     }
