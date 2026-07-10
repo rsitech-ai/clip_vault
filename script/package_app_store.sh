@@ -55,6 +55,11 @@ if [[ -z "$APP_SIGNING_IDENTITY" ]]; then
   exit 2
 fi
 
+if [[ -z "$APPLE_TEAM_ID" ]]; then
+  echo "Missing APPLE_TEAM_ID and could not derive it from APP_SIGNING_IDENTITY." >&2
+  exit 2
+fi
+
 if [[ -z "$INSTALLER_SIGNING_IDENTITY" ]]; then
   echo "Missing INSTALLER_SIGNING_IDENTITY. Install a 3rd Party Mac Developer Installer certificate first." >&2
   security_identities basic >&2 || true
@@ -76,10 +81,10 @@ cp "$RUST_DYLIB_SOURCE" "$RUST_DYLIB_BUNDLE"
 chmod +x "$RUST_DYLIB_BUNDLE"
 install_name_tool -id "@rpath/$RUST_DYLIB_NAME" "$RUST_DYLIB_BUNDLE"
 install_name_tool -change "$RUST_DYLIB_SOURCE" "@executable_path/../Frameworks/$RUST_DYLIB_NAME" "$APP_BINARY"
-strip_build_host_rpaths "$APP_BINARY"
-strip_build_host_rpaths "$RUST_DYLIB_BUNDLE"
-assert_no_build_host_rpaths "$APP_BINARY"
-assert_no_build_host_rpaths "$RUST_DYLIB_BUNDLE"
+strip_nonallowlisted_rpaths "$APP_BINARY"
+strip_nonallowlisted_rpaths "$RUST_DYLIB_BUNDLE"
+assert_macho_paths_allowed "$APP_BINARY"
+assert_macho_paths_allowed "$RUST_DYLIB_BUNDLE"
 cp "$PRIVACY_MANIFEST" "$APP_RESOURCES/PrivacyInfo.xcprivacy"
 cp "$APP_ICON" "$APP_RESOURCES/AppIcon.icns"
 
@@ -173,6 +178,8 @@ assert_matching_uuids "$APP_BINARY" "$DSYM_BUNDLE"
 /usr/sbin/pkgutil --check-signature "$PKG_PATH"
 
 DSYM_BUNDLE="$DSYM_BUNDLE" \
+  EXPECTED_TEAM_ID="$APPLE_TEAM_ID" \
+  EXPECTED_INSTALLER_SIGNING_IDENTITY="$INSTALLER_SIGNING_IDENTITY" \
   "$ROOT_DIR/script/validate_app_store_package.sh" "$PKG_PATH"
 
 echo "Created Mac App Store package: $PKG_PATH"

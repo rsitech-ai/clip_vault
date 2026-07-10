@@ -11,6 +11,8 @@ jobs:
   verify:
     runs-on: macos-26
     timeout-minutes: 30
+    env:
+      CARGO_AUDIT_VERSION: 0.22.2
 
     steps:
       - name: Check out repository
@@ -34,13 +36,11 @@ jobs:
       - name: Test Rust
         run: cargo test --manifest-path rust/SearchIndexCore/Cargo.toml
 
-      - name: Audit Rust dependencies when available
-        run: |
-          if command -v cargo-audit >/dev/null 2>&1; then
-            cargo audit --file rust/SearchIndexCore/Cargo.lock
-          else
-            echo "cargo-audit is not installed on this runner; audit gate skipped."
-          fi
+      - name: Install pinned cargo-audit
+        run: cargo install cargo-audit --version "$CARGO_AUDIT_VERSION" --locked
+
+      - name: Audit Rust dependencies
+        run: cargo audit --file rust/SearchIndexCore/Cargo.lock
 
       - name: Build Rust release library
         run: cargo build --manifest-path rust/SearchIndexCore/Cargo.toml --release

@@ -7,6 +7,8 @@ BUNDLE_ID="${APP_BUNDLE_ID:-com.andrzej.ClipVault}"
 APP_VERSION="${APP_VERSION:-0.1.0}"
 APP_BUILD="${APP_BUILD:-1}"
 EXPECTED_ARCHS="${EXPECTED_ARCHS:-arm64}"
+EXPECTED_TEAM_ID="${EXPECTED_TEAM_ID:-${APPLE_TEAM_ID:-}}"
+EXPECTED_INSTALLER_SIGNING_IDENTITY="${EXPECTED_INSTALLER_SIGNING_IDENTITY:-}"
 PKG_PATH="${1:-${PKG_PATH:-$ROOT_DIR/dist/AppStore/$APP_NAME-$APP_VERSION-$APP_BUILD.pkg}}"
 DSYM_BUNDLE="${DSYM_BUNDLE:-$ROOT_DIR/dist/AppStore/$APP_NAME.app.dSYM}"
 
@@ -20,6 +22,8 @@ fail() {
 
 [[ -f "$PKG_PATH" ]] || fail "missing package: $PKG_PATH"
 [[ -d "$DSYM_BUNDLE" ]] || fail "missing dSYM: $DSYM_BUNDLE"
+[[ -n "$EXPECTED_TEAM_ID" ]] || fail "EXPECTED_TEAM_ID or APPLE_TEAM_ID is required"
+[[ -n "$EXPECTED_INSTALLER_SIGNING_IDENTITY" ]] || fail "EXPECTED_INSTALLER_SIGNING_IDENTITY is required"
 
 INSPECT_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/clipvault-pkg-validation.XXXXXX")"
 trap 'rm -rf "$INSPECT_ROOT"' EXIT
@@ -31,6 +35,11 @@ grep -Fq "Status: signed by a developer certificate issued by Apple" <<<"$PKG_SI
   fail "installer package is not signed by an Apple distribution certificate"
 grep -Eq "3rd Party Mac Developer Installer:|Mac Installer Distribution:" <<<"$PKG_SIGNATURE" || \
   fail "installer package does not use a Mac App Store installer identity"
+ACTUAL_INSTALLER_SIGNING_IDENTITY="$(printf '%s\n' "$PKG_SIGNATURE" | installer_identity_from_pkg_signature)"
+[[ "$ACTUAL_INSTALLER_SIGNING_IDENTITY" == "$EXPECTED_INSTALLER_SIGNING_IDENTITY" ]] || \
+  fail "installer signer mismatch: expected '$EXPECTED_INSTALLER_SIGNING_IDENTITY', got '$ACTUAL_INSTALLER_SIGNING_IDENTITY'"
+[[ "$(team_identifier_from_identity "$ACTUAL_INSTALLER_SIGNING_IDENTITY")" == "$EXPECTED_TEAM_ID" ]] || \
+  fail "installer signer team does not match expected team $EXPECTED_TEAM_ID"
 
 echo "== Package payload =="
 PAYLOAD_FILES="$(/usr/sbin/pkgutil --payload-files "$PKG_PATH")"
@@ -59,6 +68,12 @@ echo "== Strict signatures =="
 APP_SIGNATURE="$(/usr/bin/codesign -dvvv "$APP_BUNDLE" 2>&1)"
 grep -Eq "^Authority=(Apple Distribution:|3rd Party Mac Developer Application:)" <<<"$APP_SIGNATURE" || \
   fail "application is not signed with a Mac App Store distribution identity"
+for signed_artifact in "$APP_BUNDLE" "$APP_BINARY" "$RUST_DYLIB"; do
+  assert_hardened_runtime "$signed_artifact"
+  ACTUAL_TEAM_ID="$(codesign_details "$signed_artifact" | team_identifier_from_codesign_details)"
+  [[ "$ACTUAL_TEAM_ID" == "$EXPECTED_TEAM_ID" ]] || \
+    fail "codesign TeamIdentifier mismatch in $signed_artifact: expected $EXPECTED_TEAM_ID, got $ACTUAL_TEAM_ID"
+done
 
 echo "== Effective entitlements =="
 EFFECTIVE_ENTITLEMENTS="$INSPECT_ROOT/effective-entitlements.plist"
@@ -70,9 +85,33 @@ EFFECTIVE_ENTITLEMENTS="$INSPECT_ROOT/effective-entitlements.plist"
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.files.user-selected.read-only' "$EFFECTIVE_ENTITLEMENTS")" == "true" ]] || \
   fail "effective user-selected read-only entitlement is not true"
 TEAM_ID="$(/usr/libexec/PlistBuddy -c 'Print :com.apple.developer.team-identifier' "$EFFECTIVE_ENTITLEMENTS")"
-[[ -n "$TEAM_ID" ]] || fail "effective team identifier is missing"
-[[ "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.application-identifier' "$EFFECTIVE_ENTITLEMENTS")" == "$TEAM_ID.$BUNDLE_ID" ]] || \
+[[ "$TEAM_ID" == "$EXPECTED_TEAM_ID" ]] || fail "effective team identifier does not match expected team"
+[[ "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.application-identifier' "$EFFECTIVE_ENTITLEMENTS")" == "$EXPECTED_TEAM_ID.$BUNDLE_ID" ]] || \
   fail "effective application identifier does not match team and bundle identifiers"
+
+echo "== Embedded provisioning profile =="
+PROVISIONING_PROFILE="$APP_CONTENTS/embedded.provisionprofile"
+if [[ -f "$PROVISIONING_PROFILE" ]]; then
+  PROFILE_PLIST="$INSPECT_ROOT/embedded-provisioning-profile.plist"
+  /usr/bin/security cms -D -i "$PROVISIONING_PROFILE" >"$PROFILE_PLIST"
+  /usr/bin/plutil -lint "$PROFILE_PLIST"
+  PROFILE_TEAM_ID="$(/usr/libexec/PlistBuddy -c 'Print :TeamIdentifier:0' "$PROFILE_PLIST")"
+  [[ "$PROFILE_TEAM_ID" == "$EXPECTED_TEAM_ID" ]] || fail "provisioning profile team identifier mismatch"
+  PROFILE_ENTITLEMENT_TEAM="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.developer.team-identifier' "$PROFILE_PLIST")"
+  [[ "$PROFILE_ENTITLEMENT_TEAM" == "$EXPECTED_TEAM_ID" ]] || fail "provisioning profile entitlement team mismatch"
+  PROFILE_APP_ID="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.application-identifier' "$PROFILE_PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$PROFILE_PLIST")"
+  [[ "$PROFILE_APP_ID" == "$EXPECTED_TEAM_ID.$BUNDLE_ID" ]] || fail "provisioning profile application identifier mismatch"
+  [[ "$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.security.app-sandbox' "$PROFILE_PLIST")" == "true" ]] || \
+    fail "provisioning profile app sandbox entitlement is not true"
+  PROFILE_EXPIRATION="$(/usr/bin/plutil -extract ExpirationDate raw "$PROFILE_PLIST")"
+  NOW_UTC="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  [[ "$PROFILE_EXPIRATION" > "$NOW_UTC" ]] || fail "provisioning profile is expired: $PROFILE_EXPIRATION"
+  printf 'Provisioning profile valid through: %s\n' "$PROFILE_EXPIRATION"
+  PROVISIONING_STATUS="validated"
+else
+  echo "No embedded provisioning profile; App Store Connect provisioning validation remains unverified."
+  PROVISIONING_STATUS="absent"
+fi
 
 echo "== Info.plist and privacy manifest =="
 /usr/bin/plutil -lint "$INFO_PLIST"
@@ -89,7 +128,7 @@ echo "== Architectures and load paths =="
 for executable in "$APP_BINARY" "$RUST_DYLIB"; do
   ARCHS="$(/usr/bin/lipo -archs "$executable" | xargs)"
   [[ "$ARCHS" == "$EXPECTED_ARCHS" ]] || fail "unexpected architectures in $executable: $ARCHS (expected $EXPECTED_ARCHS)"
-  assert_no_build_host_rpaths "$executable"
+  assert_macho_paths_allowed "$executable"
 done
 /usr/bin/otool -L "$APP_BINARY" | grep -Fq "@executable_path/../Frameworks/libsearch_index_core.dylib" || \
   fail "application does not load the bundled Rust library"
@@ -109,4 +148,9 @@ PKG_SHA256="$(/usr/bin/shasum -a 256 "$PKG_PATH" | awk '{print $1}')"
 DSYM_SHA256="$(/usr/bin/shasum -a 256 "$DSYM_DWARF" | awk '{print $1}')"
 printf 'Package SHA-256: %s\n' "$PKG_SHA256"
 printf 'dSYM DWARF SHA-256: %s\n' "$DSYM_SHA256"
-echo "Mac App Store distribution package validation passed."
+echo "Repository-local Mac App Store package validation passed."
+if [[ "$PROVISIONING_STATUS" == "absent" ]]; then
+  echo "Provisioning gate: UNVERIFIED until App Store Connect server-side validation."
+else
+  echo "Provisioning gate: locally validated embedded profile; App Store Connect validation remains required."
+fi
