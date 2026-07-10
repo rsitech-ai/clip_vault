@@ -12,6 +12,7 @@ struct ContentView: View {
             workspace
                 .task(id: WorkspaceWidthClass(width: proxy.size.width)) {
                     await Task.yield()
+                    guard !Task.isCancelled else { return }
                     adaptSidebar(to: proxy.size.width)
                 }
         }
