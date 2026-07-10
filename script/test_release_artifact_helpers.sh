@@ -30,7 +30,9 @@ ACTUAL_RPATHS="$(printf '%s\n' "$OTOOL_FIXTURE" | rpaths_from_otool)"
 
 for allowed_path in \
   "/usr/lib/swift" \
+  "/usr/lib/../lib/libSystem.B.dylib" \
   "/System/Library/Frameworks/AppKit.framework/Versions/C/AppKit" \
+  "/System/Library/../Library/Frameworks/Foundation.framework/Foundation" \
   "@loader_path/libsearch_index_core.dylib" \
   "@rpath/libsearch_index_core.dylib" \
   "@executable_path/../Frameworks/libsearch_index_core.dylib"; do
@@ -65,6 +67,8 @@ for rejected_path in \
   "/Library/Developer/CommandLineTools/usr/lib/libexample.dylib" \
   "/Users/example/project/.build/release/libexample.dylib" \
   "/unexpected/absolute/libexample.dylib" \
+  "/usr/lib/../../tmp/evil.dylib" \
+  "/System/Library/../../../opt/evil.dylib" \
   "relative/libexample.dylib"; do
   if is_allowed_macho_path "$rejected_path"; then
     fail "non-allowlisted Mach-O path was accepted: $rejected_path"
