@@ -14,6 +14,9 @@
 ## Standards Checked
 
 - Apple App Sandbox and user-selected file access: <https://developer.apple.com/documentation/security/app-sandbox>
+- Apple Designing for macOS: <https://developer.apple.com/design/human-interface-guidelines/designing-for-macos/>
+- Apple disclosure controls, sidebars, layout, and materials: <https://developer.apple.com/design/human-interface-guidelines/disclosure-controls>, <https://developer.apple.com/design/human-interface-guidelines/sidebars>, <https://developer.apple.com/design/human-interface-guidelines/layout>, <https://developer.apple.com/design/human-interface-guidelines/materials>
+- SwiftUI `NavigationSplitViewVisibility`: <https://developer.apple.com/documentation/swiftui/navigationsplitviewvisibility>
 - SwiftData `ModelContext` save/rollback behavior: <https://developer.apple.com/documentation/swiftdata/modelcontext>
 - SwiftUI `MenuBarExtra`: <https://developer.apple.com/documentation/swiftui/menubarextra>
 - SwiftUI content minimum window sizing: <https://developer.apple.com/documentation/swiftui/windowresizability/contentminsize>
@@ -26,19 +29,19 @@
 
 | Check | Command / tool | Result | Evidence |
 | --- | --- | --- | --- |
-| Full tests | `./script/test.sh` | Passed | Rust 3/3; Swift 42/42 across 11 suites |
+| Full tests | `./script/test.sh` | Passed | Rust 3/3; Swift 49/49 across 13 suites |
 | Release warnings | `swift build -c release -Xswiftc -warnings-as-errors` | Passed | No compiler warnings or errors |
 | Rust static gate | `cargo fmt --check`, Clippy with `-D warnings`, release tests | Passed | No formatting or lint findings; 3/3 tests |
 | Memory safety | `swift test --sanitize=address` | Passed | Full Swift suite passed under ASan |
 | Dependency audit | `cargo audit` | Passed | One local Rust crate; no advisory match; no external Swift dependency |
-| Signed launch | `./script/build_and_run.sh --verify` | Passed | `dist/ClipVault.app` rebuilt, signed, launched, and remained responsive |
-| Live storage E2E | `./script/e2e_smoke.sh` | Passed | Capture, dedupe, copy count, restart, and post-restart persistence verified by the signed app-owned probe |
+| Signed launch | `./script/build_and_run.sh --verify` | Passed | Verification now waits for the exact staged PID to report that capture has started |
+| Live storage E2E | `./script/e2e_smoke.sh` | Passed | Two consecutive final capture, dedupe, copy-count, restart, and persistence runs passed |
 | Release preflight | `./script/app_store_check.sh` | Passed | Bundle, plist, privacy manifest, entitlements, signing, and identity inventory clean |
-| Package | `./script/package_app_store.sh` | Passed | `dist/AppStore/ClipVault-0.1.0-1.pkg`, 2,637,676 bytes |
+| Package | `./script/package_app_store.sh` | Passed | `dist/AppStore/ClipVault-0.1.0-1.pkg`, 2,654,514 bytes |
 | Package integrity | `pkgutil --check-signature`, `codesign --verify --deep --strict` | Passed | Apple Distribution app signature and 3rd Party Mac Developer Installer chain valid |
-| Package digest | `shasum -a 256` | Passed | `436faff9cac2f0c356b86ee7b3837c9da682d457583b7c533725cf8336e15f99` |
-| Runtime logs | Unified log error/fault filter for `com.andrzej.ClipVault` | Passed | No ClipVault-authored error or fault rows in the final 30-minute window |
-| Idle sampling | `sample <pid> 2 1` and `ps` | Passed | Main thread blocked in the normal AppKit event loop; no spin or busy update loop |
+| Package digest | `shasum -a 256` | Passed | `3dfedf547372bb6c7013972aa9b7e350969fd46d2484d3707392ca056d3e03cc` |
+| Runtime logs | PID-scoped unified log error/fault filters | Passed | Two normal post-migration launches produced no error/fault rows; Computer Use attachment diagnostics are documented separately below |
+| Idle sampling | `sample`, `ps`, `footprint`, `vmmap` | Passed | Main thread waited in the AppKit event loop; steady footprint fell from 591 MB to about 92 MB |
 | Diff hygiene | `git diff --check` | Passed | No whitespace errors; historical untracked audit directories remained untouched |
 
 ## Scenario Matrix
@@ -46,6 +49,10 @@
 | Surface | Scenario | Expected | Actual | Status |
 | --- | --- | --- | --- | --- |
 | Startup | Rebuild, sign, launch, restart | One healthy staged process and restored workspace | Passed; bundle process restarted cleanly | Verified |
+| Compact workspace | Launch at 900 x 572 | Sidebar hidden automatically; content/detail remain readable | Two-column workspace appeared with no clipped footer controls | Verified |
+| Workspace copy semantics | Select, press Return, double-click | Single selection does not copy; Return and double-click do | Pasteboard SHA-256 stayed unchanged after selection, then changed on Return and double-click | Verified |
+| AI disclosure | Select for AI, expand/collapse, run local action | Shelf expands intentionally and never steals idle space | 48-point shelf, automatic 0-to-1 expansion, manual collapse, and local Explain result all passed | Verified |
+| Image preview migration | Open legacy image clips after storage migration | Thumbnails and detail preview remain visible | 58 image matches loaded; list thumbnails and the selected full detail preview rendered | Verified |
 | Clipboard | Copy a unique token twice | One stored row with copy count at least two | Signed app probe returned one row and copy count two; survived restart | Verified |
 | Search | Query a token absent from all clips, including recent/pinned clips | Zero results | Workspace reported `All Clips 0 visible` and `No matching clips` | Verified |
 | Folders | Invalid, duplicate, protected, nested, move, delete, persistence | Both stores enforce identical rules and rollback failures | Focused parity/persistence tests passed; empty create remained disabled in the live sheet | Verified |
@@ -68,17 +75,22 @@
 | Medium | App Review | Buy Me a Coffee buttons were external developer-tip purchase calls to action in a worldwide binary | Removed the sponsor UI, URL, and obsolete test | Source scan and live About Settings show no sponsor control |
 | Medium | Rust FFI | Public raw-pointer functions lacked explicit unsafe signatures and safety contracts | Marked FFI calls unsafe, documented invariants, and added round-trip ownership coverage | Rust format, Clippy `-D warnings`, and release tests passed |
 | Polish | AI context | Empty result copy said zero clips while the panel was using the open clip | Reused the panel's canonical context text | Live panel reports `Using open clip` consistently |
+| High | Memory/performance | Every list clip decrypted and retained the original image payload; a 208 MB library produced a 591 MB idle footprint | Added an encrypted lightweight list payload with a bounded 1024-pixel thumbnail, lazy legacy migration, and exact original-payload preservation | Thumbnail, legacy-migration, and byte-preservation tests pass; steady footprint is about 92 MB and image previews still render |
+| Medium | Launch/E2E readiness | `--verify` accepted a PID before the SwiftUI task had started clipboard capture, racing the E2E pasteboard write | Publish a capture-ready PID after the service starts and wait for that exact staged PID in the run script | Marker matched the live PID; two consecutive signed E2E runs passed |
+| Medium | Startup layout | Compact sidebar adaptation mutated split-view visibility during AppKit layout and could emit a layout-recursion warning | Defer width-class adaptation through an async SwiftUI task keyed by width class | Two clean normal launches produced no error/fault rows |
 
 No blocker, high, or medium code-review finding remains open in the reviewed tree.
 
 ## Security, Privacy, And Performance Review
 
 - Clipboard payloads remain local and encrypted at rest; sensitive token/private-key patterns are rejected before persistence.
+- Lightweight list payloads are also AES-GCM encrypted; original image bytes remain in the original encrypted payload and are loaded only for copy/export.
 - Logs contain lifecycle and recoverable error state, not raw clipboard content, OCR text, notes, file paths, or encryption material.
 - The app is sandboxed and the packaged entitlement set is limited to the application identifier, team identifier, App Sandbox, and user-selected read-only file access.
 - The Rust core has no third-party crate dependency; SwiftPM has no external package dependency.
 - The diagnostic store probe accepts exactly one nonempty token, reports only an exact-match count and copy count, is read-only, and exits before the UI/capture service starts.
-- Final process sampling found the main thread idle in the AppKit event loop and no ClipVault error/fault log entries.
+- Final process sampling found the main thread idle in the AppKit event loop. Normal PID-scoped launch logs were clean.
+- Computer Use accessibility attachment emits AppKit menu/geometry diagnostics on both the pre-change and current build. Those rows begin only when the instrumentation attaches and are not present in normal launches; they are not represented as product-clean runtime evidence.
 
 ## Remaining External Or Manual Gates
 

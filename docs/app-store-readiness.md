@@ -86,7 +86,7 @@ package exists and API key values are supplied.
 ## Verified Local Candidate (2026-07-10)
 
 - Package: `dist/AppStore/ClipVault-0.1.0-1.pkg`
-- Size: 2,637,676 bytes
-- SHA-256: `436faff9cac2f0c356b86ee7b3837c9da682d457583b7c533725cf8336e15f99`
+- Size: 2,654,514 bytes
+- SHA-256: `3dfedf547372bb6c7013972aa9b7e350969fd46d2484d3707392ca056d3e03cc`
 - Local checks: app distribution signature, installer signature, entitlements, privacy manifest, dylib linkage, live sandbox persistence smoke, and ClipVault-authored error/fault logs all pass.
 - Still external: App Store Connect record/metadata/privacy answers/screenshots, upload validation, clean-account package installation, and App Review.
