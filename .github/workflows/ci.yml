@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: macos-26
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Confirm arm64 runner
+        run: test "$(uname -m)" = arm64
+
+      - name: Check Bash syntax
+        run: find script -type f -name '*.sh' -print0 | xargs -0 -n1 bash -n
+
+      - name: Run shell tests
+        run: ./script/test_shell.sh
+
+      - name: Check Rust formatting
+        run: cargo fmt --manifest-path rust/SearchIndexCore/Cargo.toml -- --check
+
+      - name: Lint Rust
+        run: cargo clippy --manifest-path rust/SearchIndexCore/Cargo.toml --all-targets --all-features -- -D warnings
+
+      - name: Test Rust
+        run: cargo test --manifest-path rust/SearchIndexCore/Cargo.toml
+
+      - name: Audit Rust dependencies when available
+        run: |
+          if command -v cargo-audit >/dev/null 2>&1; then
+            cargo audit --file rust/SearchIndexCore/Cargo.lock
+          else
+            echo "cargo-audit is not installed on this runner; audit gate skipped."
+          fi
+
+      - name: Build Rust release library
+        run: cargo build --manifest-path rust/SearchIndexCore/Cargo.toml --release
+
+      - name: Run full Swift tests
+        run: swift test
+
+      - name: Build warning-free Swift release
+        run: swift build -c release -Xswiftc -warnings-as-errors
