@@ -28,9 +28,12 @@ RUST_DYLIB_NAME="libsearch_index_core.dylib"
 RUST_DYLIB_SOURCE="$ROOT_DIR/rust/SearchIndexCore/target/release/deps/$RUST_DYLIB_NAME"
 RUST_DYLIB_BUNDLE="$APP_FRAMEWORKS/$RUST_DYLIB_NAME"
 PKG_PATH="$DIST_ROOT/$APP_NAME-$APP_VERSION-$APP_BUILD.pkg"
+DSYM_BUNDLE="$DIST_ROOT/$APP_NAME.app.dSYM"
 
 # shellcheck source=lib/signing_identities.sh
 source "$ROOT_DIR/script/lib/signing_identities.sh"
+# shellcheck source=lib/release_artifact.sh
+source "$ROOT_DIR/script/lib/release_artifact.sh"
 
 cd "$ROOT_DIR"
 
@@ -73,6 +76,10 @@ cp "$RUST_DYLIB_SOURCE" "$RUST_DYLIB_BUNDLE"
 chmod +x "$RUST_DYLIB_BUNDLE"
 install_name_tool -id "@rpath/$RUST_DYLIB_NAME" "$RUST_DYLIB_BUNDLE"
 install_name_tool -change "$RUST_DYLIB_SOURCE" "@executable_path/../Frameworks/$RUST_DYLIB_NAME" "$APP_BINARY"
+strip_build_host_rpaths "$APP_BINARY"
+strip_build_host_rpaths "$RUST_DYLIB_BUNDLE"
+assert_no_build_host_rpaths "$APP_BINARY"
+assert_no_build_host_rpaths "$RUST_DYLIB_BUNDLE"
 cp "$PRIVACY_MANIFEST" "$APP_RESOURCES/PrivacyInfo.xcprivacy"
 cp "$APP_ICON" "$APP_RESOURCES/AppIcon.icns"
 
@@ -155,6 +162,9 @@ fi
 
 /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE"
 
+/usr/bin/dsymutil "$APP_BINARY" -o "$DSYM_BUNDLE"
+assert_matching_uuids "$APP_BINARY" "$DSYM_BUNDLE"
+
 /usr/bin/productbuild \
   --component "$APP_BUNDLE" /Applications \
   --sign "$INSTALLER_SIGNING_IDENTITY" \
@@ -162,4 +172,8 @@ fi
 
 /usr/sbin/pkgutil --check-signature "$PKG_PATH"
 
+DSYM_BUNDLE="$DSYM_BUNDLE" \
+  "$ROOT_DIR/script/validate_app_store_package.sh" "$PKG_PATH"
+
 echo "Created Mac App Store package: $PKG_PATH"
+echo "Created matching dSYM: $DSYM_BUNDLE"
