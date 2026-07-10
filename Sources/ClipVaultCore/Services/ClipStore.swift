@@ -25,15 +25,15 @@ public final class ClipRecord {
         self.createdAt = clip.createdAt
         self.updatedAt = clip.updatedAt
         self.kindRaw = clip.kind.rawValue
-        self.title = clip.title
-        self.preview = clip.preview
+        self.title = ""
+        self.preview = ""
         self.isPinned = clip.isPinned
         self.collectionIDsRaw = clip.collectionIDs.joined(separator: ",")
         self.pinboardIDsRaw = clip.pinboardIDs.joined(separator: ",")
-        self.sourceApp = clip.sourceApp
+        self.sourceApp = nil
         self.fingerprintValue = clip.fingerprint
-        self.userNote = clip.userNote
-        self.tagsRaw = clip.tags.joined(separator: ",")
+        self.userNote = nil
+        self.tagsRaw = nil
         self.copyCount = clip.copyCount
         self.encryptedPayload = encryptedPayload
         self.encryptedListPayload = encryptedListPayload
@@ -64,6 +64,10 @@ private struct EncryptedClipDetails: Codable {
         self.tags = tags
         self.sourceApp = sourceApp
     }
+}
+
+private struct EncryptedClipDetailsHeader: Decodable {
+    var version: Int
 }
 
 private enum EncryptedClipDetailsError: Error {
@@ -716,17 +720,17 @@ public final class SwiftDataClipStore: ClipStoring {
     private func details(from record: ClipRecord) throws -> EncryptedClipDetails {
         if let encryptedListPayload = record.encryptedListPayload {
             let decrypted = try encryptor.decrypt(encryptedListPayload)
-            if let details = try? decoder.decode(EncryptedClipDetails.self, from: decrypted) {
-                guard details.version == EncryptedClipDetails.currentVersion else {
-                    throw EncryptedClipDetailsError.unsupportedVersion(details.version)
+            if let header = try? decoder.decode(EncryptedClipDetailsHeader.self, from: decrypted) {
+                guard header.version == EncryptedClipDetails.currentVersion else {
+                    throw EncryptedClipDetailsError.unsupportedVersion(header.version)
                 }
+                let details = try decoder.decode(EncryptedClipDetails.self, from: decrypted)
                 clearPlaintextDetails(on: record)
                 return details
             }
 
-            if let legacyListPayload = try? decoder.decode(ClipPayload.self, from: decrypted) {
-                return try migrateDetails(for: record, listPayload: legacyListPayload)
-            }
+            let legacyListPayload = try decoder.decode(ClipPayload.self, from: decrypted)
+            return try migrateDetails(for: record, listPayload: legacyListPayload)
         }
 
         let legacyPayload = try payload(from: record)

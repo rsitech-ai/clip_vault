@@ -5,6 +5,29 @@ import Testing
 
 @Suite("Clip storage encryption")
 struct ClipStorageEncryptionTests {
+    @Test("production record initializer uses plaintext placeholders")
+    func productionRecordInitializerUsesPlaintextPlaceholders() {
+        let record = ClipRecord(
+            clip: Clip(
+                kind: .text,
+                title: "initializer-title-DB698F17",
+                preview: "initializer-preview-41BC09A2",
+                extractedText: "initializer-content-8F5C20D3",
+                sourceApp: "initializer-source-EA143769",
+                userNote: "initializer-note-758DCB04",
+                tags: ["initializer-tag-036AB98F"]
+            ),
+            encryptedPayload: Data([1]),
+            encryptedListPayload: Data([2])
+        )
+
+        #expect(record.title.isEmpty)
+        #expect(record.preview.isEmpty)
+        #expect(record.sourceApp == nil)
+        #expect(record.userNote == nil)
+        #expect(record.tagsRaw == nil)
+    }
+
     @Test("new and updated clip details remain encrypted at rest and round-trip")
     func newAndUpdatedDetailsRemainEncryptedAtRest() throws {
         let directory = try makeTemporaryDirectory()
@@ -56,7 +79,7 @@ struct ClipStorageEncryptionTests {
         #expect(record.encryptedListPayload != nil)
 
         for marker in [clipboardMarker, titleMarker, noteMarker, tagMarker, sourceMarker] {
-            #expect(try !files(in: directory).contains { fileContains(marker, at: $0) })
+            #expect(try !files(in: directory).contains { try fileContains(marker, at: $0) })
         }
     }
 
@@ -125,16 +148,11 @@ struct ClipStorageEncryptionTests {
             tags: ["legacy-tag-A6E94217"]
         )
         let legacyListPayload = try encryptor.encrypt(JSONEncoder().encode(payload))
-        let record = ClipRecord(
+        let record = makeLegacyRecordForTests(
             clip: legacyClip,
             encryptedPayload: try encryptor.encrypt(JSONEncoder().encode(payload)),
             encryptedListPayload: legacyListPayload
         )
-        record.title = legacyClip.title
-        record.preview = legacyClip.preview
-        record.sourceApp = legacyClip.sourceApp
-        record.userNote = legacyClip.userNote
-        record.tagsRaw = legacyClip.tags.joined(separator: ",")
         context.insert(record)
         try context.save()
 
@@ -152,6 +170,48 @@ struct ClipStorageEncryptionTests {
         #expect(record.sourceApp == nil)
         #expect(record.userNote == nil)
         #expect(record.tagsRaw == nil)
+        #expect(!context.hasChanges)
+    }
+
+    @Test("future details envelope versions fail closed without rewrite")
+    func futureEnvelopeVersionsFailClosedWithoutRewrite() throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let (_, context, store) = try makeStore(at: directory.appendingPathComponent("ClipVault.sqlite"))
+        let encryptor = MarkerHidingEncryptor()
+        let payload = ClipPayload(
+            kind: .text,
+            displayText: "future-fallback-content-3EAB6471",
+            extractedText: "future-fallback-content-3EAB6471"
+        )
+        let clip = Clip(
+            kind: .text,
+            title: "future-plaintext-title-A29D81C5",
+            preview: payload.displayText,
+            extractedText: payload.extractedText
+        )
+        let futureCiphertext = try encryptor.encrypt(JSONEncoder().encode(
+            FutureDetailsEnvelope(version: 2, futurePayload: ["shape": "incompatible"])
+        ))
+        let record = makeLegacyRecordForTests(
+            clip: clip,
+            encryptedPayload: try encryptor.encrypt(JSONEncoder().encode(payload)),
+            encryptedListPayload: futureCiphertext
+        )
+        context.insert(record)
+        try context.save()
+
+        var didThrow = false
+        do {
+            _ = try store.allClips()
+        } catch {
+            didThrow = true
+        }
+
+        #expect(didThrow)
+        #expect(record.encryptedListPayload == futureCiphertext)
+        #expect(record.title == clip.title)
+        #expect(record.preview == clip.preview)
         #expect(!context.hasChanges)
     }
 
@@ -195,13 +255,34 @@ struct ClipStorageEncryptionTests {
         }
     }
 
-    private func fileContains(_ marker: String, at url: URL) -> Bool {
-        guard let data = try? Data(contentsOf: url),
-              let markerData = marker.data(using: .utf8) else {
-            return false
-        }
+    private func fileContains(_ marker: String, at url: URL) throws -> Bool {
+        let data = try Data(contentsOf: url)
+        let markerData = Data(marker.utf8)
         return data.range(of: markerData) != nil
     }
+
+    private func makeLegacyRecordForTests(
+        clip: Clip,
+        encryptedPayload: Data,
+        encryptedListPayload: Data?
+    ) -> ClipRecord {
+        let record = ClipRecord(
+            clip: clip,
+            encryptedPayload: encryptedPayload,
+            encryptedListPayload: encryptedListPayload
+        )
+        record.title = clip.title
+        record.preview = clip.preview
+        record.sourceApp = clip.sourceApp
+        record.userNote = clip.userNote
+        record.tagsRaw = clip.tags.joined(separator: ",")
+        return record
+    }
+}
+
+private struct FutureDetailsEnvelope: Codable {
+    var version: Int
+    var futurePayload: [String: String]
 }
 
 private struct MarkerHidingEncryptor: PayloadEncrypting {
