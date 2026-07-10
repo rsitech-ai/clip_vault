@@ -37,9 +37,9 @@
 | Signed launch | `./script/build_and_run.sh --verify` | Passed | Verification now waits for the exact staged PID to report that capture has started |
 | Live storage E2E | `./script/e2e_smoke.sh` | Passed | Two consecutive final capture, dedupe, copy-count, restart, and persistence runs passed |
 | Release preflight | `./script/app_store_check.sh` | Passed | Bundle, plist, privacy manifest, entitlements, signing, and identity inventory clean |
-| Package | `./script/package_app_store.sh` | Passed | `dist/AppStore/ClipVault-0.1.0-1.pkg`, 2,654,514 bytes |
+| Package | `./script/package_app_store.sh` | Passed | `dist/AppStore/ClipVault-0.1.0-1.pkg`, 2,654,411 bytes |
 | Package integrity | `pkgutil --check-signature`, `codesign --verify --deep --strict` | Passed | Apple Distribution app signature and 3rd Party Mac Developer Installer chain valid |
-| Package digest | `shasum -a 256` | Passed | `3dfedf547372bb6c7013972aa9b7e350969fd46d2484d3707392ca056d3e03cc` |
+| Package digest | `shasum -a 256` | Passed | `8e3fe4de72edcf162da77af71b9f6ee043ff80990fdead1739bc2bdcbfb13866` |
 | Runtime logs | PID-scoped unified log error/fault filters | Passed | Two normal post-migration launches produced no error/fault rows; Computer Use attachment diagnostics are documented separately below |
 | Idle sampling | `sample`, `ps`, `footprint`, `vmmap` | Passed | Main thread waited in the AppKit event loop; steady footprint fell from 591 MB to about 92 MB |
 | Diff hygiene | `git diff --check` | Passed | No whitespace errors; historical untracked audit directories remained untouched |
