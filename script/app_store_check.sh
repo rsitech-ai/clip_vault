@@ -8,6 +8,10 @@ INFO_PLIST="$APP_BUNDLE/Contents/Info.plist"
 ENTITLEMENTS="$ROOT_DIR/Packaging/ClipVault.entitlements"
 PRIVACY_MANIFEST="$APP_BUNDLE/Contents/Resources/PrivacyInfo.xcprivacy"
 ICON="$APP_BUNDLE/Contents/Resources/AppIcon.icns"
+APP_VERSION="${APP_VERSION:-0.1.0}"
+APP_BUILD="${APP_BUILD:-1}"
+PKG_PATH="${PKG_PATH:-$ROOT_DIR/dist/AppStore/$APP_NAME-$APP_VERSION-$APP_BUILD.pkg}"
+DSYM_BUNDLE="${DSYM_BUNDLE:-$ROOT_DIR/dist/AppStore/$APP_NAME.app.dSYM}"
 
 # shellcheck source=lib/signing_identities.sh
 source "$ROOT_DIR/script/lib/signing_identities.sh"
@@ -69,8 +73,18 @@ else
 fi
 
 if [[ "$MISSING" -eq 1 ]]; then
-  echo "Local bundle checks passed, but this machine is not upload-ready until missing distribution identities are installed."
+  echo "Local bundle checks passed, but distribution package prerequisites are incomplete until missing identities are installed."
   exit 3
 fi
 
-echo "App Store readiness check complete: upload prerequisites are present."
+echo "== Signed distribution package =="
+if [[ ! -f "$PKG_PATH" || ! -d "$DSYM_BUNDLE" ]]; then
+  echo "Distribution identities are present, but no complete validated package+dSYM pair exists." >&2
+  echo "Run ./script/package_app_store.sh, then rerun this check." >&2
+  exit 3
+fi
+
+DSYM_BUNDLE="$DSYM_BUNDLE" ./script/validate_app_store_package.sh "$PKG_PATH"
+
+echo "App Store readiness check complete: local bundle, identities, and distribution package passed validation."
+echo "App Store Connect authentication, server-side validation, metadata, and submission remain separate gates."
