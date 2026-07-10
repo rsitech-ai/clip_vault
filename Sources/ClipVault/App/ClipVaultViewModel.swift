@@ -9,6 +9,12 @@ import SwiftData
 final class ClipVaultViewModel {
     private static let logger = Logger(subsystem: "com.andrzej.ClipVault", category: "ViewModel")
 
+    private static func logFailure(operation: String, error: any Error) {
+        logger.error(
+            "operation_failed operation=\(operation, privacy: .public) details=\(error.localizedDescription, privacy: .private)"
+        )
+    }
+
     let container: ModelContainer
     let storageStartupError: String?
 
@@ -29,7 +35,7 @@ final class ClipVaultViewModel {
         }
     }
     var isCapturing = false
-    var captureStatus = "Ready"
+    var captureStatus = "Capture paused — consent required"
     var aiResult: AIActionResult?
     var aiError: String?
     var isGenerating = false
@@ -46,6 +52,27 @@ final class ClipVaultViewModel {
     private let searcher = ClipSearcher()
     private let aiProvider: any AIActionProviding = FoundationModelsAIActionProvider()
     private var store: (any ClipStoring)?
+    private var captureConsentPolicy = CaptureConsentPolicy(
+        hasPersistedConsent: UserDefaults.standard.bool(
+            forKey: ClipVaultSettingsKey.clipboardCaptureConsentGranted,
+            default: false
+        )
+    )
+
+    var hasCaptureConsent: Bool {
+        captureConsentPolicy.hasConsent
+    }
+
+    var isCaptureConsentDisclosurePresented: Bool {
+        captureConsentPolicy.isDisclosurePresented
+    }
+
+    var captureStateTitle: String {
+        if isCapturing {
+            return "Capturing"
+        }
+        return hasCaptureConsent ? "Paused" : "Consent required"
+    }
 
     init() {
         let schema = Schema([ClipRecord.self, FolderRecord.self])
@@ -79,18 +106,21 @@ final class ClipVaultViewModel {
             self?.captureStatus = didCapture ? "Screenshot copied to clipboard" : "Screenshot cancelled"
             self?.updateDockTile()
         }
-        captureService.start()
-        isCapturing = true
-        UserDefaults.standard.set(
-            Int(ProcessInfo.processInfo.processIdentifier),
-            forKey: ClipVaultSettingsKey.captureReadyProcessID
-        )
-        captureStatus = screenshotHotKeyRegistered ? "Watching clipboard" : "Watching clipboard, screenshot shortcut unavailable"
+        if captureConsentPolicy.isCapturing {
+            startCapture()
+        } else {
+            captureService.stop()
+            isCapturing = false
+        }
         reload()
         pruneExpiredClips(retentionDays: configuredRetentionDays, updatesStatus: false)
         if let storageStartupError {
             Self.logger.error("Persistent storage startup failed; using fallback storage")
             captureStatus = storageStartupError
+        } else if captureConsentPolicy.isCapturing {
+            captureStatus = screenshotHotKeyRegistered ? "Watching clipboard" : "Watching clipboard, screenshot shortcut unavailable"
+        } else {
+            captureStatus = "Capture paused — consent required"
         }
     }
 
@@ -133,7 +163,7 @@ final class ClipVaultViewModel {
             captureStatus = clips.isEmpty ? "Ready" : "\(clips.count) clips indexed"
             selectFirstVisibleResultIfNeeded()
         } catch {
-            Self.logger.error("Failed to reload clips: \(error.localizedDescription, privacy: .public)")
+            Self.logFailure(operation: "reload_clips", error: error)
             captureStatus = error.localizedDescription
         }
         updateDockTile()
@@ -153,15 +183,54 @@ final class ClipVaultViewModel {
 
     func toggleCapture() {
         if isCapturing {
+            captureConsentPolicy.pause()
             captureService.stop()
             isCapturing = false
             captureStatus = "Paused"
         } else {
-            captureService.start()
-            isCapturing = true
-            captureStatus = "Watching clipboard"
+            captureConsentPolicy.requestResume()
+            if captureConsentPolicy.isCapturing {
+                startCapture()
+                captureStatus = "Watching clipboard"
+            } else {
+                captureStatus = "Capture paused — consent required"
+            }
         }
         updateDockTile()
+    }
+
+    func acceptCaptureConsent() {
+        captureConsentPolicy.accept()
+        UserDefaults.standard.set(true, forKey: ClipVaultSettingsKey.clipboardCaptureConsentGranted)
+        startCapture()
+        captureStatus = "Watching clipboard"
+        updateDockTile()
+    }
+
+    func declineCaptureConsent() {
+        captureConsentPolicy.decline()
+        captureService.stop()
+        isCapturing = false
+        captureStatus = "Capture paused — consent required"
+        updateDockTile()
+    }
+
+    func revokeCaptureConsent() {
+        captureConsentPolicy.revoke()
+        UserDefaults.standard.removeObject(forKey: ClipVaultSettingsKey.clipboardCaptureConsentGranted)
+        captureService.stop()
+        isCapturing = false
+        captureStatus = "Capture paused — consent revoked"
+        updateDockTile()
+    }
+
+    private func startCapture() {
+        captureService.start()
+        isCapturing = true
+        UserDefaults.standard.set(
+            Int(ProcessInfo.processInfo.processIdentifier),
+            forKey: ClipVaultSettingsKey.captureReadyProcessID
+        )
     }
 
     func togglePinned(_ clip: Clip) {
@@ -169,7 +238,7 @@ final class ClipVaultViewModel {
             try store?.togglePinned(id: clip.id)
             reload()
         } catch {
-            Self.logger.error("Failed to toggle pinned state: \(error.localizedDescription, privacy: .public)")
+            Self.logFailure(operation: "toggle_pinned", error: error)
             captureStatus = error.localizedDescription
             updateDockTile()
         }
@@ -185,7 +254,7 @@ final class ClipVaultViewModel {
             captureStatus = note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Note cleared" : "Note saved"
             updateDockTile()
         } catch {
-            Self.logger.error("Failed to update note: \(error.localizedDescription, privacy: .public)")
+            Self.logFailure(operation: "update_note", error: error)
             captureStatus = error.localizedDescription
             updateDockTile()
         }
@@ -201,7 +270,7 @@ final class ClipVaultViewModel {
             captureStatus = "Title saved"
             updateDockTile()
         } catch {
-            Self.logger.error("Failed to update title: \(error.localizedDescription, privacy: .public)")
+            Self.logFailure(operation: "update_title", error: error)
             captureStatus = error.localizedDescription
             updateDockTile()
         }
@@ -222,7 +291,7 @@ final class ClipVaultViewModel {
             captureStatus = tags.isEmpty ? "Tags cleared" : "Tags saved"
             updateDockTile()
         } catch {
-            Self.logger.error("Failed to update tags: \(error.localizedDescription, privacy: .public)")
+            Self.logFailure(operation: "update_tags", error: error)
             captureStatus = error.localizedDescription
             updateDockTile()
         }
@@ -239,7 +308,7 @@ final class ClipVaultViewModel {
             captureStatus = "Deleted clip"
             updateDockTile()
         } catch {
-            Self.logger.error("Failed to delete clip: \(error.localizedDescription, privacy: .public)")
+            Self.logFailure(operation: "delete_clip", error: error)
             captureStatus = error.localizedDescription
             updateDockTile()
         }
@@ -259,7 +328,7 @@ final class ClipVaultViewModel {
             captureStatus = "Cleared \(removable.count) clips"
             updateDockTile()
         } catch {
-            Self.logger.error("Failed to clear unpinned clips: \(error.localizedDescription, privacy: .public)")
+            Self.logFailure(operation: "clear_unpinned", error: error)
             captureStatus = error.localizedDescription
             updateDockTile()
         }
@@ -300,7 +369,7 @@ final class ClipVaultViewModel {
             captureStatus = "Deleted \(candidates.count) clips"
             updateDockTile()
         } catch {
-            Self.logger.error("Failed to delete cleanup candidates: \(error.localizedDescription, privacy: .public)")
+            Self.logFailure(operation: "delete_cleanup_candidates", error: error)
             captureStatus = error.localizedDescription
             updateDockTile()
         }
@@ -350,7 +419,7 @@ final class ClipVaultViewModel {
             Self.logger.info("Copied clip payload to pasteboard")
             captureStatus = "Copied \(clip.kind.title)"
         } catch {
-            Self.logger.error("Failed to copy clip payload: \(error.localizedDescription, privacy: .public)")
+            Self.logFailure(operation: "copy_clip_payload", error: error)
             captureStatus = error.localizedDescription
         }
         updateDockTile()
@@ -418,7 +487,7 @@ final class ClipVaultViewModel {
             captureStatus = "Created collection"
         } catch {
             collections.removeAll { $0.id == id }
-            Self.logger.error("Failed to create collection: \(error.localizedDescription, privacy: .public)")
+            Self.logFailure(operation: "create_collection", error: error)
             captureStatus = error.localizedDescription
         }
         updateDockTile()
@@ -437,7 +506,7 @@ final class ClipVaultViewModel {
             captureStatus = "Added \(ids.count) clips to collection"
             updateDockTile()
         } catch {
-            Self.logger.error("Failed to create custom collection assignment: \(error.localizedDescription, privacy: .public)")
+            Self.logFailure(operation: "assign_custom_collection", error: error)
             captureStatus = error.localizedDescription
             updateDockTile()
         }
@@ -458,7 +527,7 @@ final class ClipVaultViewModel {
             insert(folder, under: parentFolderID)
             captureStatus = "Created folder"
         } catch {
-            Self.logger.error("Failed to create folder: \(error.localizedDescription, privacy: .public)")
+            Self.logFailure(operation: "create_folder", error: error)
             captureStatus = error.localizedDescription
         }
         updateDockTile()
@@ -470,7 +539,7 @@ final class ClipVaultViewModel {
             reload()
             captureStatus = "Updated workspace item"
         } catch {
-            Self.logger.error("Failed to update folder: \(error.localizedDescription, privacy: .public)")
+            Self.logFailure(operation: "update_folder", error: error)
             captureStatus = error.localizedDescription
             updateDockTile()
         }
@@ -487,7 +556,7 @@ final class ClipVaultViewModel {
             reload()
             captureStatus = folder.collectionID == nil ? "Removed folder" : "Removed collection"
         } catch {
-            Self.logger.error("Failed to delete folder: \(error.localizedDescription, privacy: .public)")
+            Self.logFailure(operation: "delete_folder", error: error)
             captureStatus = error.localizedDescription
             updateDockTile()
         }
@@ -551,7 +620,7 @@ final class ClipVaultViewModel {
                 }
             } catch {
                 await MainActor.run {
-                    Self.logger.error("AI action failed: \(error.localizedDescription, privacy: .public)")
+                    Self.logFailure(operation: "ai_action", error: error)
                     aiError = error.localizedDescription
                     isGenerating = false
                 }
@@ -576,7 +645,7 @@ final class ClipVaultViewModel {
             }
             reload()
         } catch {
-            Self.logger.error("Failed to ingest clipboard item: \(error.localizedDescription, privacy: .public)")
+            Self.logFailure(operation: "ingest_clipboard", error: error)
             captureStatus = error.localizedDescription
             updateDockTile()
         }
@@ -619,7 +688,7 @@ final class ClipVaultViewModel {
                 captureStatus = "Removed \(expired.count) expired clips"
             }
         } catch {
-            Self.logger.error("Failed to prune expired clips: \(error.localizedDescription, privacy: .public)")
+            Self.logFailure(operation: "prune_expired", error: error)
             captureStatus = error.localizedDescription
         }
         updateDockTile()

@@ -2,6 +2,7 @@ import Foundation
 
 enum ClipVaultSettingsKey {
     static let captureReadyProcessID = "captureReadyProcessID"
+    static let clipboardCaptureConsentGranted = "clipboardCaptureConsentGranted"
     static let ordinaryClipRetentionDays = "ordinaryClipRetentionDays"
     static let cloudAIEnabled = "cloudAIEnabled"
     static let dockBadgeEnabled = "dockBadgeEnabled"
