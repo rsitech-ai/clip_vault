@@ -123,8 +123,16 @@ case "$MODE" in
     ;;
   --verify|verify)
     open_app
-    sleep 1
-    pgrep -x "$APP_NAME" >/dev/null
+    for _ in {1..40}; do
+      APP_PID="$(pgrep -f "^$APP_BINARY$" | head -1 || true)"
+      READY_PID="$(defaults read "$BUNDLE_ID" captureReadyProcessID 2>/dev/null || true)"
+      if [[ -n "$APP_PID" && "$READY_PID" == "$APP_PID" ]]; then
+        exit 0
+      fi
+      sleep 0.25
+    done
+    echo "$APP_NAME did not report capture readiness within 10 seconds." >&2
+    exit 1
     ;;
   *)
     echo "usage: $0 [run|--debug|--logs|--telemetry|--verify]" >&2
