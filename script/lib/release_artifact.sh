@@ -13,6 +13,10 @@ binary_rpaths() {
 
 is_allowed_macho_path() {
   local path="$1"
+  if [[ $# -gt 1 ]]; then
+    is_allowed_macho_path_for_artifact "$@"
+    return
+  fi
   case "$path" in
     @rpath | @rpath/* | @loader_path | @loader_path/* | @executable_path | @executable_path/* | /usr/lib | /usr/lib/* | /System/Library | /System/Library/*)
       return 0
@@ -23,12 +27,101 @@ is_allowed_macho_path() {
   esac
 }
 
+normalize_absolute_path() {
+  local input="$1"
+  local segment
+  local normalized=""
+  local -a input_segments
+  local -a output_segments=()
+  local index
+  IFS='/' read -r -a input_segments <<<"$input"
+  for segment in "${input_segments[@]}"; do
+    case "$segment" in
+      "" | ".") ;;
+      "..")
+        if [[ "${#output_segments[@]}" -gt 0 ]]; then
+          index=$((${#output_segments[@]} - 1))
+          unset 'output_segments[index]'
+        fi
+        ;;
+      *) output_segments+=("$segment") ;;
+    esac
+  done
+  for segment in "${output_segments[@]}"; do
+    normalized="$normalized/$segment"
+  done
+  printf '%s\n' "${normalized:-/}"
+}
+
+is_path_within() {
+  local path
+  local root
+  path="$(normalize_absolute_path "$1")"
+  root="$(normalize_absolute_path "$2")"
+  [[ "$path" == "$root" || "$path" == "$root/"* ]]
+}
+
+is_allowed_macho_path_for_artifact() {
+  local path="$1"
+  local artifact="$2"
+  local kind="${3:-dependency load path}"
+  local app_bundle
+  local base
+  local suffix
+  local resolved
+
+  case "$path" in
+    /usr/lib | /usr/lib/* | /System/Library | /System/Library/*)
+      return 0
+      ;;
+    @loader_path | @executable_path)
+      [[ "$kind" == "LC_RPATH" ]]
+      return
+      ;;
+    @rpath)
+      return 1
+      ;;
+  esac
+
+  case "$artifact" in
+    *.app/*) app_bundle="${artifact%%.app/*}.app" ;;
+    *) return 1 ;;
+  esac
+
+  case "$path" in
+    @executable_path/*)
+      base="$app_bundle/Contents/MacOS"
+      suffix="${path#@executable_path/}"
+      ;;
+    @loader_path/*)
+      base="$(dirname "$artifact")"
+      suffix="${path#@loader_path/}"
+      ;;
+    @rpath/*)
+      suffix="${path#@rpath/}"
+      case "/$suffix/" in
+        *"//"* | *"/./"* | *"/../"*) return 1 ;;
+      esac
+      [[ -n "$suffix" ]]
+      return
+      ;;
+    *) return 1 ;;
+  esac
+
+  case "/$suffix/" in
+    *"//"* | *"/./"*) return 1 ;;
+  esac
+  [[ -n "$suffix" ]] || return 1
+  resolved="$(normalize_absolute_path "$base/$suffix")"
+  is_path_within "$resolved" "$app_bundle"
+}
+
 strip_nonallowlisted_rpaths() {
   local binary="$1"
   local path
   while IFS= read -r path; do
     [[ -n "$path" ]] || continue
-    if ! is_allowed_macho_path "$path"; then
+    if ! is_allowed_macho_path "$path" "$binary" "LC_RPATH"; then
       /usr/bin/install_name_tool -delete_rpath "$path" "$binary"
     fi
   done < <(binary_rpaths "$binary")
@@ -40,7 +133,7 @@ assert_allowed_macho_paths() {
   local path
   while IFS= read -r path; do
     [[ -n "$path" ]] || continue
-    if ! is_allowed_macho_path "$path"; then
+    if ! is_allowed_macho_path_for_artifact "$path" "$artifact" "$kind"; then
       printf 'Non-allowlisted %s in %s: %s\n' "$kind" "$artifact" "$path" >&2
       return 1
     fi
