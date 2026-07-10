@@ -18,8 +18,12 @@ is_allowed_macho_path() {
     return
   fi
   case "$path" in
-    @rpath | @rpath/* | @loader_path | @loader_path/* | @executable_path | @executable_path/* | /usr/lib | /usr/lib/* | /System/Library | /System/Library/*)
+    @rpath | @rpath/* | @loader_path | @loader_path/* | @executable_path | @executable_path/*)
       return 0
+      ;;
+    /*)
+      is_allowed_system_macho_path "$path"
+      return
       ;;
     *)
       return 1
@@ -61,6 +65,13 @@ is_path_within() {
   [[ "$path" == "$root" || "$path" == "$root/"* ]]
 }
 
+is_allowed_system_macho_path() {
+  local normalized
+  normalized="$(normalize_absolute_path "$1")"
+  is_path_within "$normalized" "/usr/lib" || \
+    is_path_within "$normalized" "/System/Library"
+}
+
 is_allowed_macho_path_for_artifact() {
   local path="$1"
   local artifact="$2"
@@ -71,8 +82,9 @@ is_allowed_macho_path_for_artifact() {
   local resolved
 
   case "$path" in
-    /usr/lib | /usr/lib/* | /System/Library | /System/Library/*)
-      return 0
+    /*)
+      is_allowed_system_macho_path "$path"
+      return
       ;;
     @loader_path | @executable_path)
       [[ "$kind" == "LC_RPATH" ]]
