@@ -215,6 +215,54 @@ struct ClipStorageEncryptionTests {
         #expect(!context.hasChanges)
     }
 
+    @Test("corrupt legacy list payload recovers from canonical payload only for legacy rows")
+    func corruptLegacyListPayloadRecoversForLegacyRows() throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let (_, context, store) = try makeStore(at: directory.appendingPathComponent("ClipVault.sqlite"))
+        let encryptor = MarkerHidingEncryptor()
+        let payload = ClipPayload(
+            kind: .text,
+            displayText: "legacy-canonical-preview-35C18E4A",
+            extractedText: "legacy-canonical-content-7A0D41FE",
+            metadata: ["source": "canonical"]
+        )
+        let clip = Clip(
+            kind: .text,
+            title: "legacy-corrupt-title-20F3A6DB",
+            preview: payload.displayText,
+            extractedText: payload.extractedText,
+            sourceApp: "legacy-corrupt-source-B871C94E",
+            userNote: "legacy-corrupt-note-4D8E103A",
+            tags: ["legacy-corrupt-tag-F19C62B7"]
+        )
+        let corruptLegacyList = try encryptor.encrypt(Data("not-json-list-payload".utf8))
+        let record = makeLegacyRecordForTests(
+            clip: clip,
+            encryptedPayload: try encryptor.encrypt(JSONEncoder().encode(payload)),
+            encryptedListPayload: corruptLegacyList
+        )
+        context.insert(record)
+        try context.save()
+
+        let recovered = try #require(try store.allClips().first)
+
+        #expect(recovered.title == clip.title)
+        #expect(recovered.preview == payload.displayText)
+        #expect(recovered.extractedText == payload.extractedText)
+        #expect(recovered.metadata == payload.metadata)
+        #expect(recovered.sourceApp == clip.sourceApp)
+        #expect(recovered.userNote == clip.userNote)
+        #expect(recovered.tags == clip.tags)
+        #expect(record.encryptedListPayload != corruptLegacyList)
+        #expect(record.title.isEmpty)
+        #expect(record.preview.isEmpty)
+        #expect(record.sourceApp == nil)
+        #expect(record.userNote == nil)
+        #expect(record.tagsRaw == nil)
+        #expect(!context.hasChanges)
+    }
+
     private func makeStore(at url: URL) throws -> (ModelContainer, ModelContext, SwiftDataClipStore) {
         let schema = Schema([ClipRecord.self, FolderRecord.self])
         let configuration = ModelConfiguration(
