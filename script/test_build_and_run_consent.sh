@@ -9,6 +9,13 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 FAKE_DEFAULTS="$TMP_DIR/defaults"
 STATE_FILE="$TMP_DIR/state"
 
+CAPTURE_CONSENT_KEY="clipboardCaptureConsentGranted"
+source "$HELPER"
+if [[ "$CAPTURE_CONSENT_KEY" != "clipboardCaptureConsentGranted" ]]; then
+  echo "temporary consent helper overwrote the caller's consent key" >&2
+  exit 1
+fi
+
 cat >"$FAKE_DEFAULTS" <<'SCRIPT'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -35,6 +42,7 @@ chmod +x "$FAKE_DEFAULTS"
 
 assert_preseed_and_restore() {
   local initial_state="$1"
+  local expected_state="${2:-$initial_state}"
   rm -f "$STATE_FILE"
   if [[ "$initial_state" != "absent" ]]; then
     printf '%s\n' "$initial_state" >"$STATE_FILE"
@@ -51,12 +59,14 @@ assert_preseed_and_restore() {
   if [[ "$initial_state" == "absent" ]]; then
     [[ ! -e "$STATE_FILE" ]]
   else
-    [[ "$(cat "$STATE_FILE")" == "$initial_state" ]]
+    [[ "$(cat "$STATE_FILE")" == "$expected_state" ]]
   fi
 }
 
 assert_preseed_and_restore absent
 assert_preseed_and_restore false
+assert_preseed_and_restore 0 false
+assert_preseed_and_restore 1 true
 
 VIEW_MODEL="$ROOT_DIR/Sources/ClipVault/App/ClipVaultViewModel.swift"
 STOP_CAPTURE_BODY="$(sed -n '/private func stopCapture()/,/^    }/p' "$VIEW_MODEL")"
