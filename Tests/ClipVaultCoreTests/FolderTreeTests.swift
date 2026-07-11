@@ -104,6 +104,21 @@ struct FolderTreeTests {
         #expect(reloaded.first { $0.id == "all" }?.title == "All Clips")
     }
 
+    @Test("collection display titles hide internal storage identifiers")
+    func collectionDisplayTitlesHideStorageIdentifiers() {
+        let customID = "client-prompts-12345678-1234-1234-1234-123456789abc"
+        let collections = ClipCollection.defaults + [
+            ClipCollection(id: customID, title: "Client Prompts", systemImage: "folder", kind: nil, isSmart: false)
+        ]
+
+        #expect(
+            WorkspaceCollectionCatalog.displayTitles(
+                for: ["research", customID, "missing-legacy-id"],
+                in: collections
+            ) == ["Research", "Client Prompts", "missing-legacy-id"]
+        )
+    }
+
     @Test("same-title custom collection IDs stay distinct and readable")
     func sameTitleCustomCollectionIDsStayDistinctAndReadable() throws {
         let firstUUID = try #require(UUID(uuidString: "11111111-1111-1111-1111-111111111111"))

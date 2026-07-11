@@ -206,6 +206,14 @@ public enum WorkspaceCollectionCatalog {
         }
     }
 
+    public static func displayTitles(
+        for collectionIDs: [String],
+        in collections: [ClipCollection]
+    ) -> [String] {
+        let titlesByID = Dictionary(uniqueKeysWithValues: collections.map { ($0.id, $0.title) })
+        return collectionIDs.map { titlesByID[$0] ?? $0 }
+    }
+
     private static func flatten(_ folders: [CollectionFolder]) -> [CollectionFolder] {
         folders.flatMap { folder in
             [folder] + flatten(folder.children)
