@@ -142,6 +142,10 @@ final class ClipVaultViewModel {
         clips.filter { selectedClipIDs.contains($0.id) }
     }
 
+    var moveDestinationFolders: [CollectionFolder] {
+        folders.compactMap(moveDestinationFolder)
+    }
+
     var visibleResults: [SearchResult] {
         let collection = selectedCollectionID == "all" ? nil : selectedCollectionID
         return searcher.search(
@@ -515,6 +519,43 @@ final class ClipVaultViewModel {
         }
     }
 
+    @discardableResult
+    func moveClip(id: String, toCollectionID collectionID: String) -> Bool {
+        guard let destination = flatten(moveDestinationFolders).first(where: {
+            $0.collectionID == collectionID
+        }), let destinationID = destination.collectionID else {
+            let error = ClipCollectionMoveError.destinationNotFound
+            Self.logFailure(operation: "move_clip", error: error)
+            captureStatus = error.localizedDescription
+            updateDockTile()
+            return false
+        }
+
+        guard let store else {
+            Self.logger.error("operation_failed operation=move_clip reason=store_unavailable")
+            captureStatus = "Storage is not ready. Try again."
+            updateDockTile()
+            return false
+        }
+
+        do {
+            try store.moveClips(ids: [id], toCollectionID: destinationID)
+            reload()
+            captureStatus = "Moved to \(destination.title)"
+            updateDockTile()
+            return true
+        } catch {
+            Self.logFailure(operation: "move_clip", error: error)
+            if let moveError = error as? ClipCollectionMoveError {
+                captureStatus = moveError.localizedDescription
+            } else {
+                captureStatus = "Couldn’t move clip. Try again."
+            }
+            updateDockTile()
+            return false
+        }
+    }
+
     func createFolder(title: String, parentFolderID: String?) {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
@@ -729,6 +770,29 @@ final class ClipVaultViewModel {
 
     private func syncCollectionsFromFolders() {
         collections = WorkspaceCollectionCatalog.rebuild(from: folders)
+    }
+
+    private func moveDestinationFolder(_ folder: CollectionFolder) -> CollectionFolder? {
+        if let collectionID = folder.collectionID {
+            guard collections.contains(where: { collection in
+                collection.id == collectionID && !collection.isSmart
+            }) else {
+                return nil
+            }
+
+            var destination = folder
+            destination.children = []
+            return destination
+        }
+
+        let destinationChildren = folder.children.compactMap(moveDestinationFolder)
+        guard !destinationChildren.isEmpty else {
+            return nil
+        }
+
+        var ancestor = folder
+        ancestor.children = destinationChildren
+        return ancestor
     }
 
     private func folderTitle(forCollectionID collectionID: String, in folders: [CollectionFolder]) -> String? {
