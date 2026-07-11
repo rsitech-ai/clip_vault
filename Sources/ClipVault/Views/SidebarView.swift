@@ -109,10 +109,17 @@ private struct FolderNodeView: View {
     var prompt: (SidebarPrompt) -> Void
     var delete: (CollectionFolder) -> Void
     @State private var isExpanded = true
+    @State private var isMoveDropTargeted = false
 
     @ViewBuilder
     var body: some View {
-        if showsManagementMenu {
+        if let customCollectionID {
+            customCollectionDropTarget(collectionID: customCollectionID) {
+                nodeContent.contextMenu {
+                    folderActions
+                }
+            }
+        } else if showsManagementMenu {
             nodeContent.contextMenu {
                 folderActions
             }
@@ -181,6 +188,47 @@ private struct FolderNodeView: View {
 
     private var showsManagementMenu: Bool {
         folder.collectionID == nil || model.canManageWorkspaceFolder(folder)
+    }
+
+    private var customCollectionID: String? {
+        guard model.canManageWorkspaceFolder(folder) else { return nil }
+        let collectionID = folder.collectionID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let collectionID, !collectionID.isEmpty else { return nil }
+        return collectionID
+    }
+
+    private func customCollectionDropTarget<Content: View>(
+        collectionID: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        content()
+            .background {
+                RoundedRectangle(cornerRadius: 7)
+                    .fill(isMoveDropTargeted ? Color.accentColor.opacity(0.16) : Color.clear)
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 7)
+                    .stroke(
+                        isMoveDropTargeted ? Color.accentColor : Color.clear,
+                        lineWidth: 1.5
+                    )
+            }
+            .dropDestination(for: ClipMovePayload.self) { payloads, _ in
+                guard payloads.count == 1, let payload = payloads.first else {
+                    return false
+                }
+                return model.moveClip(id: payload.clipID, toCollectionID: collectionID)
+            } isTargeted: { isTargeted in
+                isMoveDropTargeted = isTargeted
+            }
+            .accessibilityHint(moveDropAccessibilityHint)
+    }
+
+    private var moveDropAccessibilityHint: String {
+        if isMoveDropTargeted {
+            return "Drop the clip to move it to \(folder.title)."
+        }
+        return rowAccessibilityHint
     }
 
     private var folderLabel: some View {

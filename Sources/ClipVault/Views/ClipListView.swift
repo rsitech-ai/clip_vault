@@ -24,43 +24,45 @@ struct ClipListView: View {
                     ScrollView {
                         LazyVStack(spacing: 0) {
                             ForEach(model.visibleResults) { result in
-                                ClipRowView(
-                                    result: result,
-                                    isSelectedForAI: model.selectedClipIDs.contains(result.clip.id),
-                                    toggleAISelection: {
-                                        model.select(result.clip)
-                                    }
-                                )
-                                .padding(.horizontal, 10)
-                                .id(result.clip.id)
-                                .contentShape(Rectangle())
-                                .background(rowBackground(for: result.clip))
-                                .onTapGesture(count: 2) {
-                                    model.selectAndCopy(result.clip)
-                                }
-                                .onTapGesture {
-                                    model.selectedClipID = result.clip.id
-                                }
-                                .contextMenu {
-                                    Button("Copy") {
-                                        model.copyToClipboard(result.clip)
-                                    }
-                                    Button(model.selectedClipIDs.contains(result.clip.id) ? "Remove from AI Selection" : "Add to AI Selection") {
-                                        model.select(result.clip)
-                                    }
-                                    Button(result.clip.isPinned ? "Unpin" : "Pin") {
-                                        model.togglePinned(result.clip)
-                                    }
-                                    MoveToCollectionMenu(
-                                        clip: result.clip,
-                                        model: model,
-                                        label: "Move to Collection"
+                                draggableClipRow(clip: result.clip) {
+                                    ClipRowView(
+                                        result: result,
+                                        isSelectedForAI: model.selectedClipIDs.contains(result.clip.id),
+                                        toggleAISelection: {
+                                            model.select(result.clip)
+                                        }
                                     )
-                                    Button("Delete", role: .destructive) {
-                                        pendingDeleteClip = result.clip
+                                    .padding(.horizontal, 10)
+                                    .id(result.clip.id)
+                                    .contentShape(Rectangle())
+                                    .background(rowBackground(for: result.clip))
+                                    .onTapGesture(count: 2) {
+                                        model.selectAndCopy(result.clip)
                                     }
+                                    .onTapGesture {
+                                        model.selectedClipID = result.clip.id
+                                    }
+                                    .contextMenu {
+                                        Button("Copy") {
+                                            model.copyToClipboard(result.clip)
+                                        }
+                                        Button(model.selectedClipIDs.contains(result.clip.id) ? "Remove from AI Selection" : "Add to AI Selection") {
+                                            model.select(result.clip)
+                                        }
+                                        Button(result.clip.isPinned ? "Unpin" : "Pin") {
+                                            model.togglePinned(result.clip)
+                                        }
+                                        MoveToCollectionMenu(
+                                            clip: result.clip,
+                                            model: model,
+                                            label: "Move to Collection"
+                                        )
+                                        Button("Delete", role: .destructive) {
+                                            pendingDeleteClip = result.clip
+                                        }
+                                    }
+                                    .accessibilityAddTraits(model.selectedClipID == result.clip.id ? .isSelected : [])
                                 }
-                                .accessibilityAddTraits(model.selectedClipID == result.clip.id ? .isSelected : [])
 
                                 Divider()
                                     .padding(.leading, 58)
@@ -112,6 +114,39 @@ struct ClipListView: View {
 
     private func rowBackground(for clip: Clip) -> some ShapeStyle {
         model.selectedClipID == clip.id ? Color.accentColor.opacity(0.16) : Color.clear
+    }
+
+    @ViewBuilder
+    private func draggableClipRow<Content: View>(
+        clip: Clip,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        if let payload = ClipMovePayload(clipID: clip.id) {
+            content()
+                .draggable(payload) {
+                    dragPreview(for: clip)
+                }
+        } else {
+            content()
+        }
+    }
+
+    private func dragPreview(for clip: Clip) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: ClipVaultDesign.icon(for: clip.kind))
+                .foregroundStyle(ClipVaultDesign.tint(for: clip.kind))
+            Text(clip.title)
+                .font(.callout.weight(.medium))
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .frame(maxWidth: 280, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(.separator.opacity(0.7), lineWidth: 1)
+        }
     }
 
     private func moveSelection(_ direction: MoveCommandDirection) {
