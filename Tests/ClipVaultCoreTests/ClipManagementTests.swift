@@ -100,6 +100,39 @@ struct ClipManagementTests {
         #expect(try store.allClips().first?.collectionIDs == ["research", "archive"])
     }
 
+    @Test("moving clips rejects an empty clip selection")
+    func movingClipsRejectsNoClips() throws {
+        let store = InMemoryClipStore()
+        try store.saveFolder(
+            CollectionFolder(id: "prompts-folder", title: "Prompts", collectionID: "prompts"),
+            parentID: nil,
+            sortOrder: 20
+        )
+
+        #expect(throws: ClipCollectionMoveError.noClips) {
+            try store.moveClips(ids: [], toCollectionID: "prompts")
+        }
+    }
+
+    @Test("moving clips validates every requested clip before mutation")
+    func movingClipsRejectsMissingClipWithoutMutation() throws {
+        let store = InMemoryClipStore()
+        try store.saveFolder(
+            CollectionFolder(id: "prompts-folder", title: "Prompts", collectionID: "prompts"),
+            parentID: nil,
+            sortOrder: 20
+        )
+        let clip = try #require(try store.save(
+            payload: ClipPayload(kind: .text, displayText: "Prompt", extractedText: "Prompt"),
+            sourceApp: "Tests"
+        ))
+
+        #expect(throws: ClipCollectionMoveError.clipNotFound) {
+            try store.moveClips(ids: [clip.id, "missing-clip"], toCollectionID: "prompts")
+        }
+        #expect(try store.allClips().first?.collectionIDs == ["research"])
+    }
+
     @Test("moving a clip to its current custom collection is idempotent")
     func movingClipToCurrentDestinationIsIdempotent() throws {
         let store = InMemoryClipStore()
