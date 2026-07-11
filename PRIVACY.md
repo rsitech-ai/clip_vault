@@ -1,6 +1,6 @@
 # ClipVault Privacy Policy
 
-Last updated: 2026-06-26
+Last updated: 2026-07-11
 
 ClipVault is a local-first clipboard workspace for macOS.
 
@@ -8,7 +8,11 @@ ClipVault is a local-first clipboard workspace for macOS.
 
 ClipVault does not collect, track, sell, or transmit personal data to the developer or third parties.
 
-Clipboard items, screenshots, OCR text, tags, notes, folders, and app settings are stored locally on the device. Clip payloads are encrypted locally with a key stored in the macOS Keychain.
+Clipboard items, screenshots, OCR text, titles, tags, notes, folders, and app settings are stored locally on the device. When available, ClipVault also records the name of the application that was frontmost when an item was copied so the clip can show its local source context.
+
+Clip payloads and clip details, including source-application names and clipboard type metadata, are encrypted locally with a key stored in the macOS Keychain. Operational metadata such as clip identifiers, content kind, timestamps, fingerprints used for deduplication, copy counts, pin state, collection membership, and folder structure remains plaintext inside ClipVault's sandboxed local database. None of this data is transmitted to the developer or third parties.
+
+ClipVault does not begin watching the clipboard until the user accepts an in-app disclosure. Capture can be paused or consent can be revoked in Settings at any time.
 
 ## Network Use
 
@@ -21,6 +25,8 @@ ClipVault attempts to exclude obvious secrets before storage, including private 
 ## Data Deletion
 
 Users can delete individual clips or bulk-delete groups of clips inside the app. Deleting a clip removes its stored payload, notes, tags, and metadata from ClipVault's local store.
+
+Ordinary clips are retained for 30 days by default. The retention period can be changed in Settings. Pinned clips and clips assigned to a board are not automatically removed.
 
 ## Contact
 
