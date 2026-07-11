@@ -133,6 +133,10 @@ echo "== Info.plist and privacy manifest =="
 [[ "$(/usr/bin/plutil -extract CFBundleExecutable raw "$INFO_PLIST")" == "$APP_NAME" ]] || fail "bundle executable mismatch"
 [[ "$(/usr/bin/plutil -extract CFBundlePackageType raw "$INFO_PLIST")" == "APPL" ]] || fail "bundle package type mismatch"
 [[ -n "$(/usr/bin/plutil -extract LSApplicationCategoryType raw "$INFO_PLIST")" ]] || fail "application category is missing"
+[[ "$(/usr/libexec/PlistBuddy -c 'Print :UTExportedTypeDeclarations:0:UTTypeIdentifier' "$INFO_PLIST")" == "com.andrzej.ClipVault.clip-move" ]] || \
+  fail "clip move exported type identifier is missing"
+[[ "$(/usr/libexec/PlistBuddy -c 'Print :UTExportedTypeDeclarations:0:UTTypeConformsTo:0' "$INFO_PLIST")" == "public.data" ]] || \
+  fail "clip move exported type must conform to public.data"
 /usr/bin/plutil -lint "$PRIVACY_MANIFEST"
 [[ "$(/usr/bin/plutil -extract NSPrivacyTracking raw "$PRIVACY_MANIFEST")" == "false" ]] || fail "privacy manifest must declare tracking false"
 

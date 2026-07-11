@@ -97,6 +97,19 @@ cat >"$INFO_PLIST" <<PLIST
   <string>NSApplication</string>
   <key>NSSupportsAutomaticGraphicsSwitching</key>
   <true/>
+  <key>UTExportedTypeDeclarations</key>
+  <array>
+    <dict>
+      <key>UTTypeConformsTo</key>
+      <array>
+        <string>public.data</string>
+      </array>
+      <key>UTTypeDescription</key>
+      <string>ClipVault Clip Move</string>
+      <key>UTTypeIdentifier</key>
+      <string>com.andrzej.ClipVault.clip-move</string>
+    </dict>
+  </array>
 </dict>
 </plist>
 PLIST

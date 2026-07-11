@@ -236,9 +236,16 @@ private struct FolderNodeView: View {
             Text(folder.title)
                 .lineLimit(1)
         } icon: {
-            Image(systemName: folder.collectionID == nil ? "folder" : "tray.full")
+            Image(systemName: folderIconName)
                 .foregroundStyle(iconColor)
         }
+    }
+
+    private var folderIconName: String {
+        if isMoveDropTargeted {
+            return "tray.and.arrow.down.fill"
+        }
+        return folder.collectionID == nil ? "folder" : "tray.full"
     }
 
     private func activateFolder() {
