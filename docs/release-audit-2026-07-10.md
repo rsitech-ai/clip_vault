@@ -1,5 +1,7 @@
 # ClipVault End-to-End Release Audit
 
+> Historical audit snapshot. The final 0.1.0 hardening evidence and current **BLOCKED** verdict are in `docs/release/0.1.0/RELEASE_STATUS.md`.
+
 ## Scope
 
 - Date: 2026-07-10
