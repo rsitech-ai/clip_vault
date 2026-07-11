@@ -28,7 +28,10 @@ struct ClipDetailView: View {
                         ClipTagsEditor(clip: clip, model: model)
                         ClipNoteEditor(clip: clip, model: model)
 
-                        FlowTags(tags: clip.collectionIDs)
+                        FlowTags(tags: WorkspaceCollectionCatalog.displayTitles(
+                            for: clip.collectionIDs,
+                            in: model.collections
+                        ))
                     }
                     .padding(24)
                 }
