@@ -61,7 +61,7 @@ The view model exposes the existing folder tree as destination data rather than 
 
 ### Drag payload
 
-Use a ClipVault-owned transferable value with an app-specific uniform type identifier and one string field: `clipID`. Decoding rejects empty or malformed identifiers. The destination resolves the identifier against the current store before moving, so a stale or foreign payload cannot create membership for a nonexistent clip.
+Use a ClipVault-owned transferable value with an app-specific uniform type identifier and one string field: `clipID`. Construction and decoding require 1...128 bytes of trimmed ASCII letters, digits, hyphen, underscore, or period. The destination still resolves the identifier against the current store before moving, so a stale or foreign payload cannot create membership for a nonexistent clip.
 
 ## State and Error Handling
 
