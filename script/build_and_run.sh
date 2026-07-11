@@ -40,7 +40,7 @@ terminate_staged_app() {
   local app_pid
   while read -r app_pid; do
     [[ -n "$app_pid" ]] && kill "$app_pid" >/dev/null 2>&1 || true
-  done < <(pgrep -f "^$APP_BINARY$" || true)
+  done < <(pgrep -f -x -- "$APP_BINARY" || true)
 }
 
 terminate_staged_app
@@ -141,7 +141,7 @@ case "$MODE" in
     trap restore_capture_consent_after_verify EXIT
     open_app
     for _ in {1..80}; do
-      APP_PID="$(pgrep -f "^$APP_BINARY$" | head -1 || true)"
+      APP_PID="$(pgrep -f -x -- "$APP_BINARY" | head -1 || true)"
       READY_PID="$(defaults read "$BUNDLE_ID" captureReadyProcessID 2>/dev/null || true)"
       if [[ -n "$APP_PID" && "$READY_PID" == "$APP_PID" ]]; then
         exit 0

@@ -2,6 +2,13 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+E2E_BUNDLE_ID="${E2E_BUNDLE_ID:-com.andrzej.ClipVault.e2e}"
+
+if [[ -z "$E2E_BUNDLE_ID" || "$E2E_BUNDLE_ID" == "com.andrzej.ClipVault" ]]; then
+  echo "E2E_BUNDLE_ID must be a non-production bundle identifier." >&2
+  exit 2
+fi
+
 E2E_DIST_DIR="$(mktemp -d "${TMPDIR:-/tmp}/clipvault-e2e-dist.XXXXXX")"
 APP_EXECUTABLE="$E2E_DIST_DIR/ClipVault.app/Contents/MacOS/ClipVault"
 
@@ -9,7 +16,7 @@ terminate_e2e_app() {
   local app_pid
   while read -r app_pid; do
     [[ -n "$app_pid" ]] && kill "$app_pid" >/dev/null 2>&1 || true
-  done < <(pgrep -f "^$APP_EXECUTABLE$" || true)
+  done < <(pgrep -f -x -- "$APP_EXECUTABLE" || true)
 }
 
 cleanup() {
@@ -21,7 +28,8 @@ trap cleanup EXIT
 
 cd "$ROOT_DIR"
 
-DIST_DIR="$E2E_DIST_DIR" ENABLE_STORE_PROBE=true ./script/build_and_run.sh --verify >/dev/null
+APP_BUNDLE_ID="$E2E_BUNDLE_ID" DIST_DIR="$E2E_DIST_DIR" ENABLE_STORE_PROBE=true \
+  ./script/build_and_run.sh --verify >/dev/null
 [[ -x "$APP_EXECUTABLE" ]] || {
   echo "ClipVault staged executable is missing: $APP_EXECUTABLE" >&2
   exit 1
@@ -84,7 +92,8 @@ fi
 
 terminate_e2e_app
 sleep 1
-DIST_DIR="$E2E_DIST_DIR" ENABLE_STORE_PROBE=true ./script/build_and_run.sh --verify >/dev/null
+APP_BUNDLE_ID="$E2E_BUNDLE_ID" DIST_DIR="$E2E_DIST_DIR" ENABLE_STORE_PROBE=true \
+  ./script/build_and_run.sh --verify >/dev/null
 
 wait_for_store_probe 1 2
 if [[ "$PROBE_ROW_COUNT" != "1" ]]; then
