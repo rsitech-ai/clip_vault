@@ -438,6 +438,7 @@ public final class SwiftDataClipStore: ClipStoring {
             guard !requestedIDs.isEmpty else { throw ClipCollectionMoveError.noClips }
 
             let destination = collectionID.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !destination.isEmpty else { throw ClipCollectionMoveError.destinationNotFound }
             let folderRecords = try context.fetch(FetchDescriptor<FolderRecord>())
             guard folderRecords.contains(where: { $0.collectionID == destination }) else {
                 throw ClipCollectionMoveError.destinationNotFound
