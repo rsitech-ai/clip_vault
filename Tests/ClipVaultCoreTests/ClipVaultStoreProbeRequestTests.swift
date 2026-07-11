@@ -1,3 +1,4 @@
+#if CLIPVAULT_E2E_PROBE
 import Testing
 @testable import ClipVaultCore
 
@@ -26,3 +27,4 @@ struct ClipVaultStoreProbeRequestTests {
         ) == nil)
     }
 }
+#endif

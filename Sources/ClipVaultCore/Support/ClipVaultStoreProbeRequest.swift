@@ -1,3 +1,4 @@
+#if CLIPVAULT_E2E_PROBE
 import Foundation
 
 public struct ClipVaultStoreProbeRequest: Equatable, Sendable {
@@ -20,3 +21,4 @@ public struct ClipVaultStoreProbeRequest: Equatable, Sendable {
         return Self(token: token)
     }
 }
+#endif

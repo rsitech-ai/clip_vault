@@ -10,6 +10,7 @@ APP_VERSION="${APP_VERSION:-0.1.0}"
 APP_BUILD="${APP_BUILD:-1}"
 LOCAL_SIGNING_IDENTITY="${LOCAL_SIGNING_IDENTITY:-}"
 SWIFT_CONFIGURATION="${SWIFT_CONFIGURATION:-release}"
+ENABLE_STORE_PROBE="${ENABLE_STORE_PROBE:-false}"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT_DIR/script/lib/temporary_capture_consent.sh"
@@ -30,11 +31,16 @@ APP_ICON="$ROOT_DIR/Resources/AppIcon.icns"
 
 cd "$ROOT_DIR"
 
+SWIFT_BUILD_ARGS=(-c "$SWIFT_CONFIGURATION")
+if [[ "$ENABLE_STORE_PROBE" == "true" ]]; then
+  SWIFT_BUILD_ARGS+=(-Xswiftc -D -Xswiftc CLIPVAULT_E2E_PROBE)
+fi
+
 pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 
 cargo build --manifest-path rust/SearchIndexCore/Cargo.toml --release
-swift build -c "$SWIFT_CONFIGURATION"
-BUILD_BINARY="$(swift build -c "$SWIFT_CONFIGURATION" --show-bin-path)/$APP_NAME"
+swift build "${SWIFT_BUILD_ARGS[@]}"
+BUILD_BINARY="$(swift build "${SWIFT_BUILD_ARGS[@]}" --show-bin-path)/$APP_NAME"
 
 if [[ ! -f "$APP_ICON" ]]; then
   swift script/generate_app_icon.swift "$APP_ICON"
