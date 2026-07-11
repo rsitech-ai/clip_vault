@@ -158,18 +158,24 @@ final class ClipVaultViewModel {
         aiProvider.availability()
     }
 
-    func reload() {
+    @discardableResult
+    func reload() -> Bool {
         do {
-            clips = try store?.allClips() ?? []
-            folders = try store?.folders() ?? CollectionFolder.defaults
+            let refreshedClips = try store?.allClips() ?? []
+            let refreshedFolders = try store?.folders() ?? CollectionFolder.defaults
+            clips = refreshedClips
+            folders = refreshedFolders
             syncCollectionsFromFolders()
             captureStatus = clips.isEmpty ? "Ready" : "\(clips.count) clips indexed"
             selectFirstVisibleResultIfNeeded()
+            updateDockTile()
+            return true
         } catch {
             Self.logFailure(operation: "reload_clips", error: error)
             captureStatus = error.localizedDescription
+            updateDockTile()
+            return false
         }
-        updateDockTile()
     }
 
     var visibleClips: [Clip] {
@@ -540,8 +546,10 @@ final class ClipVaultViewModel {
 
         do {
             try store.moveClips(ids: [id], toCollectionID: destinationID)
-            reload()
-            captureStatus = "Moved to \(destination.title)"
+            let didRefresh = reload()
+            captureStatus = didRefresh
+                ? "Moved to \(destination.title)"
+                : "Moved, but the clip list couldn’t refresh. Reopen ClipVault to update it."
             updateDockTile()
             return true
         } catch {
@@ -773,14 +781,17 @@ final class ClipVaultViewModel {
     }
 
     private func moveDestinationFolder(_ folder: CollectionFolder) -> CollectionFolder? {
-        if let collectionID = folder.collectionID {
-            guard collections.contains(where: { collection in
+        if let rawCollectionID = folder.collectionID {
+            let collectionID = rawCollectionID.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !collectionID.isEmpty,
+                  collections.contains(where: { collection in
                 collection.id == collectionID && !collection.isSmart
             }) else {
                 return nil
             }
 
             var destination = folder
+            destination.collectionID = collectionID
             destination.children = []
             return destination
         }
