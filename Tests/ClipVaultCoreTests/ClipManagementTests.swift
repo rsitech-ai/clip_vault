@@ -47,6 +47,75 @@ struct ClipManagementTests {
         #expect(updated.collectionIDs.filter { $0 == "client-research" }.count == 1)
     }
 
+    @Test("moving a clip replaces custom memberships and preserves smart memberships")
+    func movingClipReplacesOnlyCustomMemberships() throws {
+        let store = InMemoryClipStore()
+        let folder = CollectionFolder(id: "work-folder", title: "Work")
+        let prompts = CollectionFolder(id: "prompts-folder", title: "Prompts", collectionID: "prompts")
+        let archive = CollectionFolder(id: "archive-folder", title: "Archive", collectionID: "archive")
+        try store.saveFolder(folder, parentID: nil, sortOrder: 20)
+        try store.saveFolder(prompts, parentID: folder.id, sortOrder: 0)
+        try store.saveFolder(archive, parentID: folder.id, sortOrder: 1)
+
+        let clip = try #require(try store.save(
+            payload: ClipPayload(kind: .text, displayText: "Prompt", extractedText: "Prompt"),
+            sourceApp: "Tests"
+        ))
+        try store.addClips(ids: [clip.id], toCollectionID: "archive")
+        try store.addClips(ids: [clip.id], toCollectionID: "prompts")
+
+        try store.moveClips(ids: [clip.id], toCollectionID: "prompts")
+
+        let moved = try #require(try store.allClips().first { $0.id == clip.id })
+        #expect(moved.collectionIDs == ["research", "prompts"])
+    }
+
+    @Test("moving a clip rejects a missing destination without changing memberships")
+    func movingClipRejectsMissingDestination() throws {
+        let store = InMemoryClipStore()
+        let clip = try #require(try store.save(
+            payload: ClipPayload(kind: .text, displayText: "Prompt", extractedText: "Prompt"),
+            sourceApp: "Tests"
+        ))
+        try store.addClips(ids: [clip.id], toCollectionID: "archive")
+
+        #expect(throws: ClipCollectionMoveError.destinationNotFound) {
+            try store.moveClips(ids: [clip.id], toCollectionID: "missing")
+        }
+        #expect(try store.allClips().first?.collectionIDs == ["research", "archive"])
+    }
+
+    @Test("moving a clip rejects a built-in destination without changing memberships")
+    func movingClipRejectsBuiltInDestination() throws {
+        let store = InMemoryClipStore()
+        let clip = try #require(try store.save(
+            payload: ClipPayload(kind: .text, displayText: "Prompt", extractedText: "Prompt"),
+            sourceApp: "Tests"
+        ))
+        try store.addClips(ids: [clip.id], toCollectionID: "archive")
+
+        #expect(throws: ClipCollectionMoveError.invalidDestination) {
+            try store.moveClips(ids: [clip.id], toCollectionID: "research")
+        }
+        #expect(try store.allClips().first?.collectionIDs == ["research", "archive"])
+    }
+
+    @Test("moving a clip to its current custom collection is idempotent")
+    func movingClipToCurrentDestinationIsIdempotent() throws {
+        let store = InMemoryClipStore()
+        let prompts = CollectionFolder(id: "prompts-folder", title: "Prompts", collectionID: "prompts")
+        try store.saveFolder(prompts, parentID: nil, sortOrder: 20)
+        let clip = try #require(try store.save(
+            payload: ClipPayload(kind: .text, displayText: "Prompt", extractedText: "Prompt"),
+            sourceApp: "Tests"
+        ))
+
+        try store.moveClips(ids: [clip.id], toCollectionID: "prompts")
+        try store.moveClips(ids: [clip.id], toCollectionID: "prompts")
+
+        #expect(try store.allClips().first?.collectionIDs.filter { $0 == "prompts" }.count == 1)
+    }
+
     @Test("in-memory clips use the same built-in collection IDs as persistent clips")
     func inMemoryClipsUseBuiltInCollectionIDs() throws {
         let expectedAssignments: [(ClipKind, [String])] = [
