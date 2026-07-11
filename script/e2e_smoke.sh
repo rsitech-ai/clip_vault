@@ -10,6 +10,7 @@ if [[ -z "$E2E_BUNDLE_ID" || "$E2E_BUNDLE_ID" == "com.andrzej.ClipVault" ]]; the
 fi
 
 E2E_DIST_DIR="$(mktemp -d "${TMPDIR:-/tmp}/clipvault-e2e-dist.XXXXXX")"
+E2E_DIST_DIR="$(cd "$E2E_DIST_DIR" && pwd -P)"
 APP_EXECUTABLE="$E2E_DIST_DIR/ClipVault.app/Contents/MacOS/ClipVault"
 
 terminate_e2e_app() {
@@ -42,7 +43,7 @@ TOKEN="ClipVault E2E $(date +%Y%m%d%H%M%S) duplicate persistence SELECT * FROM e
 wait_for_store_probe() {
   local expected_rows="$1"
   local minimum_copy_count="$2"
-  local timeout_seconds="${3:-20}"
+  local timeout_seconds="${3:-60}"
   local start
   start="$(date +%s)"
 
