@@ -1,3 +1,6 @@
+#if CLIPVAULT_E2E_PROBE
+import AppKit
+#endif
 import ClipVaultCore
 import Foundation
 import Observation
@@ -47,7 +50,13 @@ final class ClipVaultViewModel {
         !isGenerating && !question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    #if CLIPVAULT_E2E_PROBE
+    private let captureService = ClipboardCaptureService(
+        pasteboard: NSPasteboard(name: NSPasteboard.Name("com.andrzej.ClipVault.e2e.capture"))
+    )
+    #else
     private let captureService = ClipboardCaptureService()
+    #endif
     private let pasteboardWriter = ClipPayloadPasteboardWriter()
     private let searcher = ClipSearcher()
     private let aiProvider: any AIActionProviding = FoundationModelsAIActionProvider()

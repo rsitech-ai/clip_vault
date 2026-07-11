@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-E2E_BUNDLE_ID="${E2E_BUNDLE_ID:-com.andrzej.ClipVault.e2e}"
+E2E_BUNDLE_ID="${E2E_BUNDLE_ID-com.andrzej.ClipVault.e2e}"
 
 if [[ -z "$E2E_BUNDLE_ID" || "$E2E_BUNDLE_ID" == "com.andrzej.ClipVault" ]]; then
   echo "E2E_BUNDLE_ID must be a non-production bundle identifier." >&2
@@ -25,6 +25,8 @@ cleanup() {
 }
 
 trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 cd "$ROOT_DIR"
 
@@ -74,10 +76,10 @@ wait_for_store_probe() {
   done
 }
 
-printf '%s' "$TOKEN" | pbcopy
+./script/write_e2e_pasteboard.swift "$TOKEN"
 wait_for_store_probe 1 1
 
-printf '%s' "$TOKEN" | pbcopy
+./script/write_e2e_pasteboard.swift "$TOKEN"
 wait_for_store_probe 1 2
 
 if [[ "$PROBE_ROW_COUNT" != "1" ]]; then
