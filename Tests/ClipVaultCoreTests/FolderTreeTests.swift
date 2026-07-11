@@ -407,6 +407,15 @@ struct FolderTreeTests {
         }
     }
 
+    @Test("both stores reject blank move destinations without changing memberships")
+    func bothStoresRejectBlankMoveDestinations() throws {
+        try assertBlankMoveDestinationIsRejected(by: InMemoryClipStore())
+
+        try withTemporarySwiftDataStore { store in
+            try assertBlankMoveDestinationIsRejected(by: store)
+        }
+    }
+
     private func assertCustomCollectionsFolderIsManageable(in store: any ClipStoring) throws {
         let custom = CollectionFolder(id: "custom-collections", title: "Collections")
 
@@ -415,6 +424,30 @@ struct FolderTreeTests {
         try store.deleteFolder(id: custom.id)
 
         #expect(!containsFolder(id: custom.id, in: try store.folders()))
+    }
+
+    private func assertBlankMoveDestinationIsRejected(by store: any ClipStoring) throws {
+        try store.saveFolder(
+            CollectionFolder(id: "blank-folder", title: "Blank", collectionID: ""),
+            parentID: nil,
+            sortOrder: 20
+        )
+        try store.saveFolder(
+            CollectionFolder(id: "archive-folder", title: "Archive", collectionID: "archive"),
+            parentID: nil,
+            sortOrder: 21
+        )
+        let clip = try #require(try store.save(
+            payload: ClipPayload(kind: .text, displayText: "Prompt", extractedText: "Prompt"),
+            sourceApp: "Tests"
+        ))
+        try store.addClips(ids: [clip.id], toCollectionID: "archive")
+
+        #expect(throws: ClipCollectionMoveError.destinationNotFound) {
+            try store.moveClips(ids: [clip.id], toCollectionID: "   \n")
+        }
+        let unchanged = try #require(try store.allClips().first { $0.id == clip.id })
+        #expect(unchanged.collectionIDs == ["research", "archive"])
     }
 
     private func assertDistinctCustomCollectionAssignmentsAreIsolated(in store: any ClipStoring) throws {
