@@ -64,7 +64,10 @@ RUST_DYLIB="$APP_CONTENTS/Frameworks/libsearch_index_core.dylib"
 echo "== Shipping binary probe markers =="
 APP_BINARY_STRINGS="$INSPECT_ROOT/app-binary-strings.txt"
 /usr/bin/strings "$APP_BINARY" >"$APP_BINARY_STRINGS"
-for forbidden_marker in "--verify-stored-clip" "CLIPVAULT_STORE_PROBE"; do
+for forbidden_marker in \
+  "--verify-stored-clip" \
+  "CLIPVAULT_STORE_PROBE" \
+  "com.andrzej.ClipVault.e2e.capture"; do
   if /usr/bin/grep -Fq -- "$forbidden_marker" "$APP_BINARY_STRINGS"; then
     fail "payload executable contains internal store probe marker: $forbidden_marker"
   fi
