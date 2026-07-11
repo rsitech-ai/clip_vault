@@ -14,7 +14,7 @@ ENABLE_STORE_PROBE="${ENABLE_STORE_PROBE:-false}"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT_DIR/script/lib/temporary_capture_consent.sh"
-DIST_DIR="$ROOT_DIR/dist"
+DIST_DIR="${DIST_DIR:-$ROOT_DIR/dist}"
 APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
 APP_CONTENTS="$APP_BUNDLE/Contents"
 APP_MACOS="$APP_CONTENTS/MacOS"
@@ -36,7 +36,14 @@ if [[ "$ENABLE_STORE_PROBE" == "true" ]]; then
   SWIFT_BUILD_ARGS+=(-Xswiftc -D -Xswiftc CLIPVAULT_E2E_PROBE)
 fi
 
-pkill -x "$APP_NAME" >/dev/null 2>&1 || true
+terminate_staged_app() {
+  local app_pid
+  while read -r app_pid; do
+    [[ -n "$app_pid" ]] && kill "$app_pid" >/dev/null 2>&1 || true
+  done < <(pgrep -f "^$APP_BINARY$" || true)
+}
+
+terminate_staged_app
 
 cargo build --manifest-path rust/SearchIndexCore/Cargo.toml --release
 swift build "${SWIFT_BUILD_ARGS[@]}"
