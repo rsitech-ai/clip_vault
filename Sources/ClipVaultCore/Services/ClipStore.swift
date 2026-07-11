@@ -99,6 +99,7 @@ public protocol ClipStoring: AnyObject {
     func payload(for clipID: String) throws -> ClipPayload?
     func save(payload: ClipPayload, sourceApp: String?) throws -> Clip?
     func addClips(ids: [String], toCollectionID collectionID: String) throws
+    func moveClips(ids: [String], toCollectionID collectionID: String) throws
     func togglePinned(id: String) throws
     func updateNote(id: String, note: String) throws
     func updateTitle(id: String, title: String) throws
@@ -429,6 +430,34 @@ public final class SwiftDataClipStore: ClipStoring {
             }
         }
         try context.save()
+    }
+
+    public func moveClips(ids: [String], toCollectionID collectionID: String) throws {
+        try withFolderRollback {
+            let requestedIDs = Set(ids)
+            guard !requestedIDs.isEmpty else { throw ClipCollectionMoveError.noClips }
+
+            let destination = collectionID.trimmingCharacters(in: .whitespacesAndNewlines)
+            let folderRecords = try context.fetch(FetchDescriptor<FolderRecord>())
+            guard folderRecords.contains(where: { $0.collectionID == destination }) else {
+                throw ClipCollectionMoveError.destinationNotFound
+            }
+            guard !ClipCollection.defaults.contains(where: { $0.id == destination }) else {
+                throw ClipCollectionMoveError.invalidDestination
+            }
+
+            let records = try context.fetch(FetchDescriptor<ClipRecord>())
+                .filter { requestedIDs.contains($0.id) }
+            guard records.count == requestedIDs.count else { throw ClipCollectionMoveError.clipNotFound }
+            let builtInIDs = Set(ClipCollection.defaults.map(\.id))
+
+            for record in records {
+                let preserved = split(record.collectionIDsRaw).filter { builtInIDs.contains($0) }
+                record.collectionIDsRaw = (preserved + [destination]).joined(separator: ",")
+                record.updatedAt = Date()
+            }
+            try saveFolderContext(context)
+        }
     }
 
     public func togglePinned(id: String) throws {

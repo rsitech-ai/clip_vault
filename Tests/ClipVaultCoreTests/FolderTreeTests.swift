@@ -327,6 +327,86 @@ struct FolderTreeTests {
         }
     }
 
+    @Test("SwiftData clip moves preserve smart memberships across relaunch")
+    func swiftDataClipMovePersists() throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let storeURL = directory.appendingPathComponent("ClipVault.sqlite")
+        var clipID = ""
+
+        try withSwiftDataStore(at: storeURL) { store in
+            let archive = CollectionFolder(
+                id: "archive-folder",
+                title: "Archive",
+                collectionID: "archive"
+            )
+            let destination = CollectionFolder(
+                id: "prompts-folder",
+                title: "Prompts",
+                collectionID: "prompts"
+            )
+            try store.saveFolder(archive, parentID: nil, sortOrder: 20)
+            try store.saveFolder(destination, parentID: nil, sortOrder: 21)
+            let clip = try #require(try store.save(
+                payload: ClipPayload(kind: .text, displayText: "Prompt", extractedText: "Prompt"),
+                sourceApp: "Tests"
+            ))
+            clipID = clip.id
+            try store.addClips(ids: [clip.id], toCollectionID: "archive")
+            try store.moveClips(ids: [clip.id], toCollectionID: "prompts")
+        }
+
+        try withSwiftDataStore(at: storeURL) { store in
+            let moved = try #require(try store.allClips().first { $0.id == clipID })
+            #expect(moved.collectionIDs == ["research", "prompts"])
+        }
+    }
+
+    @Test("SwiftData clip moves roll back failed saves and leave disk unchanged")
+    func swiftDataClipMoveRollsBackFailedSave() throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let storeURL = directory.appendingPathComponent("ClipVault.sqlite")
+        var clipID = ""
+
+        try withSwiftDataStore(at: storeURL) { store in
+            try store.saveFolder(
+                CollectionFolder(id: "archive-folder", title: "Archive", collectionID: "archive"),
+                parentID: nil,
+                sortOrder: 20
+            )
+            try store.saveFolder(
+                CollectionFolder(id: "prompts-folder", title: "Prompts", collectionID: "prompts"),
+                parentID: nil,
+                sortOrder: 21
+            )
+            let clip = try #require(try store.save(
+                payload: ClipPayload(kind: .text, displayText: "Prompt", extractedText: "Prompt"),
+                sourceApp: "Tests"
+            ))
+            clipID = clip.id
+            try store.addClips(ids: [clip.id], toCollectionID: "archive")
+        }
+
+        do {
+            let container = try makeSwiftDataContainer(at: storeURL)
+            let context = ModelContext(container)
+            let failingStore = SwiftDataClipStore(context: context, saveContext: { _ in
+                throw ForcedSaveError()
+            })
+
+            #expect(throws: ForcedSaveError()) {
+                try failingStore.moveClips(ids: [clipID], toCollectionID: "prompts")
+            }
+            #expect(!context.hasChanges)
+        }
+
+        try withSwiftDataStore(at: storeURL) { store in
+            let clip = try #require(try store.allClips().first { $0.id == clipID })
+            #expect(clip.collectionIDs == ["research", "archive"])
+        }
+    }
+
     private func assertCustomCollectionsFolderIsManageable(in store: any ClipStoring) throws {
         let custom = CollectionFolder(id: "custom-collections", title: "Collections")
 
