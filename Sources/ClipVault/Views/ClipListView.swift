@@ -124,28 +124,24 @@ struct ClipListView: View {
         if let payload = ClipMovePayload(clipID: clip.id) {
             content()
                 .draggable(payload) {
-                    dragPreview(for: clip)
+                    HStack(spacing: 8) {
+                        Image(systemName: ClipVaultDesign.icon(for: clip.kind))
+                            .foregroundStyle(ClipVaultDesign.tint(for: clip.kind))
+                        Text(clip.title)
+                            .font(.callout.weight(.medium))
+                            .lineLimit(1)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(.separator.opacity(0.7), lineWidth: 1)
+                    }
                 }
         } else {
             content()
-        }
-    }
-
-    private func dragPreview(for clip: Clip) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: ClipVaultDesign.icon(for: clip.kind))
-                .foregroundStyle(ClipVaultDesign.tint(for: clip.kind))
-            Text(clip.title)
-                .font(.callout.weight(.medium))
-                .lineLimit(1)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .frame(maxWidth: 280, alignment: .leading)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(.separator.opacity(0.7), lineWidth: 1)
         }
     }
 
