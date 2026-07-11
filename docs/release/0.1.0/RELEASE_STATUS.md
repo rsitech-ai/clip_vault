@@ -6,7 +6,7 @@
 
 Date: 2026-07-11 (Europe/Warsaw)
 
-Core source, automated tests, signed runtime, local packaging, lifecycle proof, and accepted-size screenshots pass. The release is not yet ready because formal security scans, the newest stable Xcode toolchain, remaining appearance/status-item QA, PR/CI evidence, and external App Store Connect/legal gates remain incomplete.
+Core source, automated tests, signed runtime, local packaging, lifecycle proof, and accepted-size screenshots pass. Draft PR #9 is open and mergeable. The release is not yet ready because formal security scans, the newest stable Xcode toolchain, remaining appearance/status-item QA, GitHub Actions billing, and external App Store Connect/legal gates remain incomplete.
 
 ## Toolchain and release identity
 
@@ -24,6 +24,8 @@ Core source, automated tests, signed runtime, local packaging, lifecycle proof, 
 | Repository/targets | PASS | SwiftPM and file inventory | This file; `Package.swift` | Engineering | None |
 | Debug/unit tests | PASS | `./script/test.sh` | `TEST_EVIDENCE.md` | Engineering | Keep CI green |
 | Release warnings | PASS | `swift build -c release -Xswiftc -warnings-as-errors` | `TEST_EVIDENCE.md` | Engineering | None |
+| Draft PR | PASS | GitHub PR inspection | [PR #9](https://github.com/s1korrrr/clip_vault/pull/9) | Engineering | Keep draft until every approval gate closes |
+| CI execution | BLOCKED | GitHub check annotations | `TEST_EVIDENCE.md`; `BLOCKERS.md` | GitHub account owner | Resolve Actions billing/spending limit and rerun |
 | Newest production toolchain | BLOCKED | Apple Xcode support page vs installed Xcode | This file; `BLOCKERS.md` | Engineering/QA | Install Xcode 26.6 and regenerate candidate |
 | Signed runtime/E2E | PASS | `build_and_run.sh --verify`; two `e2e_smoke.sh` runs | `TEST_EVIDENCE.md` | Engineering | Repeat after merged changes |
 | Runtime logs | PASS | PID-scoped warning/error/fault scan | `TEST_EVIDENCE.md` | Engineering | None; one system-owned WindowServer task-port row documented |
@@ -67,11 +69,11 @@ The release branch adds at-rest details encryption and legacy migration, explici
 
 Changed-file groups: CI (`.github/workflows/ci.yml`); consent/settings/app views (`Sources/ClipVault/**`); encrypted storage/capture services (`Sources/ClipVaultCore/**`); regression tests (`Tests/ClipVaultCoreTests/**`); build, package, validation, upload, and shell tests (`script/**`); privacy/metadata and release dossier (`PRIVACY.md`, `AppStore/metadata.md`, `docs/**`). The PR URL and final CI result will replace the current placeholder after push.
 
-Draft PR and CI status are populated after push. No merge, tag, upload, submission, or public release is authorized by this dossier.
+Draft [PR #9](https://github.com/s1korrrr/clip_vault/pull/9) is open and mergeable. Its push and pull-request CI jobs both failed before runner assignment because GitHub reported an account payment/spending-limit blocker; no workflow step executed. No merge, tag, upload, submission, or public release is authorized by this dossier.
 
 ## Exact next action to unblock submission
 
-The Apple account owner must create/confirm the App Store Connect record, provide an authorized API key for validate-only upload, publish the support and privacy URLs, capture accepted-size screenshots, confirm provisioning, and supply truthful export-compliance, privacy-label, age-rating, DSA trader, content-rights, price, territory, and release-mode answers. Engineering can then run validate-only upload, resolve any server warnings, and update this verdict. Submit for Review still requires separate explicit approval.
+The GitHub account owner must first restore Actions billing or raise the spending limit so PR #9 can execute CI. The Apple account owner must create/confirm the App Store Connect record, provide an authorized API key for validate-only upload, publish the support and privacy URLs, confirm provisioning, and supply truthful export-compliance, privacy-label, age-rating, DSA trader, content-rights, price, territory, and release-mode answers. Engineering can then rerun CI, regenerate on Xcode 26.6, run validate-only upload, resolve any server warnings, and update this verdict. Submit for Review still requires separate explicit approval.
 
 ## Residual risks
 

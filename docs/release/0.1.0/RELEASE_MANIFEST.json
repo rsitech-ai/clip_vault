@@ -42,6 +42,12 @@
       "sha256": "8670578053aad7f0e5cdf81af212b67dd4eaff3208581c67be30c05e9385b5ef"
     }
   ],
+  "pull_request": {
+    "url": "https://github.com/s1korrrr/clip_vault/pull/9",
+    "draft": true,
+    "mergeable": true,
+    "ci": "BLOCKED_ACCOUNT_BILLING_OR_SPENDING_LIMIT"
+  },
   "verdict": "NOT READY",
   "generated_date": "2026-07-11"
 }
