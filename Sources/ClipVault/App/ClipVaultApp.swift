@@ -1,6 +1,8 @@
 import AppKit
 import ClipVaultCore
+#if CLIPVAULT_E2E_PROBE
 import Darwin
+#endif
 import SwiftData
 import SwiftUI
 
@@ -14,9 +16,11 @@ struct ClipVaultApp: App {
         let model = ClipVaultViewModel()
         _model = State(initialValue: model)
 
+        #if CLIPVAULT_E2E_PROBE
         if let request = ClipVaultStoreProbeRequest.parse(arguments: CommandLine.arguments) {
             Self.runStoreProbe(request, model: model)
         }
+        #endif
     }
 
     var body: some Scene {
@@ -93,6 +97,7 @@ struct ClipVaultApp: App {
         }
     }
 
+    #if CLIPVAULT_E2E_PROBE
     private static func runStoreProbe(
         _ request: ClipVaultStoreProbeRequest,
         model: ClipVaultViewModel
@@ -116,6 +121,7 @@ struct ClipVaultApp: App {
             Darwin.exit(EX_IOERR)
         }
     }
+    #endif
 }
 
 @MainActor

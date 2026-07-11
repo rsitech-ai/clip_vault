@@ -61,6 +61,15 @@ RUST_DYLIB="$APP_CONTENTS/Frameworks/libsearch_index_core.dylib"
 [[ -f "$INFO_PLIST" ]] || fail "Info.plist is missing"
 [[ -f "$PRIVACY_MANIFEST" ]] || fail "privacy manifest is missing"
 
+echo "== Shipping binary probe markers =="
+APP_BINARY_STRINGS="$INSPECT_ROOT/app-binary-strings.txt"
+/usr/bin/strings "$APP_BINARY" >"$APP_BINARY_STRINGS"
+for forbidden_marker in "--verify-stored-clip" "CLIPVAULT_STORE_PROBE"; do
+  if /usr/bin/grep -Fq -- "$forbidden_marker" "$APP_BINARY_STRINGS"; then
+    fail "payload executable contains internal store probe marker: $forbidden_marker"
+  fi
+done
+
 echo "== Strict signatures =="
 /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE"
 /usr/bin/codesign --verify --strict --verbose=2 "$APP_BINARY"

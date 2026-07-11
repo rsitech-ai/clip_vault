@@ -7,7 +7,7 @@ APP_EXECUTABLE="$ROOT_DIR/dist/ClipVault.app/Contents/MacOS/ClipVault"
 
 cd "$ROOT_DIR"
 
-./script/build_and_run.sh --verify >/dev/null
+ENABLE_STORE_PROBE=true ./script/build_and_run.sh --verify >/dev/null
 [[ -x "$APP_EXECUTABLE" ]] || {
   echo "ClipVault staged executable is missing: $APP_EXECUTABLE" >&2
   exit 1
@@ -70,7 +70,7 @@ fi
 
 pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 sleep 1
-./script/build_and_run.sh --verify >/dev/null
+ENABLE_STORE_PROBE=true ./script/build_and_run.sh --verify >/dev/null
 
 wait_for_store_probe 1 2
 if [[ "$PROBE_ROW_COUNT" != "1" ]]; then
