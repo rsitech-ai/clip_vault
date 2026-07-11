@@ -51,6 +51,11 @@ struct ClipListView: View {
                                     Button(result.clip.isPinned ? "Unpin" : "Pin") {
                                         model.togglePinned(result.clip)
                                     }
+                                    MoveToCollectionMenu(
+                                        clip: result.clip,
+                                        model: model,
+                                        label: "Move to Collection"
+                                    )
                                     Button("Delete", role: .destructive) {
                                         pendingDeleteClip = result.clip
                                     }
