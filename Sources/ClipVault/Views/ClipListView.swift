@@ -20,53 +20,59 @@ struct ClipListView: View {
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(model.visibleResults) { result in
-                            ClipRowView(
-                                result: result,
-                                isSelectedForAI: model.selectedClipIDs.contains(result.clip.id),
-                                toggleAISelection: {
-                                    model.select(result.clip)
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(spacing: 0) {
+                            ForEach(model.visibleResults) { result in
+                                ClipRowView(
+                                    result: result,
+                                    isSelectedForAI: model.selectedClipIDs.contains(result.clip.id),
+                                    toggleAISelection: {
+                                        model.select(result.clip)
+                                    }
+                                )
+                                .padding(.horizontal, 10)
+                                .id(result.clip.id)
+                                .contentShape(Rectangle())
+                                .background(rowBackground(for: result.clip))
+                                .onTapGesture(count: 2) {
+                                    model.selectAndCopy(result.clip)
                                 }
-                            )
-                            .padding(.horizontal, 10)
-                            .tag(result.clip.id)
-                            .contentShape(Rectangle())
-                            .background(rowBackground(for: result.clip))
-                            .onTapGesture(count: 2) {
-                                model.selectAndCopy(result.clip)
-                            }
-                            .onTapGesture {
-                                model.selectedClipID = result.clip.id
-                            }
-                            .contextMenu {
-                                Button("Copy") {
-                                    model.copyToClipboard(result.clip)
+                                .onTapGesture {
+                                    model.selectedClipID = result.clip.id
                                 }
-                                Button(model.selectedClipIDs.contains(result.clip.id) ? "Remove from AI Selection" : "Add to AI Selection") {
-                                    model.select(result.clip)
+                                .contextMenu {
+                                    Button("Copy") {
+                                        model.copyToClipboard(result.clip)
+                                    }
+                                    Button(model.selectedClipIDs.contains(result.clip.id) ? "Remove from AI Selection" : "Add to AI Selection") {
+                                        model.select(result.clip)
+                                    }
+                                    Button(result.clip.isPinned ? "Unpin" : "Pin") {
+                                        model.togglePinned(result.clip)
+                                    }
+                                    Button("Delete", role: .destructive) {
+                                        pendingDeleteClip = result.clip
+                                    }
                                 }
-                                Button(result.clip.isPinned ? "Unpin" : "Pin") {
-                                    model.togglePinned(result.clip)
-                                }
-                                Button("Delete", role: .destructive) {
-                                    pendingDeleteClip = result.clip
-                                }
-                            }
-                            .accessibilityAddTraits(model.selectedClipID == result.clip.id ? .isSelected : [])
+                                .accessibilityAddTraits(model.selectedClipID == result.clip.id ? .isSelected : [])
 
-                            Divider()
-                                .padding(.leading, 58)
+                                Divider()
+                                    .padding(.leading, 58)
+                            }
                         }
                     }
-                }
-                .focusable()
-                .onMoveCommand(perform: moveSelection)
-                .onKeyPress(.return) {
-                    guard let selectedClip = model.selectedClip else { return .ignored }
-                    model.copyToClipboard(selectedClip)
-                    return .handled
+                    .focusable()
+                    .onMoveCommand(perform: moveSelection)
+                    .onKeyPress(.return) {
+                        guard let selectedClip = model.selectedClip else { return .ignored }
+                        model.copyToClipboard(selectedClip)
+                        return .handled
+                    }
+                    .onChange(of: model.selectedClipID) { _, selectedClipID in
+                        guard let selectedClipID else { return }
+                        proxy.scrollTo(selectedClipID, anchor: .center)
+                    }
                 }
             }
         }
