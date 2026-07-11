@@ -109,6 +109,10 @@ private struct ClipDetailHeader: View {
                 .clipVaultGlassButtonStyle()
                 .help(clip.isPinned ? "Unpin this clip" : "Pin this clip")
 
+                MoveToCollectionMenu(clip: clip, model: model, label: "Move")
+                    .menuStyle(.button)
+                    .clipVaultGlassButtonStyle()
+
                 Button(role: .destructive) {
                     requestDelete()
                 } label: {
