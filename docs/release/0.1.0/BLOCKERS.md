@@ -3,6 +3,7 @@
 | Blocker | Why external | Owner | Exact resolution |
 | --- | --- | --- | --- |
 | App Store Connect record, credentials, role, upload validation | Account-only state/secret | Apple account owner | Confirm app record and provide scoped API key; run validate-only/upload and inspect warnings |
+| GitHub Actions billing/spending limit | Both push and PR jobs were rejected before runner assignment with GitHub's billing annotation | GitHub account owner | Resolve failed payment or raise the Actions spending limit, then rerun PR #9 checks |
 | Provisioning confirmation | No embedded profile and server validation unavailable | Apple account owner | Confirm bundle provisioning/profile policy and pass ASC validation |
 | Public support/privacy URLs | Public hosting/contact decision | Product owner | Publish HTTPS pages and enter URLs |
 | Privacy labels, age rating, accessibility declaration | Truthful owner declarations in ASC | Product/legal owner | Complete questionnaires from `PRIVACY_DATA_MAP.md` and actual behavior |
