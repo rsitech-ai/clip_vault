@@ -137,6 +137,22 @@ public enum FolderStoreError: Error, LocalizedError, Equatable {
     }
 }
 
+public enum ClipCollectionMoveError: Error, LocalizedError, Equatable {
+    case noClips
+    case clipNotFound
+    case destinationNotFound
+    case invalidDestination
+
+    public var errorDescription: String? {
+        switch self {
+        case .noClips: "Choose a clip to move."
+        case .clipNotFound: "The clip is no longer available."
+        case .destinationNotFound: "The destination collection no longer exists."
+        case .invalidDestination: "Choose a custom collection as the destination."
+        }
+    }
+}
+
 public enum WorkspaceFolderPolicy {
     public static func isProtected(_ folder: CollectionFolder) -> Bool {
         isProtected(
@@ -909,6 +925,30 @@ public final class InMemoryClipStore: ClipStoring {
                 clips[index].collectionIDs.append(collectionID)
                 clips[index].updatedAt = Date()
             }
+        }
+    }
+
+    public func moveClips(ids: [String], toCollectionID collectionID: String) throws {
+        let requestedIDs = Set(ids)
+        guard !requestedIDs.isEmpty else { throw ClipCollectionMoveError.noClips }
+
+        let destination = collectionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !destination.isEmpty,
+              allFolders(in: storedFolders).contains(where: { $0.collectionID == destination }) else {
+            throw ClipCollectionMoveError.destinationNotFound
+        }
+        guard !ClipCollection.defaults.contains(where: { $0.id == destination }) else {
+            throw ClipCollectionMoveError.invalidDestination
+        }
+
+        let indexes = clips.indices.filter { requestedIDs.contains(clips[$0].id) }
+        guard indexes.count == requestedIDs.count else { throw ClipCollectionMoveError.clipNotFound }
+        let builtInIDs = Set(ClipCollection.defaults.map(\.id))
+
+        for index in indexes {
+            let preserved = clips[index].collectionIDs.filter { builtInIDs.contains($0) }
+            clips[index].collectionIDs = preserved + [destination]
+            clips[index].updatedAt = Date()
         }
     }
 
