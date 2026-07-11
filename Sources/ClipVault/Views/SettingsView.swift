@@ -187,6 +187,17 @@ private struct PrivacyAccessSettingsTab: View {
                 Label("Clipboard payloads are encrypted locally with a keychain-backed key.", systemImage: "key")
                 Label("Obvious secrets are excluded before storage and indexing.", systemImage: "lock.shield")
                 Label("Cloud AI providers are disabled until explicit opt-in configuration exists.", systemImage: "icloud.slash")
+
+                DisclosureGroup("Privacy Policy") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("ClipVault does not collect, track, sell, or transmit personal data to the developer or third parties.")
+                        Text("Clipboard items, screenshots, OCR text, titles, tags, notes, folders, source-application names, clipboard types, organization state, and settings stay on this Mac. Clipboard payloads, source context, and clip details are encrypted with a Keychain-backed key. Identifiers, kind, timestamps, deduplication fingerprints, copy counts, folder names, pin state, collection membership, and settings remain plaintext local metadata inside ClipVault's sandbox.")
+                        Text("Ordinary clips are retained for 30 days by default. You can change retention, delete clips, pause capture, or revoke clipboard consent at any time.")
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                }
             }
 
             Section("Permissions") {
