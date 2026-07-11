@@ -20,6 +20,7 @@ Date: 2026-07-11. Worktree: `/private/tmp/ClipVault-agent-sota-lab`.
 | `leaks --diffFrom` around five Settings cycles | PASS with framework note: 928 bytes across AppKit `NSAccessibilityCustomAction`/`NSArray`; no app-owned retaining path |
 | App Store screenshots | PASS: two sanitized actual-product JPEGs visually inspected at 1280x800 |
 | Local package validator | PASS: strict signatures, hardened runtime, entitlements, arm64, contained load paths, privacy manifest, matching dSYM |
+| GitHub Actions PR #9 | BLOCKED before runner assignment: GitHub annotation reports failed account payments or an insufficient Actions spending limit; no workflow step executed. The configured `macos-26` label is listed in GitHub's current [hosted-runners reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners). |
 
 Package evidence: source commit `d11b7f96467d65cabb37e63a66545b9780595aac`; package SHA-256 `264b949215d02a07cc35211eff956873b9f120e85ff35a4834a3440ebede5d0d`; binary/dSYM UUID `D257D9A6-523D-313C-9370-3192F0B5FEED`.
 
