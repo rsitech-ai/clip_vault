@@ -2,12 +2,26 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APP_NAME="ClipVault"
-APP_EXECUTABLE="$ROOT_DIR/dist/ClipVault.app/Contents/MacOS/ClipVault"
+E2E_DIST_DIR="$(mktemp -d "${TMPDIR:-/tmp}/clipvault-e2e-dist.XXXXXX")"
+APP_EXECUTABLE="$E2E_DIST_DIR/ClipVault.app/Contents/MacOS/ClipVault"
+
+terminate_e2e_app() {
+  local app_pid
+  while read -r app_pid; do
+    [[ -n "$app_pid" ]] && kill "$app_pid" >/dev/null 2>&1 || true
+  done < <(pgrep -f "^$APP_EXECUTABLE$" || true)
+}
+
+cleanup() {
+  terminate_e2e_app
+  rm -rf "$E2E_DIST_DIR"
+}
+
+trap cleanup EXIT
 
 cd "$ROOT_DIR"
 
-ENABLE_STORE_PROBE=true ./script/build_and_run.sh --verify >/dev/null
+DIST_DIR="$E2E_DIST_DIR" ENABLE_STORE_PROBE=true ./script/build_and_run.sh --verify >/dev/null
 [[ -x "$APP_EXECUTABLE" ]] || {
   echo "ClipVault staged executable is missing: $APP_EXECUTABLE" >&2
   exit 1
@@ -68,9 +82,9 @@ if (( PROBE_COPY_COUNT < 2 )); then
   exit 1
 fi
 
-pkill -x "$APP_NAME" >/dev/null 2>&1 || true
+terminate_e2e_app
 sleep 1
-ENABLE_STORE_PROBE=true ./script/build_and_run.sh --verify >/dev/null
+DIST_DIR="$E2E_DIST_DIR" ENABLE_STORE_PROBE=true ./script/build_and_run.sh --verify >/dev/null
 
 wait_for_store_probe 1 2
 if [[ "$PROBE_ROW_COUNT" != "1" ]]; then
