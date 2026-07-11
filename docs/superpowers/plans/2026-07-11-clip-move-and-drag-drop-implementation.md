@@ -43,7 +43,7 @@
 - Test: `Tests/ClipVaultCoreTests/ClipManagementTests.swift:35-55`
 
 **Interfaces:**
-- Produces: `ClipStoring.moveClips(ids:toCollectionID:) throws`
+- Produces: `InMemoryClipStore.moveClips(ids:toCollectionID:) throws`
 - Produces: `ClipCollectionMoveError: Error, LocalizedError, Equatable`
 - Consumes: `ClipCollection.defaults`, `CollectionFolder`, `Clip.collectionIDs`
 
@@ -82,15 +82,9 @@ Run: `swift test --filter ClipManagementTests.movingClipReplacesOnlyCustomMember
 
 Expected: compilation fails because `InMemoryClipStore` has no `moveClips` member.
 
-- [ ] **Step 3: Add the contract and stable errors**
+- [ ] **Step 3: Add stable errors**
 
-Add to `ClipStoring`:
-
-```swift
-func moveClips(ids: [String], toCollectionID collectionID: String) throws
-```
-
-Add beside `FolderStoreError`:
+Add beside `FolderStoreError` without changing the `ClipStoring` protocol yet; Task 2 promotes the concrete method into the protocol when SwiftData conformance is implemented:
 
 ```swift
 public enum ClipCollectionMoveError: Error, LocalizedError, Equatable {
@@ -177,7 +171,8 @@ git commit -m "feat: add exclusive clip collection moves"
 - Test: `Tests/ClipVaultCoreTests/FolderTreeTests.swift:216-270`
 
 **Interfaces:**
-- Consumes: `ClipStoring.moveClips(ids:toCollectionID:) throws`
+- Consumes: `InMemoryClipStore.moveClips(ids:toCollectionID:) throws`
+- Produces: `ClipStoring.moveClips(ids:toCollectionID:) throws`
 - Consumes: `ClipCollectionMoveError`
 - Produces: SwiftData behavior identical to `InMemoryClipStore`
 
@@ -223,7 +218,13 @@ Expected: test fails because the SwiftData method is not implemented.
 
 - [ ] **Step 3: Implement transactional SwiftData moving**
 
-Use the injected save closure so rollback is testable:
+Add the completed interface to `ClipStoring`, then use the injected save closure so rollback is testable:
+
+```swift
+func moveClips(ids: [String], toCollectionID collectionID: String) throws
+```
+
+Implement SwiftData conformance:
 
 ```swift
 public func moveClips(ids: [String], toCollectionID collectionID: String) throws {
@@ -312,7 +313,7 @@ import Testing
 struct ClipMovePayloadTests {
     @Test("payload round-trips only the clip identifier")
     func payloadRoundTrips() throws {
-        let payload = ClipMovePayload(clipID: "clip-123")
+        let payload = try #require(ClipMovePayload(clipID: "clip-123"))
         let data = try JSONEncoder().encode(payload)
         let decoded = try JSONDecoder().decode(ClipMovePayload.self, from: data)
 
@@ -328,6 +329,13 @@ struct ClipMovePayloadTests {
                 from: Data(#"{"clipID":"   "}"#.utf8)
             )
         }
+    }
+
+    @Test("payload rejects oversized and non-ASCII identifiers")
+    func rejectsMalformedIdentifiers() {
+        #expect(ClipMovePayload(clipID: String(repeating: "a", count: 129)) == nil)
+        #expect(ClipMovePayload(clipID: "clip/../../secret") == nil)
+        #expect(ClipMovePayload(clipID: "clip-ą") == nil)
     }
 }
 ```
@@ -349,25 +357,39 @@ public struct ClipMovePayload: Codable, Hashable, Sendable, Transferable {
     public static let contentType = UTType(exportedAs: "com.andrzej.ClipVault.clip-move")
     public let clipID: String
 
-    public init(clipID: String) {
-        self.clipID = clipID
+    public init?(clipID: String) {
+        guard let validated = Self.validated(clipID) else { return nil }
+        self.clipID = validated
     }
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let clipID = try container.decode(String.self, forKey: .clipID)
-        guard !clipID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard let validated = Self.validated(clipID) else {
             throw DecodingError.dataCorruptedError(
                 forKey: .clipID,
                 in: container,
-                debugDescription: "Clip ID must not be empty."
+                debugDescription: "Clip ID is malformed."
             )
         }
-        self.clipID = clipID
+        self.clipID = validated
     }
 
     public static var transferRepresentation: some TransferRepresentation {
         CodableRepresentation(contentType: contentType)
+    }
+
+    private static func validated(_ rawValue: String) -> String? {
+        let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard (1...128).contains(value.utf8.count) else { return nil }
+        let allowedPunctuation: Set<UInt8> = [45, 46, 95]
+        guard value.utf8.allSatisfy({ byte in
+            (48...57).contains(byte)
+                || (65...90).contains(byte)
+                || (97...122).contains(byte)
+                || allowedPunctuation.contains(byte)
+        }) else { return nil }
+        return value
     }
 }
 ```
@@ -520,13 +542,23 @@ git commit -m "feat: add move to collection menus"
 
 - [ ] **Step 1: Make each clip row draggable**
 
-Attach the payload to the rendered `ClipRowView`, not to AI selection state:
+Attach the payload to the rendered `ClipRowView`, not to AI selection state. Add a small `View` helper that applies `.draggable` only when the stored identifier passes `ClipMovePayload` validation, avoiding a force unwrap for legacy data:
 
 ```swift
-.draggable(ClipMovePayload(clipID: result.clip.id)) {
-    Label(result.clip.title, systemImage: ClipVaultDesign.icon(for: result.clip.kind))
-        .padding(8)
-        .clipVaultGlassCapsule(tint: .accentColor.opacity(0.14))
+@ViewBuilder
+private func draggableClipRow<Content: View>(
+    clip: Clip,
+    @ViewBuilder content: () -> Content
+) -> some View {
+    if let payload = ClipMovePayload(clipID: clip.id) {
+        content().draggable(payload) {
+            Label(clip.title, systemImage: ClipVaultDesign.icon(for: clip.kind))
+                .padding(8)
+                .clipVaultGlassCapsule(tint: .accentColor.opacity(0.14))
+        }
+    } else {
+        content()
+    }
 }
 ```
 
