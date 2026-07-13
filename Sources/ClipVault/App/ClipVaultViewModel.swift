@@ -640,7 +640,11 @@ final class ClipVaultViewModel {
     }
 
     func canManageWorkspaceFolder(_ folder: CollectionFolder) -> Bool {
-        !isProtectedWorkspaceFolder(folder)
+        WorkspaceFolderPolicy.canManage(folder)
+    }
+
+    func manualDestinationCollectionID(for folder: CollectionFolder) -> String? {
+        WorkspaceManualDestinationPolicy.collectionID(for: folder, collections: collections)
     }
 
     func parentFolderID(for folderID: String) -> String? {
@@ -806,15 +810,10 @@ final class ClipVaultViewModel {
     }
 
     private func moveDestinationFolder(_ folder: CollectionFolder) -> CollectionFolder? {
-        if let rawCollectionID = folder.collectionID {
-            let collectionID = rawCollectionID.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !collectionID.isEmpty,
-                  collections.contains(where: { collection in
-                collection.id == collectionID && !collection.isSmart
-            }) else {
+        if folder.collectionID != nil {
+            guard let collectionID = manualDestinationCollectionID(for: folder) else {
                 return nil
             }
-
             var destination = folder
             destination.collectionID = collectionID
             destination.children = []
@@ -886,9 +885,6 @@ final class ClipVaultViewModel {
         return findFolder(withID: parentFolderID, in: folders)?.collectionID == nil
     }
 
-    private func isProtectedWorkspaceFolder(_ folder: CollectionFolder) -> Bool {
-        WorkspaceFolderPolicy.isProtected(folder)
-    }
 }
 
 struct FolderParentOption: Identifiable, Hashable {

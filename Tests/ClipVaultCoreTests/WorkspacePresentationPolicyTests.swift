@@ -3,6 +3,37 @@ import Testing
 
 @Suite("Workspace presentation policy")
 struct WorkspacePresentationPolicyTests {
+    @Test("protected Prompts remains a manual clip drop destination")
+    func protectedPromptsAcceptsClipDropsWithoutBecomingManageable() throws {
+        let prompts = try #require(CollectionFolder.defaults.first?.children.first {
+            $0.collectionID == ClipCollection.prompts.id
+        })
+
+        #expect(WorkspaceFolderPolicy.isProtected(prompts))
+        #expect(!WorkspaceFolderPolicy.canManage(prompts))
+        #expect(
+            WorkspaceManualDestinationPolicy.collectionID(
+                for: prompts,
+                collections: ClipCollection.defaults
+            ) == ClipCollection.prompts.id
+        )
+
+        let smart = try #require(CollectionFolder.defaults.first?.children.first {
+            $0.collectionID == "research"
+        })
+        #expect(WorkspaceFolderPolicy.isProtected(smart))
+        #expect(
+            WorkspaceManualDestinationPolicy.collectionID(
+                for: smart,
+                collections: ClipCollection.defaults
+            ) == nil
+        )
+        #expect(
+            ClipCollectionMoveError.invalidDestination.errorDescription
+                == "Choose a manual collection as the destination."
+        )
+    }
+
     @Test("compact width begins below the reachable 900 point window minimum")
     func widthClassesUseTheCompactBreakpoint() {
         #expect(WorkspaceWidthClass(width: 899) == .compact)

@@ -124,8 +124,8 @@ private struct FolderNodeView: View {
 
     @ViewBuilder
     var body: some View {
-        if let customCollectionID {
-            customCollectionDropTarget(collectionID: customCollectionID) {
+        if let manualDestinationCollectionID {
+            manualCollectionDropTarget(collectionID: manualDestinationCollectionID) {
                 nodeContent.contextMenu {
                     folderActions
                 }
@@ -201,14 +201,11 @@ private struct FolderNodeView: View {
         folder.collectionID == nil || model.canManageWorkspaceFolder(folder)
     }
 
-    private var customCollectionID: String? {
-        guard model.canManageWorkspaceFolder(folder) else { return nil }
-        let collectionID = folder.collectionID?.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let collectionID, !collectionID.isEmpty else { return nil }
-        return collectionID
+    private var manualDestinationCollectionID: String? {
+        model.manualDestinationCollectionID(for: folder)
     }
 
-    private func customCollectionDropTarget<Content: View>(
+    private func manualCollectionDropTarget<Content: View>(
         collectionID: String,
         @ViewBuilder content: () -> Content
     ) -> some View {
