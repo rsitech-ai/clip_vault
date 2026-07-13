@@ -99,6 +99,7 @@ public protocol ClipStoring: AnyObject {
     func reconcileWorkspaceDefaults() throws
     func payload(for clipID: String) throws -> ClipPayload?
     func save(payload: ClipPayload, sourceApp: String?) throws -> Clip?
+    func saveGeneratedPrompts(_ drafts: [GeneratedPromptDraft]) throws -> [Clip]
     func addClips(ids: [String], toCollectionID collectionID: String) throws
     func moveClips(ids: [String], toCollectionID collectionID: String) throws
     func togglePinned(id: String) throws
@@ -111,6 +112,36 @@ public protocol ClipStoring: AnyObject {
     func delete(id: String) throws
     func delete(ids: [String]) throws
     func pruneExpired(now: Date) throws
+}
+
+public struct GeneratedPromptDraft: Hashable, Sendable {
+    public var sourceClipID: String
+    public var sourceTitle: String
+    public var enhancedText: String
+
+    public init(sourceClipID: String, sourceTitle: String, enhancedText: String) {
+        self.sourceClipID = sourceClipID
+        self.sourceTitle = sourceTitle
+        self.enhancedText = enhancedText
+    }
+}
+
+public enum GeneratedPromptStoreError: Error, LocalizedError, Equatable {
+    case emptyBatch
+    case promptsUnavailable
+    case sourceMissing(String)
+    case rejectedOutput(String)
+    case duplicateOutput(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .emptyBatch: "No enhanced prompts were produced."
+        case .promptsUnavailable: "The Prompts collection is unavailable."
+        case .sourceMissing: "A source clip is no longer available."
+        case .rejectedOutput: "An enhanced prompt could not be saved safely."
+        case .duplicateOutput: "An identical enhanced prompt already exists."
+        }
+    }
 }
 
 public enum FolderStoreError: Error, LocalizedError, Equatable {
@@ -343,6 +374,56 @@ enum BuiltInCollectionAssignment {
     }
 }
 
+private struct PreparedGeneratedPrompt {
+    var clip: Clip
+    var payload: ClipPayload
+}
+
+private enum GeneratedPromptBatchPreparation {
+    static func prepare(
+        drafts: [GeneratedPromptDraft],
+        sourceTitleByID: [String: String],
+        existingFingerprints: Set<UInt64>,
+        sensitiveRules: SensitiveRuleEngine,
+        index: any SearchIndexing
+    ) throws -> [PreparedGeneratedPrompt] {
+        var batchFingerprints: Set<UInt64> = []
+
+        return try drafts.map { draft in
+            guard let sourceTitle = sourceTitleByID[draft.sourceClipID] else {
+                throw GeneratedPromptStoreError.sourceMissing(draft.sourceClipID)
+            }
+            let enhancedText = draft.enhancedText.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !enhancedText.isEmpty,
+                  !sensitiveRules.classify(enhancedText).isExcluded else {
+                throw GeneratedPromptStoreError.rejectedOutput(draft.sourceClipID)
+            }
+            let payload = ClipPayload(
+                kind: .text,
+                displayText: enhancedText,
+                extractedText: enhancedText,
+                metadata: ["promptSourceClipID": draft.sourceClipID]
+            )
+            let fingerprint = index.fingerprint(payload.searchableText)
+            guard !existingFingerprints.contains(fingerprint),
+                  batchFingerprints.insert(fingerprint).inserted else {
+                throw GeneratedPromptStoreError.duplicateOutput(draft.sourceClipID)
+            }
+            let clip = Clip(
+                kind: .text,
+                title: String("Enhanced — \(sourceTitle)".prefix(80)),
+                preview: payload.displayText,
+                extractedText: payload.extractedText,
+                collectionIDs: ["research", ClipCollection.prompts.id],
+                sourceApp: "ClipVault AI",
+                fingerprint: fingerprint,
+                metadata: payload.metadata
+            )
+            return PreparedGeneratedPrompt(clip: clip, payload: payload)
+        }
+    }
+}
+
 enum WorkspaceFolderCreateValidator {
     static func validate(
         folder: CollectionFolder,
@@ -569,6 +650,59 @@ public final class SwiftDataClipStore: ClipStoring {
         context.insert(record)
         try context.save()
         return clip
+    }
+
+    public func saveGeneratedPrompts(_ drafts: [GeneratedPromptDraft]) throws -> [Clip] {
+        guard !drafts.isEmpty else {
+            throw GeneratedPromptStoreError.emptyBatch
+        }
+        do {
+            let folderRecords = try context.fetch(FetchDescriptor<FolderRecord>())
+            guard folderRecords.contains(where: {
+                $0.id == WorkspacePromptsReconciliation.canonicalNodeID
+                    && $0.title == ClipCollection.prompts.title
+                    && $0.collectionID == ClipCollection.prompts.id
+            }) else {
+                throw GeneratedPromptStoreError.promptsUnavailable
+            }
+
+            let sourceIDs = Set(drafts.map(\.sourceClipID))
+            let clipRecords = try context.fetch(FetchDescriptor<ClipRecord>())
+            let sourceRecords = clipRecords.filter { sourceIDs.contains($0.id) }
+            let prepared = try GeneratedPromptBatchPreparation.prepare(
+                drafts: drafts,
+                sourceTitleByID: Dictionary(uniqueKeysWithValues: try sourceRecords.map {
+                    ($0.id, try storedTitle(from: $0))
+                }),
+                existingFingerprints: Set(clipRecords.map(\.fingerprintValue)),
+                sensitiveRules: sensitiveRules,
+                index: index
+            )
+            let encrypted = try prepared.map { preparedPrompt in
+                let encryptedPayload = try encryptor.encrypt(encoder.encode(preparedPrompt.payload))
+                let encryptedDetails = try encryptedDetailsPayload(EncryptedClipDetails(
+                    listPayload: preparedPrompt.payload,
+                    title: preparedPrompt.clip.title,
+                    userNote: preparedPrompt.clip.userNote,
+                    tags: preparedPrompt.clip.tags,
+                    sourceApp: preparedPrompt.clip.sourceApp
+                ))
+                return (preparedPrompt.clip, encryptedPayload, encryptedDetails)
+            }
+
+            for (clip, encryptedPayload, encryptedDetails) in encrypted {
+                context.insert(ClipRecord(
+                    clip: clip,
+                    encryptedPayload: encryptedPayload,
+                    encryptedListPayload: encryptedDetails
+                ))
+            }
+            try saveFolderContext(context)
+            return prepared.map(\.clip)
+        } catch {
+            context.rollback()
+            throw error
+        }
     }
 
     public func addClips(ids: [String], toCollectionID collectionID: String) throws {
@@ -925,6 +1059,44 @@ public final class SwiftDataClipStore: ClipStoring {
         return try decoder.decode(ClipPayload.self, from: payloadData)
     }
 
+    private func storedTitle(from record: ClipRecord) throws -> String {
+        guard let encryptedListPayload = record.encryptedListPayload else {
+            return try legacyStoredTitle(from: record)
+        }
+
+        let decrypted: Data
+        do {
+            decrypted = try encryptor.decrypt(encryptedListPayload)
+        } catch {
+            guard hasLegacyPlaintextDetails(record) else {
+                throw error
+            }
+            return try legacyStoredTitle(from: record)
+        }
+
+        if let header = try? decoder.decode(EncryptedClipDetailsHeader.self, from: decrypted) {
+            guard header.version == EncryptedClipDetails.currentVersion else {
+                throw EncryptedClipDetailsError.unsupportedVersion(header.version)
+            }
+            return try decoder.decode(EncryptedClipDetails.self, from: decrypted).title
+        }
+
+        do {
+            let legacyListPayload = try decoder.decode(ClipPayload.self, from: decrypted)
+            return record.title.isEmpty ? title(for: legacyListPayload) : record.title
+        } catch {
+            guard hasLegacyPlaintextDetails(record) else {
+                throw error
+            }
+            return try legacyStoredTitle(from: record)
+        }
+    }
+
+    private func legacyStoredTitle(from record: ClipRecord) throws -> String {
+        let legacyPayload = try payload(from: record)
+        return record.title.isEmpty ? title(for: listPayload(for: legacyPayload)) : record.title
+    }
+
     private func details(from record: ClipRecord) throws -> EncryptedClipDetails {
         if let encryptedListPayload = record.encryptedListPayload {
             let decrypted: Data
@@ -1151,6 +1323,38 @@ public final class InMemoryClipStore: ClipStoring {
         clips.append(clip)
         payloads[clip.id] = payload
         return clip
+    }
+
+    public func saveGeneratedPrompts(_ drafts: [GeneratedPromptDraft]) throws -> [Clip] {
+        guard !drafts.isEmpty else {
+            throw GeneratedPromptStoreError.emptyBatch
+        }
+        guard allFolders(in: storedFolders).contains(where: {
+            $0.id == WorkspacePromptsReconciliation.canonicalNodeID
+                && $0.title == ClipCollection.prompts.title
+                && $0.collectionID == ClipCollection.prompts.id
+        }) else {
+            throw GeneratedPromptStoreError.promptsUnavailable
+        }
+
+        let prepared = try GeneratedPromptBatchPreparation.prepare(
+            drafts: drafts,
+            sourceTitleByID: Dictionary(uniqueKeysWithValues: clips.map { ($0.id, $0.title) }),
+            existingFingerprints: Set(clips.map(\.fingerprint)),
+            sensitiveRules: sensitiveRules,
+            index: index
+        )
+        var stagedClips = clips
+        var stagedPayloads = payloads
+
+        for preparedPrompt in prepared {
+            stagedClips.append(preparedPrompt.clip)
+            stagedPayloads[preparedPrompt.clip.id] = preparedPrompt.payload
+        }
+
+        clips = stagedClips
+        payloads = stagedPayloads
+        return prepared.map(\.clip)
     }
 
     public func addClips(ids: [String], toCollectionID collectionID: String) throws {
