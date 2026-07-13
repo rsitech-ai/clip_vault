@@ -21,6 +21,29 @@ public struct PromptEnhancementProgress: Equatable, Sendable {
     }
 }
 
+public enum PromptEnhancementState: Equatable, Sendable {
+    case idle
+    case enhancing(current: Int, total: Int, sourceTitle: String)
+    case saving(total: Int)
+    case success(count: Int)
+    case failed(sourceTitle: String?, message: String)
+    case cancelled
+
+    public var allowsCancellation: Bool {
+        if case .enhancing = self {
+            return true
+        }
+        return false
+    }
+
+    public var savedCount: Int? {
+        if case .success(let count) = self {
+            return count
+        }
+        return nil
+    }
+}
+
 public enum PromptEnhancementError: Error, LocalizedError, Equatable {
     case emptySelection
     case unavailable(String)
