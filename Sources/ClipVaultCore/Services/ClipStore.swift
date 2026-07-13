@@ -150,12 +150,16 @@ public enum ClipCollectionMoveError: Error, LocalizedError, Equatable {
         case .noClips: "Choose a clip to move."
         case .clipNotFound: "The clip is no longer available."
         case .destinationNotFound: "The destination collection no longer exists."
-        case .invalidDestination: "Choose a custom collection as the destination."
+        case .invalidDestination: "Choose a manual collection as the destination."
         }
     }
 }
 
 public enum WorkspaceFolderPolicy {
+    public static func canManage(_ folder: CollectionFolder) -> Bool {
+        !isProtected(folder)
+    }
+
     public static func isProtected(_ folder: CollectionFolder) -> Bool {
         isProtected(
             collectionID: folder.collectionID,
@@ -231,8 +235,11 @@ private struct WorkspacePromptsReconciliation {
     var nodeIDsToRemove: Set<String>
     var adoptedCollectionIDs: Set<String>
 
-    static func plan(for folders: [CollectionFolder]) -> WorkspacePromptsReconciliation {
+    static func plan(for folders: [CollectionFolder]) throws -> WorkspacePromptsReconciliation {
         let allNodes = flatten(folders)
+        if allNodes.contains(where: hasMismatchedReservedIdentity) {
+            throw FolderStoreError.duplicateID
+        }
         let defaultRoot = CollectionFolder.defaults[0]
         let root = folders.first(where: isBuiltInRoot)
             ?? folders.first(where: isLegacyCollectionsRoot)
@@ -288,6 +295,15 @@ private struct WorkspacePromptsReconciliation {
         let childIDs = Set(folder.children.compactMap(\.collectionID))
         return folder.id == CollectionFolder.defaults[0].id
             || ClipCollection.smartCollectionIDs.isSubset(of: childIDs)
+    }
+
+    private static func hasMismatchedReservedIdentity(_ folder: CollectionFolder) -> Bool {
+        guard folder.id == canonicalNodeID else {
+            return false
+        }
+        return folder.collectionID != ClipCollection.prompts.id
+            || folder.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                .caseInsensitiveCompare(ClipCollection.prompts.title) != .orderedSame
     }
 
     private static func isLegacyCollectionsRoot(_ folder: CollectionFolder) -> Bool {
@@ -433,7 +449,7 @@ public final class SwiftDataClipStore: ClipStoring {
     public func reconcileWorkspaceDefaults() throws {
         try withFolderRollback {
             let records = try context.fetch(FetchDescriptor<FolderRecord>())
-            let reconciliation = WorkspacePromptsReconciliation.plan(
+            let reconciliation = try WorkspacePromptsReconciliation.plan(
                 for: folderTree(from: records, parentID: nil)
             )
             var didChange = false
@@ -1068,7 +1084,7 @@ public final class InMemoryClipStore: ClipStoring {
     public func reconcileWorkspaceDefaults() throws {
         var stagedClips = clips
         var stagedFolders = storedFolders
-        let reconciliation = WorkspacePromptsReconciliation.plan(for: stagedFolders)
+        let reconciliation = try WorkspacePromptsReconciliation.plan(for: stagedFolders)
 
         for nodeID in reconciliation.nodeIDsToRemove {
             _ = removeFolder(id: nodeID, from: &stagedFolders)

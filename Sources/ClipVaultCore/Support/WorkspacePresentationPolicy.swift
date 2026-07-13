@@ -55,6 +55,25 @@ public enum AIWorkspaceDisclosurePolicy {
     }
 }
 
+public enum WorkspaceManualDestinationPolicy {
+    public static func collectionID(
+        for folder: CollectionFolder,
+        collections: [ClipCollection]
+    ) -> String? {
+        guard let rawCollectionID = folder.collectionID else {
+            return nil
+        }
+        let collectionID = rawCollectionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !collectionID.isEmpty,
+              collections.contains(where: { collection in
+            collection.id == collectionID && !collection.isSmart
+        }) else {
+            return nil
+        }
+        return collectionID
+    }
+}
+
 public struct AIWorkspaceLayoutMetrics: Equatable, Sendable {
     public var detailMinimum: Double
     public var aiMinimum: Double
