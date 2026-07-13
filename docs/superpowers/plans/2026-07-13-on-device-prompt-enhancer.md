@@ -685,7 +685,7 @@ git commit -m "feat: add Enhance Prompt workspace action"
 - Consumes: final source, tests, and exact `dist/ClipVault.app`.
 - Produces: final gate evidence and weakest truthful readiness label.
 
-- [ ] **Step 1: Run complete automated gates**
+- [x] **Step 1: Run complete automated gates**
 
 Run:
 
@@ -700,7 +700,7 @@ for file in script/*.sh script/lib/*.sh; do bash -n "$file"; done
 
 Expected: every command exits zero.
 
-- [ ] **Step 2: Rebuild and verify the exact signed app**
+- [x] **Step 2: Rebuild and verify the exact signed app**
 
 Run:
 
@@ -715,18 +715,29 @@ otool -L dist/ClipVault.app/Contents/MacOS/ClipVault
 
 Expected: every command exits zero and the exact process remains alive.
 
-- [ ] **Step 3: Exercise live single-source and multi-source success**
+- [x] **Step 3: Exercise live single-source and multi-source success**
 
 Use synthetic prompt clips only. Verify the full and compact controls, one generated result per source, sequential progress, success count, Open Prompts navigation, editable/copyable generated clips, original preservation, relaunch persistence, and `promptSourceClipID` through the existing E2E app-owned store probe in a disposable probe build.
 
-- [ ] **Step 4: Exercise cancel, unavailable, failure, and migration paths**
+- [x] **Step 4: Exercise cancel, unavailable, failure, and migration paths**
 
 Use deterministic test fixtures for unavailable/failure paths and a disposable app data container for migration. Confirm cancellation and every failure save zero outputs; confirm a legacy custom Prompts collection becomes one protected canonical manual collection with memberships intact and no duplicate after a second relaunch. Do not modify the user's real clips or consent.
 
-- [ ] **Step 5: Inspect accessibility, layout, performance, and logs**
+- [x] **Step 5: Inspect accessibility, layout, performance, and logs**
 
 At minimum and regular window widths, inspect labels, hints, disabled reasons, progress values, keyboard reachability, selection continuity, idle CPU/RSS, and unified logs. Require no new invalid-symbol, nested-glass, negative-geometry during ordinary interaction, save, migration, encryption, or crash signatures. Keep known macOS 27 Core Spotlight/Metal and accessibility-capture-only signals separate.
 
-- [ ] **Step 6: Review and commit final evidence-only edits**
+- [x] **Step 6: Review and commit final evidence-only edits**
 
 Run `git status --short`, `git diff --check`, inspect the complete branch diff, update this plan and the HQ progress log with actual results, and commit only the plan result if it changed. Never stage historical `audits/` directories.
+
+#### Task 6 Result — 2026-07-13
+
+- Complete gates passed: 142 Swift tests in 17 suites, 4 Rust tests, strict release warnings, rustfmt, strict Clippy, and syntax checks for 17 shell scripts. Focused suites passed 12 generated-prompt persistence, 27 folder/migration, and 45 prompt-workflow tests.
+- The exact Apple Development-signed `/Users/s1kor/dev/andrzej/ClipVault/dist/ClipVault.app` passed launch verification, E2E smoke, strict code-signature verification, plist/privacy lint, and linkage inspection. Final signed runtime PID was 78870.
+- A signed disposable E2E build verified live one-source and two-source success, ordered progress, live cancel with zero saved outputs, live validator failure with zero saved outputs, Open Prompts navigation, normal generated-clip controls, original/selection preservation, and relaunch persistence. Exact `promptSourceClipID` remains integration-test evidence because the stock E2E store probe exposes only row/copy counts.
+- Prompts protection, manual Move/drop destination policy, legacy adoption, idempotence, encryption, atomicity, and rollback are green through native menu inspection and focused SwiftData coverage. No real clip, consent, permission, or Apple account state was changed.
+- Runtime review found a real persisted-expanded cold-launch fault: two `glassEffect() tried to update multiple times per frame` entries without AX capture. Bisection isolated launch-visible inline native-glass controls; commit `4269960` switched only that path to the existing material-backed surface while preserving 34/30-point sizing, tints, help, and AX semantics, and added a static shell policy. Four subsequent signed persisted-expanded cold launches recorded zero glass faults.
+- Compact 900x572 and regular 1224x768 AX checks passed. Final idle samples for PID 78870 were 0.0%, 0.1%, and 0.0% CPU at 197,168 KB RSS. Ordinary final-launch errors were limited to the known host Core Spotlight `CSIndexErrorDomain -1000` diagnostic.
+- Weakest truthful label: **repo-ready and interaction-clean for the on-device prompt enhancer; blocked:external for complete all-controls keyboard-focus proof**. The host has full-control keyboard navigation disabled, so Shift-Tab entered text fields but could not prove every button without changing a system setting. No release-candidate or upload claim is made.
+- Full evidence: `.superpowers/sdd/task-6-report.md` (ignored, local audit artifact). Historical untracked `audits/` directories remain untouched.
