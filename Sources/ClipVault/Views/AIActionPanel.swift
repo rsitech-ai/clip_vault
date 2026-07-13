@@ -95,14 +95,12 @@ struct AIActionPanel: View {
     }
 
     private var inlineActionToolbar: some View {
-        ClipVaultGlassContainer(spacing: ClipVaultDesign.controlGroupSpacing) {
-            HStack(spacing: ClipVaultDesign.controlGroupSpacing) {
-                ForEach(Self.visibleActionKinds, id: \.self) { action in
-                    compactActionButton(for: action)
-                }
-                compactEnhancePromptButton
-                Spacer(minLength: 0)
+        HStack(spacing: ClipVaultDesign.controlGroupSpacing) {
+            ForEach(Self.visibleActionKinds, id: \.self) { action in
+                compactActionButton(for: action)
             }
+            compactEnhancePromptButton
+            Spacer(minLength: 0)
         }
     }
 
@@ -147,8 +145,9 @@ struct AIActionPanel: View {
                 .foregroundStyle(tint)
                 .frame(width: 34, height: 34)
                 .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                .clipVaultGlassSurface(cornerRadius: 9, tint: tint.opacity(0.12), interactive: true)
         }
-        .clipVaultGlassButtonStyle()
+        .buttonStyle(.plain)
         .opacity(model.isGenerating ? 0.55 : 1)
         .disabled(model.isGenerating)
         .help(model.isGenerating ? "Wait for the current AI action to finish" : actionHelp(for: action))
@@ -179,8 +178,13 @@ struct AIActionPanel: View {
                 .foregroundStyle(ClipVaultDesign.enhancePromptTint)
                 .frame(width: 34, height: 34)
                 .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                .clipVaultGlassSurface(
+                    cornerRadius: 9,
+                    tint: ClipVaultDesign.enhancePromptTint.opacity(0.12),
+                    interactive: true
+                )
         }
-        .clipVaultGlassButtonStyle()
+        .buttonStyle(.plain)
         .disabled(!model.canEnhancePrompts)
         .help(enhancePromptHelp)
         .accessibilityLabel("Enhance Prompt")
@@ -360,21 +364,43 @@ struct AIActionPanel: View {
                 .textFieldStyle(.roundedBorder)
                 .frame(minWidth: placement.askMinimumWidth)
                 .layoutPriority(1)
-            Button {
-                model.runAIAction(.ask)
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: ClipVaultDesign.icon(for: .ask))
-                    Text("Ask")
-                }
-                .font(.caption.weight(.semibold))
+            styledAskButton
+        }
+    }
+
+    private var askButton: some View {
+        Button {
+            model.runAIAction(.ask)
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: ClipVaultDesign.icon(for: .ask))
+                Text("Ask")
             }
-            .tint(ClipVaultDesign.tint(for: .ask))
-            .fixedSize(horizontal: true, vertical: false)
-            .clipVaultGlassButtonStyle(prominent: true)
-            .disabled(!model.canAskQuestion)
-            .help(askHelp)
-            .accessibilityHint(ClipVaultDesign.hint(for: .ask))
+            .font(.caption.weight(.semibold))
+        }
+        .tint(ClipVaultDesign.tint(for: .ask))
+        .fixedSize(horizontal: true, vertical: false)
+        .disabled(!model.canAskQuestion)
+        .help(askHelp)
+        .accessibilityHint(ClipVaultDesign.hint(for: .ask))
+    }
+
+    @ViewBuilder
+    private var styledAskButton: some View {
+        switch placement {
+        case .inspector:
+            askButton
+                .clipVaultGlassButtonStyle(prominent: true)
+        case .inline:
+            askButton
+                .buttonStyle(.plain)
+                .padding(.horizontal, 12)
+                .frame(height: 30)
+                .clipVaultGlassSurface(
+                    cornerRadius: 9,
+                    tint: ClipVaultDesign.tint(for: .ask).opacity(0.16),
+                    interactive: true
+                )
         }
     }
 
