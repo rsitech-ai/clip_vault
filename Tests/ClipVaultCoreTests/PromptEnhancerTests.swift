@@ -163,6 +163,34 @@ struct PromptEnhancerTests {
         }
     }
 
+    @Test("validator rejects dropped grouped and value-bearing short options")
+    func validatorRejectsDroppedGroupedShortOptions() {
+        let cases: [(source: String, output: String)] = [
+            ("Delete with -rf.", "Goal: Delete recursively and forcefully."),
+            ("Enable modes with -abc.", "Goal: Enable all requested modes."),
+            ("Compile with -O2.", "Goal: Compile with O2."),
+            ("Define the symbol with -DDEBUG.", "Goal: Define the debug symbol.")
+        ]
+
+        for item in cases {
+            let source = makeClip(preview: item.source, extractedText: item.source)
+            #expect(throws: PromptEnhancementError.droppedValue("Source")) {
+                try PromptEnhancementValidator().validate(output: item.output, source: source)
+            }
+        }
+    }
+
+    @Test("validator preserves grouped short options without freezing compounds or negative numbers")
+    func validatorAllowsPreservedGroupedShortOptions() throws {
+        let sourceText = "Run -rf -abc -O2 -DDEBUG, keep outcome-first copy, and compare -42 with -7."
+        let source = makeClip(preview: sourceText, extractedText: sourceText)
+        let output = "Goal: Compare -42 with -7. Run -DDEBUG, -O2, -abc, and -rf with concise copy."
+
+        let validated = try PromptEnhancementValidator().validate(output: output, source: source)
+
+        #expect(validated == output)
+    }
+
     @Test("validator preserves flags without freezing ordinary hyphenated prose")
     func validatorAllowsPreservedFlagsAndRewrittenHyphenatedProse() throws {
         let sourceText = "Create an outcome-first command guide using --dry-run and -v."
@@ -180,6 +208,7 @@ struct PromptEnhancerTests {
             ("Load ./config/app.json.", "Goal: Load the app configuration."),
             ("Write output to /tmp/output.", "Goal: Write to the temporary output directory."),
             ("Update config.json.", "Goal: Update the configuration file."),
+            ("Open example.com.", "Goal: Open the website."),
             ("Use com.example.ClipVault.", "Goal: Use the application bundle identifier.")
         ]
 
@@ -193,9 +222,44 @@ struct PromptEnhancerTests {
 
     @Test("validator allows rewrites preserving paths and dot-qualified names")
     func validatorAllowsPreservedPathsAndDotQualifiedNames() throws {
-        let sourceText = "Read ./config/app.json, update config.json, write /tmp/output, and use com.example.ClipVault."
+        let sourceText = "Read ./config/app.json, update config.json, open example.com, write /tmp/output, and use com.example.ClipVault."
         let source = makeClip(preview: sourceText, extractedText: sourceText)
-        let output = "Goal: Use com.example.ClipVault. Read ./config/app.json, update config.json, then write /tmp/output."
+        let output = "Goal: Use com.example.ClipVault. Open example.com, read ./config/app.json, update config.json, then write /tmp/output."
+
+        let validated = try PromptEnhancementValidator().validate(output: output, source: source)
+
+        #expect(validated == output)
+    }
+
+    @Test("validator rejects a dropped home-relative path even when the file name remains")
+    func validatorRejectsDroppedHomeRelativePath() {
+        let sourceText = "Read ~/Library/archive/config.json."
+        let source = makeClip(preview: sourceText, extractedText: sourceText)
+
+        #expect(throws: PromptEnhancementError.droppedValue("Source")) {
+            try PromptEnhancementValidator().validate(
+                output: "Goal: Read config.json.",
+                source: source
+            )
+        }
+    }
+
+    @Test("validator allows rewrites preserving every supported path root")
+    func validatorAllowsPreservedPathRoots() throws {
+        let sourceText = "Read ~/Library/archive/config.json, ./config/app.json, ../shared/defaults.json, and /tmp/output."
+        let source = makeClip(preview: sourceText, extractedText: sourceText)
+        let output = "Goal: Write /tmp/output after reading ../shared/defaults.json, ./config/app.json, and ~/Library/archive/config.json."
+
+        let validated = try PromptEnhancementValidator().validate(output: output, source: source)
+
+        #expect(validated == output)
+    }
+
+    @Test("validator allows slash-separated prose and common abbreviations to be rewritten")
+    func validatorAllowsRewrittenSlashProseAndAbbreviations() throws {
+        let sourceText = "Compare input/output and scheme://input/output formats, e.g. JSON, i.e. structured text, for U.S. users."
+        let source = makeClip(preview: sourceText, extractedText: sourceText)
+        let output = "Goal: Compare source and result formats using JSON examples for users in the United States."
 
         let validated = try PromptEnhancementValidator().validate(output: output, source: source)
 
