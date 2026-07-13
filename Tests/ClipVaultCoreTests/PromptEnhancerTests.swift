@@ -16,6 +16,404 @@ struct PromptEnhancerTests {
         #expect(PromptEnhancementState.cancelled.savedCount == nil)
     }
 
+    @MainActor
+    @Test("workflow attributes mid-batch unavailability to the active source")
+    func workflowAttributesMidBatchUnavailability() async {
+        let enhancer = ScriptedPromptEnhancer(
+            outputs: ["one": "Goal: Produce one result."],
+            sourceScopedFailures: [
+                "two": .unavailable("Apple Intelligence became unavailable.")
+            ]
+        )
+        let workflow = PromptEnhancementWorkflow(
+            runner: PromptEnhancementBatchRunner(enhancer: enhancer)
+        )
+        let sources = [
+            makeClip(id: "one", title: "One", preview: "one", extractedText: "one"),
+            makeClip(id: "two", title: "Two", preview: "two", extractedText: "two")
+        ]
+        var publishedStates: [PromptEnhancementState] = []
+
+        let outcome = await workflow.run(
+            sources: sources,
+            save: { _ in
+                Issue.record("Save must not run after generation failure")
+                return 0
+            },
+            reload: {
+                Issue.record("Reload must not run after generation failure")
+                return false
+            },
+            isActive: { true },
+            publish: { publishedStates.append($0) },
+            logError: { _ in }
+        )
+
+        let expectedMessage = "Couldn’t enhance “Two.” Apple Intelligence became unavailable. Nothing was saved."
+        #expect(outcome == .failedBeforeSave(sourceTitle: "Two", message: expectedMessage))
+        #expect(publishedStates.last == .failed(sourceTitle: "Two", message: expectedMessage))
+    }
+
+    @MainActor
+    @Test("workflow keeps preflight unavailability batch-wide")
+    func workflowKeepsPreflightUnavailabilityBatchWide() async {
+        let reason = "Apple Intelligence is downloading."
+        let enhancer = ScriptedPromptEnhancer(
+            outputs: [:],
+            availability: AIAvailability(isAvailable: false, reason: reason)
+        )
+        let workflow = PromptEnhancementWorkflow(
+            runner: PromptEnhancementBatchRunner(enhancer: enhancer)
+        )
+        let source = makeClip(
+            id: "one",
+            title: "One",
+            preview: "one",
+            extractedText: "one"
+        )
+        var publishedStates: [PromptEnhancementState] = []
+
+        let outcome = await workflow.run(
+            sources: [source],
+            save: { _ in 0 },
+            reload: { false },
+            isActive: { true },
+            publish: { publishedStates.append($0) },
+            logError: { _ in }
+        )
+
+        let expectedMessage = "\(reason) Nothing was saved."
+        #expect(outcome == .failedBeforeSave(sourceTitle: nil, message: expectedMessage))
+        #expect(publishedStates == [.failed(sourceTitle: nil, message: expectedMessage)])
+    }
+
+    @MainActor
+    @Test("workflow cancellation before save invokes save zero times")
+    func workflowCancellationBeforeSaveSkipsPersistence() async {
+        let enhancer = ScriptedPromptEnhancer(
+            outputs: [:],
+            cancelledSourceIDs: ["one"]
+        )
+        let workflow = PromptEnhancementWorkflow(
+            runner: PromptEnhancementBatchRunner(enhancer: enhancer)
+        )
+        let source = makeClip(
+            id: "one",
+            title: "One",
+            preview: "one",
+            extractedText: "one"
+        )
+        var saveCalls = 0
+        var publishedStates: [PromptEnhancementState] = []
+
+        let outcome = await workflow.run(
+            sources: [source],
+            save: { _ in
+                saveCalls += 1
+                return 1
+            },
+            reload: { true },
+            isActive: { true },
+            publish: { publishedStates.append($0) },
+            logError: { _ in }
+        )
+
+        #expect(outcome == .cancelled)
+        #expect(saveCalls == 0)
+        #expect(publishedStates == [
+            .enhancing(current: 1, total: 1, sourceTitle: "One"),
+            .cancelled
+        ])
+    }
+
+    @MainActor
+    @Test("workflow success saves and reloads exactly once")
+    func workflowSuccessSavesAndReloadsOnce() async {
+        let enhancer = ScriptedPromptEnhancer(
+            outputs: ["one": "Goal: Produce one result."]
+        )
+        let workflow = PromptEnhancementWorkflow(
+            runner: PromptEnhancementBatchRunner(enhancer: enhancer)
+        )
+        let source = makeClip(
+            id: "one",
+            title: "One",
+            preview: "one",
+            extractedText: "one"
+        )
+        var saveCalls = 0
+        var reloadCalls = 0
+        var publishedStates: [PromptEnhancementState] = []
+
+        let outcome = await workflow.run(
+            sources: [source],
+            save: { drafts in
+                saveCalls += 1
+                #expect(drafts.map(\.sourceClipID) == ["one"])
+                return drafts.count
+            },
+            reload: {
+                reloadCalls += 1
+                return true
+            },
+            isActive: { true },
+            publish: { publishedStates.append($0) },
+            logError: { _ in }
+        )
+
+        #expect(outcome == .saved(count: 1))
+        #expect(saveCalls == 1)
+        #expect(reloadCalls == 1)
+        #expect(publishedStates == [
+            .enhancing(current: 1, total: 1, sourceTitle: "One"),
+            .saving(total: 1),
+            .success(count: 1)
+        ])
+    }
+
+    @MainActor
+    @Test("workflow atomic save failure skips reload and reports zero saved")
+    func workflowAtomicSaveFailureSkipsReload() async {
+        let enhancer = ScriptedPromptEnhancer(
+            outputs: ["one": "Goal: Produce one result."]
+        )
+        let workflow = PromptEnhancementWorkflow(
+            runner: PromptEnhancementBatchRunner(enhancer: enhancer)
+        )
+        let source = makeClip(
+            id: "one",
+            title: "One",
+            preview: "one",
+            extractedText: "one"
+        )
+        var reloadCalls = 0
+        var publishedStates: [PromptEnhancementState] = []
+
+        let outcome = await workflow.run(
+            sources: [source],
+            save: { _ in
+                throw GeneratedPromptStoreError.batchSaveFailed(["one"])
+            },
+            reload: {
+                reloadCalls += 1
+                return true
+            },
+            isActive: { true },
+            publish: { publishedStates.append($0) },
+            logError: { _ in }
+        )
+
+        let expectedMessage = "The enhanced prompts could not be saved. Nothing was saved."
+        #expect(outcome == .atomicSaveFailed(sourceTitle: nil, message: expectedMessage))
+        #expect(reloadCalls == 0)
+        #expect(publishedStates == [
+            .enhancing(current: 1, total: 1, sourceTitle: "One"),
+            .saving(total: 1),
+            .failed(sourceTitle: nil, message: expectedMessage)
+        ])
+    }
+
+    @MainActor
+    @Test("workflow maps source-scoped store IDs to safe source titles")
+    func workflowMapsStoreSourceIDToSafeTitle() async {
+        let enhancer = ScriptedPromptEnhancer(
+            outputs: ["one": "Goal: Produce one result."]
+        )
+        let workflow = PromptEnhancementWorkflow(
+            runner: PromptEnhancementBatchRunner(enhancer: enhancer)
+        )
+        let source = makeClip(
+            id: "one",
+            title: "One",
+            preview: "one",
+            extractedText: "one"
+        )
+
+        let outcome = await workflow.run(
+            sources: [source],
+            save: { _ in
+                throw GeneratedPromptStoreError.encryptionFailed("one")
+            },
+            reload: { true },
+            isActive: { true },
+            publish: { _ in },
+            logError: { _ in }
+        )
+
+        let message = "Couldn’t enhance “One.” An enhanced prompt could not be secured for saving. Nothing was saved."
+        #expect(outcome == .atomicSaveFailed(sourceTitle: "One", message: message))
+    }
+
+    @MainActor
+    @Test("workflow reload failure reports persisted count without zero-save copy")
+    func workflowReloadFailureReportsPersistedCount() async {
+        let enhancer = ScriptedPromptEnhancer(outputs: [
+            "one": "Goal: Produce one result.",
+            "two": "Goal: Produce two results."
+        ])
+        let workflow = PromptEnhancementWorkflow(
+            runner: PromptEnhancementBatchRunner(enhancer: enhancer)
+        )
+        let sources = [
+            makeClip(id: "one", title: "One", preview: "one", extractedText: "one"),
+            makeClip(id: "two", title: "Two", preview: "two", extractedText: "two")
+        ]
+        var publishedStates: [PromptEnhancementState] = []
+        var reloadCalls = 0
+
+        let outcome = await workflow.run(
+            sources: sources,
+            save: { $0.count },
+            reload: {
+                reloadCalls += 1
+                return false
+            },
+            isActive: { true },
+            publish: { publishedStates.append($0) },
+            logError: { _ in }
+        )
+
+        let message = "2 enhanced prompts were saved, but ClipVault couldn’t refresh the workspace."
+        #expect(outcome == .savedButReloadFailed(count: 2, message: message))
+        #expect(reloadCalls == 1)
+        #expect(!message.contains("Nothing was saved"))
+        #expect(publishedStates == [
+            .enhancing(current: 1, total: 2, sourceTitle: "One"),
+            .enhancing(current: 2, total: 2, sourceTitle: "Two"),
+            .saving(total: 2),
+            .failed(sourceTitle: nil, message: message)
+        ])
+    }
+
+    @MainActor
+    @Test("workflow sanitizes unexpected runner errors")
+    func workflowSanitizesUnexpectedErrors() async {
+        let rawDetail = "RAW_WORKFLOW_PROVIDER_DETAIL"
+        let enhancer = ScriptedPromptEnhancer(
+            outputs: [:],
+            failures: ["one": .rawFailure(rawDetail)]
+        )
+        let workflow = PromptEnhancementWorkflow(
+            runner: PromptEnhancementBatchRunner(enhancer: enhancer)
+        )
+        let source = makeClip(
+            id: "one",
+            title: "One",
+            preview: "one",
+            extractedText: "one"
+        )
+
+        let outcome = await workflow.run(
+            sources: [source],
+            save: { _ in 0 },
+            reload: { false },
+            isActive: { true },
+            publish: { _ in },
+            logError: { _ in }
+        )
+
+        guard case .failedBeforeSave(let sourceTitle, let message) = outcome else {
+            Issue.record("Expected a pre-save workflow failure")
+            return
+        }
+        #expect(sourceTitle == "One")
+        #expect(message == "Couldn’t enhance “One.” The prompt enhancer could not complete this source. Nothing was saved.")
+        #expect(!message.contains(rawDetail))
+    }
+
+    @MainActor
+    @Test("workflow gates inactive state publication before persistence")
+    func workflowGatesInactivePublication() async {
+        let enhancer = ScriptedPromptEnhancer(outputs: [
+            "one": "Goal: Produce one result.",
+            "two": "Goal: Produce two results."
+        ])
+        let workflow = PromptEnhancementWorkflow(
+            runner: PromptEnhancementBatchRunner(enhancer: enhancer)
+        )
+        let sources = [
+            makeClip(id: "one", title: "One", preview: "one", extractedText: "one"),
+            makeClip(id: "two", title: "Two", preview: "two", extractedText: "two")
+        ]
+        var isActive = true
+        var saveCalls = 0
+        var publishedStates: [PromptEnhancementState] = []
+
+        let outcome = await workflow.run(
+            sources: sources,
+            save: { _ in
+                saveCalls += 1
+                return 2
+            },
+            reload: { true },
+            isActive: { isActive },
+            publish: { state in
+                publishedStates.append(state)
+                if case .enhancing = state {
+                    isActive = false
+                }
+            },
+            logError: { _ in }
+        )
+
+        #expect(outcome == .cancelled)
+        #expect(saveCalls == 0)
+        #expect(publishedStates == [
+            .enhancing(current: 1, total: 2, sourceTitle: "One")
+        ])
+    }
+
+    @Test("selection restoration keeps only surviving pre-run sources")
+    func selectionRestorationExcludesGeneratedClips() {
+        let snapshot = PromptEnhancementSelectionSnapshot(
+            currentClipID: "missing-current",
+            selectedClipIDs: ["one", "missing-selected"],
+            sourceIDs: ["one", "two"]
+        )
+
+        let restored = snapshot.restoring(
+            existingClipIDs: ["one", "two", "generated"]
+        )
+
+        #expect(restored == PromptEnhancementSelection(
+            currentClipID: "one",
+            selectedClipIDs: ["one"]
+        ))
+        #expect(restored.currentClipID != "generated")
+        #expect(!restored.selectedClipIDs.contains("generated"))
+    }
+
+    @Test("Open Prompts eligibility is success-only")
+    func openPromptsEligibilityIsSuccessOnly() {
+        #expect(PromptEnhancementState.success(count: 1).canOpenPrompts)
+        #expect(!PromptEnhancementState.idle.canOpenPrompts)
+        #expect(!PromptEnhancementState.enhancing(
+            current: 1,
+            total: 1,
+            sourceTitle: "One"
+        ).canOpenPrompts)
+        #expect(!PromptEnhancementState.saving(total: 1).canOpenPrompts)
+        #expect(!PromptEnhancementState.failed(sourceTitle: nil, message: "Failure").canOpenPrompts)
+        #expect(!PromptEnhancementState.cancelled.canOpenPrompts)
+    }
+
+    @Test("active prompt states block ordinary and new prompt operations")
+    func activePromptStatesBlockAIOperations() {
+        #expect(PromptEnhancementState.enhancing(
+            current: 1,
+            total: 1,
+            sourceTitle: "One"
+        ).blocksAIOperations)
+        #expect(PromptEnhancementState.saving(total: 1).blocksAIOperations)
+        #expect(!PromptEnhancementState.idle.blocksAIOperations)
+        #expect(!PromptEnhancementState.success(count: 1).blocksAIOperations)
+        #expect(!PromptEnhancementState.failed(
+            sourceTitle: nil,
+            message: "Failure"
+        ).blocksAIOperations)
+        #expect(!PromptEnhancementState.cancelled.blocksAIOperations)
+    }
+
     @Test("validator rejects an empty source")
     func validatorRejectsEmptySource() {
         let source = makeClip(

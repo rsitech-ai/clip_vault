@@ -42,6 +42,64 @@ public enum PromptEnhancementState: Equatable, Sendable {
         }
         return nil
     }
+
+    public var canOpenPrompts: Bool {
+        if case .success = self {
+            return true
+        }
+        return false
+    }
+
+    public var blocksAIOperations: Bool {
+        switch self {
+        case .enhancing, .saving:
+            true
+        case .idle, .success, .failed, .cancelled:
+            false
+        }
+    }
+}
+
+public struct PromptEnhancementSelection: Equatable, Sendable {
+    public var currentClipID: String?
+    public var selectedClipIDs: Set<String>
+
+    public init(currentClipID: String?, selectedClipIDs: Set<String>) {
+        self.currentClipID = currentClipID
+        self.selectedClipIDs = selectedClipIDs
+    }
+}
+
+public struct PromptEnhancementSelectionSnapshot: Equatable, Sendable {
+    public var currentClipID: String?
+    public var selectedClipIDs: Set<String>
+    public var sourceIDs: [String]
+
+    public init(
+        currentClipID: String?,
+        selectedClipIDs: Set<String>,
+        sourceIDs: [String]
+    ) {
+        self.currentClipID = currentClipID
+        self.selectedClipIDs = selectedClipIDs
+        self.sourceIDs = sourceIDs
+    }
+
+    public func restoring(existingClipIDs: Set<String>) -> PromptEnhancementSelection {
+        let sourceIDSet = Set(sourceIDs)
+        let survivingSourceIDs = sourceIDSet.intersection(existingClipIDs)
+        let restoredCurrentClipID: String?
+        if let currentClipID, survivingSourceIDs.contains(currentClipID) {
+            restoredCurrentClipID = currentClipID
+        } else {
+            restoredCurrentClipID = sourceIDs.first(where: survivingSourceIDs.contains)
+        }
+
+        return PromptEnhancementSelection(
+            currentClipID: restoredCurrentClipID,
+            selectedClipIDs: selectedClipIDs.intersection(survivingSourceIDs)
+        )
+    }
 }
 
 public enum PromptEnhancementError: Error, LocalizedError, Equatable {
@@ -449,5 +507,308 @@ public struct PromptEnhancementBatchRunner: Sendable {
         }
         try Task.checkCancellation()
         return drafts
+    }
+}
+
+public enum PromptEnhancementWorkflowOutcome: Equatable, Sendable {
+    case cancelled
+    case failedBeforeSave(sourceTitle: String?, message: String)
+    case atomicSaveFailed(sourceTitle: String?, message: String)
+    case saved(count: Int)
+    case savedButReloadFailed(count: Int, message: String)
+
+    public var state: PromptEnhancementState {
+        switch self {
+        case .cancelled:
+            .cancelled
+        case .failedBeforeSave(let sourceTitle, let message),
+             .atomicSaveFailed(let sourceTitle, let message):
+            .failed(sourceTitle: sourceTitle, message: message)
+        case .saved(let count):
+            .success(count: count)
+        case .savedButReloadFailed(_, let message):
+            .failed(sourceTitle: nil, message: message)
+        }
+    }
+}
+
+@MainActor
+public struct PromptEnhancementWorkflow {
+    private let runner: PromptEnhancementBatchRunner
+
+    public init(runner: PromptEnhancementBatchRunner) {
+        self.runner = runner
+    }
+
+    public func run(
+        sources: [Clip],
+        save: ([GeneratedPromptDraft]) throws -> Int,
+        reload: () -> Bool,
+        isActive: @escaping () -> Bool,
+        publish: @escaping (PromptEnhancementState) -> Void,
+        logError: (any Error) -> Void
+    ) async -> PromptEnhancementWorkflowOutcome {
+        let publisher = PromptEnhancementWorkflowPublisher(
+            isActive: isActive,
+            publish: publish
+        )
+
+        let drafts: [GeneratedPromptDraft]
+        do {
+            drafts = try await runner.run(sources: sources) { progress in
+                await publisher.receive(progress)
+            }
+        } catch is CancellationError {
+            let outcome = PromptEnhancementWorkflowOutcome.cancelled
+            publisher.publishIfActive(outcome.state)
+            return outcome
+        } catch {
+            logError(error)
+            let failure = Self.failure(
+                error: error,
+                currentSourceTitle: publisher.currentSourceTitle,
+                safeSourceTitles: Set(sources.map(\.title))
+            )
+            let outcome = PromptEnhancementWorkflowOutcome.failedBeforeSave(
+                sourceTitle: failure.sourceTitle,
+                message: Self.failureMessage(
+                    sourceTitle: failure.sourceTitle,
+                    reason: failure.reason
+                )
+            )
+            publisher.publishIfActive(outcome.state)
+            return outcome
+        }
+
+        do {
+            try Task.checkCancellation()
+        } catch {
+            let outcome = PromptEnhancementWorkflowOutcome.cancelled
+            publisher.publishIfActive(outcome.state)
+            return outcome
+        }
+        guard publisher.isActive else {
+            return .cancelled
+        }
+
+        publisher.publishIfActive(.saving(total: drafts.count))
+        let savedCount: Int
+        do {
+            savedCount = try save(drafts)
+        } catch {
+            logError(error)
+            let failure = Self.storeFailure(
+                error: error,
+                sourceTitlesByID: sources.reduce(into: [:]) { titles, source in
+                    titles[source.id] = source.title
+                }
+            )
+            let message = Self.failureMessage(
+                sourceTitle: failure.sourceTitle,
+                reason: failure.reason
+            )
+            let outcome = PromptEnhancementWorkflowOutcome.atomicSaveFailed(
+                sourceTitle: failure.sourceTitle,
+                message: message
+            )
+            publisher.publishIfActive(outcome.state)
+            return outcome
+        }
+
+        guard reload() else {
+            let message = Self.reloadFailureMessage(savedCount: savedCount)
+            let outcome = PromptEnhancementWorkflowOutcome.savedButReloadFailed(
+                count: savedCount,
+                message: message
+            )
+            publisher.publishIfActive(outcome.state)
+            return outcome
+        }
+
+        let outcome = PromptEnhancementWorkflowOutcome.saved(count: savedCount)
+        publisher.publishIfActive(outcome.state)
+        return outcome
+    }
+
+    private static func failure(
+        error: any Error,
+        currentSourceTitle: String?,
+        safeSourceTitles: Set<String>
+    ) -> (sourceTitle: String?, reason: String) {
+        guard let enhancementError = error as? PromptEnhancementError else {
+            return (
+                safeSourceTitle(
+                    candidate: nil,
+                    currentSourceTitle: currentSourceTitle,
+                    safeSourceTitles: safeSourceTitles
+                ),
+                "Prompt enhancement could not be completed."
+            )
+        }
+
+        switch enhancementError {
+        case .emptySelection:
+            return (nil, enhancementError.localizedDescription)
+        case .unavailable(let reason):
+            return (
+                safeSourceTitle(
+                    candidate: nil,
+                    currentSourceTitle: currentSourceTitle,
+                    safeSourceTitles: safeSourceTitles
+                ),
+                reason
+            )
+        case .emptySource(let sourceTitle):
+            return sourceFailure(
+                candidateTitle: sourceTitle,
+                currentSourceTitle: currentSourceTitle,
+                safeSourceTitles: safeSourceTitles,
+                reason: "This source has no text to enhance."
+            )
+        case .emptyOutput(let sourceTitle):
+            return sourceFailure(
+                candidateTitle: sourceTitle,
+                currentSourceTitle: currentSourceTitle,
+                safeSourceTitles: safeSourceTitles,
+                reason: "Apple Intelligence produced an empty result."
+            )
+        case .unchangedOutput(let sourceTitle):
+            return sourceFailure(
+                candidateTitle: sourceTitle,
+                currentSourceTitle: currentSourceTitle,
+                safeSourceTitles: safeSourceTitles,
+                reason: "This prompt is already well structured."
+            )
+        case .commentaryWrapper(let sourceTitle):
+            return sourceFailure(
+                candidateTitle: sourceTitle,
+                currentSourceTitle: currentSourceTitle,
+                safeSourceTitles: safeSourceTitles,
+                reason: "Apple Intelligence produced commentary instead of a prompt."
+            )
+        case .sensitiveOutput(let sourceTitle):
+            return sourceFailure(
+                candidateTitle: sourceTitle,
+                currentSourceTitle: currentSourceTitle,
+                safeSourceTitles: safeSourceTitles,
+                reason: "Apple Intelligence produced content ClipVault cannot save safely."
+            )
+        case .droppedValue(let sourceTitle):
+            return sourceFailure(
+                candidateTitle: sourceTitle,
+                currentSourceTitle: currentSourceTitle,
+                safeSourceTitles: safeSourceTitles,
+                reason: "Apple Intelligence did not preserve all required source values."
+            )
+        case .generationFailed(let sourceTitle, let reason):
+            return sourceFailure(
+                candidateTitle: sourceTitle,
+                currentSourceTitle: currentSourceTitle,
+                safeSourceTitles: safeSourceTitles,
+                reason: reason
+            )
+        }
+    }
+
+    private static func sourceFailure(
+        candidateTitle: String,
+        currentSourceTitle: String?,
+        safeSourceTitles: Set<String>,
+        reason: String
+    ) -> (sourceTitle: String?, reason: String) {
+        (
+            safeSourceTitle(
+                candidate: candidateTitle,
+                currentSourceTitle: currentSourceTitle,
+                safeSourceTitles: safeSourceTitles
+            ),
+            reason
+        )
+    }
+
+    private static func safeSourceTitle(
+        candidate: String?,
+        currentSourceTitle: String?,
+        safeSourceTitles: Set<String>
+    ) -> String? {
+        if let currentSourceTitle, safeSourceTitles.contains(currentSourceTitle) {
+            return currentSourceTitle
+        }
+        if let candidate, safeSourceTitles.contains(candidate) {
+            return candidate
+        }
+        return nil
+    }
+
+    private static func failureMessage(sourceTitle: String?, reason: String) -> String {
+        if let sourceTitle {
+            return "Couldn’t enhance “\(sourceTitle).” \(reason) Nothing was saved."
+        }
+        return "\(reason) Nothing was saved."
+    }
+
+    private static func storeFailure(
+        error: any Error,
+        sourceTitlesByID: [String: String]
+    ) -> (sourceTitle: String?, reason: String) {
+        guard let storeError = error as? GeneratedPromptStoreError else {
+            return (nil, "The enhanced prompts could not be saved.")
+        }
+
+        let sourceTitle: String?
+        switch storeError {
+        case .sourceMissing(let sourceID),
+             .duplicateSource(let sourceID),
+             .rejectedOutput(let sourceID),
+             .duplicateOutput(let sourceID),
+             .encryptionFailed(let sourceID):
+            sourceTitle = sourceTitlesByID[sourceID]
+        case .emptyBatch, .promptsUnavailable, .batchSaveFailed:
+            sourceTitle = nil
+        }
+        return (sourceTitle, storeError.localizedDescription)
+    }
+
+    private static func reloadFailureMessage(savedCount: Int) -> String {
+        let noun = savedCount == 1 ? "prompt was" : "prompts were"
+        return "\(savedCount) enhanced \(noun) saved, but ClipVault couldn’t refresh the workspace."
+    }
+}
+
+@MainActor
+private final class PromptEnhancementWorkflowPublisher {
+    private let isActiveCheck: () -> Bool
+    private let publish: (PromptEnhancementState) -> Void
+    private(set) var currentSourceTitle: String?
+
+    var isActive: Bool {
+        isActiveCheck()
+    }
+
+    init(
+        isActive: @escaping () -> Bool,
+        publish: @escaping (PromptEnhancementState) -> Void
+    ) {
+        self.isActiveCheck = isActive
+        self.publish = publish
+    }
+
+    func receive(_ progress: PromptEnhancementProgress) {
+        guard isActive else {
+            return
+        }
+        currentSourceTitle = progress.sourceTitle
+        publish(.enhancing(
+            current: progress.current,
+            total: progress.total,
+            sourceTitle: progress.sourceTitle
+        ))
+    }
+
+    func publishIfActive(_ state: PromptEnhancementState) {
+        guard isActive else {
+            return
+        }
+        publish(state)
     }
 }
