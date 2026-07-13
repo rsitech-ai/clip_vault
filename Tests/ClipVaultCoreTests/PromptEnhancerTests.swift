@@ -4,6 +4,18 @@ import Testing
 
 @Suite("Prompt enhancer")
 struct PromptEnhancerTests {
+    @Test("workflow state exposes cancellation and saved-count semantics")
+    func workflowStateSemantics() {
+        #expect(PromptEnhancementState.enhancing(
+            current: 1,
+            total: 2,
+            sourceTitle: "One"
+        ).allowsCancellation)
+        #expect(!PromptEnhancementState.saving(total: 2).allowsCancellation)
+        #expect(PromptEnhancementState.success(count: 2).savedCount == 2)
+        #expect(PromptEnhancementState.cancelled.savedCount == nil)
+    }
+
     @Test("validator rejects an empty source")
     func validatorRejectsEmptySource() {
         let source = makeClip(
