@@ -273,17 +273,16 @@ public struct PromptEnhancementValidator: Sendable {
         let patterns: [(String, NSRegularExpression.Options)] = [
             (#"https?://[^\s<>\"']+"#, [.caseInsensitive]),
             (#"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b"#, [.caseInsensitive]),
-            (#"(?<![\p{L}\p{N}_])(?:\./|\.\./|/)(?:[A-Za-z0-9._~-]+/)*[A-Za-z0-9._~-]+"#, []),
-            (#"\b(?=[A-Za-z0-9_-]*[A-Za-z])[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+\b"#, []),
+            (#"(?<![\p{L}\p{N}_./:~-])(?:\./|\.\./|~/|/)(?:[A-Za-z0-9._~-]+/)*[A-Za-z0-9._~-]+"#, []),
             (#"(?<![\p{L}\p{N}_-])--[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*(?:=[^\s,;]+)?"#, []),
-            (#"(?<![\p{L}\p{N}_-])-[A-Za-z](?![\p{L}\p{N}_-])"#, []),
+            (#"(?<![\p{L}\p{N}_-])-[A-Za-z][A-Za-z0-9]*(?![\p{L}\p{N}_-])"#, []),
             (#"(?<![\p{L}\p{N}_])(?:[$€£¥]\s*[-+]?\d+(?:[.,]\d+)*|[-+]?\d+(?:[.,]\d+)*\s*(?:%|ms|s|secs?|seconds?|mins?|minutes?|h|hrs?|hours?|[kmgt]i?b|bytes?|px|pt|em|rem|hz|khz|mhz|ghz|ml|mg|kg|mm|cm|km|m|g|l|°c|°f))(?![\p{L}\p{N}_])"#, [.caseInsensitive]),
             (#"(?<![\p{L}\p{N}_])[-+]?\d+(?:[.,]\d+)*(?![\p{L}\p{N}_])"#, []),
             (#"\"[^\"\r\n]+\"|'[^'\r\n]+'"#, []),
             (#"\b(?:[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]+|[a-z]+[A-Z][A-Za-z0-9]*|[A-Z][a-z0-9]+(?:[A-Z][A-Za-z0-9]*)+|[A-Za-z]+\d+[A-Za-z0-9]*|[A-Fa-f0-9]{8}(?:-[A-Fa-f0-9]{4}){3}-[A-Fa-f0-9]{12}|[A-Z]{2,}-\d+)\b"#, [])
         ]
 
-        return patterns.reduce(into: Set<String>()) { values, item in
+        var values = patterns.reduce(into: Set<String>()) { values, item in
             guard let expression = try? NSRegularExpression(
                 pattern: item.0,
                 options: item.1
@@ -301,6 +300,24 @@ public struct PromptEnhancementValidator: Sendable {
                 }
             }
         }
+
+        let dotQualifiedPattern = #"\b[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+\b"#
+        if let expression = try? NSRegularExpression(pattern: dotQualifiedPattern) {
+            let range = NSRange(value.startIndex..<value.endIndex, in: value)
+            for match in expression.matches(in: value, range: range) {
+                guard let tokenRange = Range(match.range, in: value) else {
+                    continue
+                }
+                let token = normalizedObservableToken(String(value[tokenRange]))
+                let segments = token.split(separator: ".")
+                let hasSubstantiveSegment = segments.contains { $0.count >= 2 }
+                let hasLetter = token.range(of: #"[A-Za-z]"#, options: .regularExpression) != nil
+                if hasSubstantiveSegment, hasLetter {
+                    values.insert(token)
+                }
+            }
+        }
+        return values
     }
 
     private func normalizedObservableToken(_ value: String) -> String {
