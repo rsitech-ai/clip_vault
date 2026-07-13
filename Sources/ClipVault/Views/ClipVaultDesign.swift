@@ -11,6 +11,8 @@ enum ClipVaultDesign {
     static let heroIconSize: CGFloat = 44
     static let controlGroupSpacing: CGFloat = 8
     static let moveIcon = "folder"
+    static let enhancePromptIcon = "wand.and.stars"
+    static let enhancePromptTint = Color.purple
 
     static func icon(for kind: ClipKind) -> String {
         switch kind {
