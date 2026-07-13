@@ -25,19 +25,53 @@ public final class ClipRecord {
         self.createdAt = clip.createdAt
         self.updatedAt = clip.updatedAt
         self.kindRaw = clip.kind.rawValue
-        self.title = clip.title
-        self.preview = clip.preview
+        self.title = ""
+        self.preview = ""
         self.isPinned = clip.isPinned
         self.collectionIDsRaw = clip.collectionIDs.joined(separator: ",")
         self.pinboardIDsRaw = clip.pinboardIDs.joined(separator: ",")
-        self.sourceApp = clip.sourceApp
+        self.sourceApp = nil
         self.fingerprintValue = clip.fingerprint
-        self.userNote = clip.userNote
-        self.tagsRaw = clip.tags.joined(separator: ",")
+        self.userNote = nil
+        self.tagsRaw = nil
         self.copyCount = clip.copyCount
         self.encryptedPayload = encryptedPayload
         self.encryptedListPayload = encryptedListPayload
     }
+}
+
+private struct EncryptedClipDetails: Codable {
+    static let currentVersion = 1
+
+    var version: Int
+    var listPayload: ClipPayload
+    var title: String
+    var userNote: String
+    var tags: [String]
+    var sourceApp: String?
+
+    init(
+        listPayload: ClipPayload,
+        title: String,
+        userNote: String,
+        tags: [String],
+        sourceApp: String?
+    ) {
+        self.version = Self.currentVersion
+        self.listPayload = listPayload
+        self.title = title
+        self.userNote = userNote
+        self.tags = tags
+        self.sourceApp = sourceApp
+    }
+}
+
+private struct EncryptedClipDetailsHeader: Decodable {
+    var version: Int
+}
+
+private enum EncryptedClipDetailsError: Error {
+    case unsupportedVersion(Int)
 }
 
 @Model
@@ -62,9 +96,12 @@ public final class FolderRecord {
 public protocol ClipStoring: AnyObject {
     func allClips() throws -> [Clip]
     func folders() throws -> [CollectionFolder]
+    func reconcileWorkspaceDefaults() throws
     func payload(for clipID: String) throws -> ClipPayload?
     func save(payload: ClipPayload, sourceApp: String?) throws -> Clip?
+    func saveGeneratedPrompts(_ drafts: [GeneratedPromptDraft]) throws -> [Clip]
     func addClips(ids: [String], toCollectionID collectionID: String) throws
+    func moveClips(ids: [String], toCollectionID collectionID: String) throws
     func togglePinned(id: String) throws
     func updateNote(id: String, note: String) throws
     func updateTitle(id: String, title: String) throws
@@ -75,6 +112,42 @@ public protocol ClipStoring: AnyObject {
     func delete(id: String) throws
     func delete(ids: [String]) throws
     func pruneExpired(now: Date) throws
+}
+
+public struct GeneratedPromptDraft: Hashable, Sendable {
+    public var sourceClipID: String
+    public var sourceTitle: String
+    public var enhancedText: String
+
+    public init(sourceClipID: String, sourceTitle: String, enhancedText: String) {
+        self.sourceClipID = sourceClipID
+        self.sourceTitle = sourceTitle
+        self.enhancedText = enhancedText
+    }
+}
+
+public enum GeneratedPromptStoreError: Error, LocalizedError, Equatable {
+    case emptyBatch
+    case promptsUnavailable
+    case sourceMissing(String)
+    case duplicateSource(String)
+    case rejectedOutput(String)
+    case duplicateOutput(String)
+    case encryptionFailed(String)
+    case batchSaveFailed([String])
+
+    public var errorDescription: String? {
+        switch self {
+        case .emptyBatch: "No enhanced prompts were produced."
+        case .promptsUnavailable: "The Prompts collection is unavailable."
+        case .sourceMissing: "A source clip is no longer available."
+        case .duplicateSource: "A source clip was included more than once."
+        case .rejectedOutput: "An enhanced prompt could not be saved safely."
+        case .duplicateOutput: "An identical enhanced prompt already exists."
+        case .encryptionFailed: "An enhanced prompt could not be secured for saving."
+        case .batchSaveFailed: "The enhanced prompts could not be saved."
+        }
+    }
 }
 
 public enum FolderStoreError: Error, LocalizedError, Equatable {
@@ -103,7 +176,27 @@ public enum FolderStoreError: Error, LocalizedError, Equatable {
     }
 }
 
+public enum ClipCollectionMoveError: Error, LocalizedError, Equatable {
+    case noClips
+    case clipNotFound
+    case destinationNotFound
+    case invalidDestination
+
+    public var errorDescription: String? {
+        switch self {
+        case .noClips: "Choose a clip to move."
+        case .clipNotFound: "The clip is no longer available."
+        case .destinationNotFound: "The destination collection no longer exists."
+        case .invalidDestination: "Choose a manual collection as the destination."
+        }
+    }
+}
+
 public enum WorkspaceFolderPolicy {
+    public static func canManage(_ folder: CollectionFolder) -> Bool {
+        !isProtected(folder)
+    }
+
     public static func isProtected(_ folder: CollectionFolder) -> Bool {
         isProtected(
             collectionID: folder.collectionID,
@@ -155,10 +248,125 @@ public enum WorkspaceCollectionCatalog {
         }
     }
 
+    public static func displayTitles(
+        for collectionIDs: [String],
+        in collections: [ClipCollection]
+    ) -> [String] {
+        let titlesByID = Dictionary(uniqueKeysWithValues: collections.map { ($0.id, $0.title) })
+        return collectionIDs.map { titlesByID[$0] ?? $0 }
+    }
+
     private static func flatten(_ folders: [CollectionFolder]) -> [CollectionFolder] {
         folders.flatMap { folder in
             [folder] + flatten(folder.children)
         }
+    }
+}
+
+private struct WorkspacePromptsReconciliation {
+    static let canonicalNodeID = "workspace-default-prompts"
+
+    var rootID: String
+    var needsDefaultRoot: Bool
+    var needsCanonicalNode: Bool
+    var nodeIDsToRemove: Set<String>
+    var adoptedCollectionIDs: Set<String>
+
+    static func plan(for folders: [CollectionFolder]) throws -> WorkspacePromptsReconciliation {
+        let allNodes = flatten(folders)
+        let defaultRoot = CollectionFolder.defaults[0]
+        let root = folders.first(where: isBuiltInRoot)
+            ?? folders.first(where: isLegacyCollectionsRoot)
+        let selectedRoot = root ?? defaultRoot
+        let reservedNodes = allNodes.filter(usesReservedIdentity)
+        if reservedNodes.count > 1
+            || reservedNodes.contains(where: { !hasCanonicalReservedIdentity($0) })
+            || reservedNodes.contains(where: { reservedNode in
+                !selectedRoot.children.contains { $0.id == reservedNode.id }
+            }) {
+            throw FolderStoreError.duplicateID
+        }
+        let canonicalNodeIsCurrent = selectedRoot.children.contains {
+            $0.id == canonicalNodeID
+                && $0.collectionID == ClipCollection.prompts.id
+                && $0.title == ClipCollection.prompts.title
+        }
+        let manualPromptNodes = allNodes.filter { node in
+            guard let collectionID = node.collectionID,
+                  !ClipCollection.smartCollectionIDs.contains(collectionID) else {
+                return false
+            }
+            return node.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                .caseInsensitiveCompare(ClipCollection.prompts.title) == .orderedSame
+        }
+        let reservedCanonicalNodes = allNodes.filter {
+            $0.id == canonicalNodeID || $0.collectionID == ClipCollection.prompts.id
+        }
+        let retainedCanonicalID = canonicalNodeIsCurrent ? canonicalNodeID : nil
+        let nodeIDsToRemove = Set((manualPromptNodes + reservedCanonicalNodes).compactMap { node in
+            node.id == retainedCanonicalID ? nil : node.id
+        })
+
+        return WorkspacePromptsReconciliation(
+            rootID: selectedRoot.id,
+            needsDefaultRoot: root == nil,
+            needsCanonicalNode: root != nil && !canonicalNodeIsCurrent,
+            nodeIDsToRemove: nodeIDsToRemove,
+            adoptedCollectionIDs: Set(manualPromptNodes.compactMap(\.collectionID))
+        )
+    }
+
+    func migratedCollectionIDs(_ collectionIDs: [String]) -> [String] {
+        var includedPrompts = false
+        return collectionIDs.compactMap { collectionID in
+            let migratedID = adoptedCollectionIDs.contains(collectionID)
+                ? ClipCollection.prompts.id
+                : collectionID
+            guard migratedID == ClipCollection.prompts.id else {
+                return migratedID
+            }
+            guard !includedPrompts else {
+                return nil
+            }
+            includedPrompts = true
+            return migratedID
+        }
+    }
+
+    private static func isBuiltInRoot(_ folder: CollectionFolder) -> Bool {
+        let childIDs = Set(folder.children.compactMap(\.collectionID))
+        return folder.id == CollectionFolder.defaults[0].id
+            || ClipCollection.smartCollectionIDs.isSubset(of: childIDs)
+    }
+
+    private static func usesReservedIdentity(_ folder: CollectionFolder) -> Bool {
+        folder.id == canonicalNodeID || folder.collectionID == ClipCollection.prompts.id
+    }
+
+    private static func hasCanonicalReservedIdentity(_ folder: CollectionFolder) -> Bool {
+        folder.id == canonicalNodeID
+            && folder.collectionID == ClipCollection.prompts.id
+            && folder.title == ClipCollection.prompts.title
+    }
+
+    private static func isLegacyCollectionsRoot(_ folder: CollectionFolder) -> Bool {
+        guard folder.collectionID == nil,
+              folder.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                .caseInsensitiveCompare("Collections") == .orderedSame else {
+            return false
+        }
+        return folder.children.contains { child in
+            guard let collectionID = child.collectionID,
+                  !ClipCollection.smartCollectionIDs.contains(collectionID) else {
+                return false
+            }
+            return child.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                .caseInsensitiveCompare(ClipCollection.prompts.title) == .orderedSame
+        }
+    }
+
+    private static func flatten(_ folders: [CollectionFolder]) -> [CollectionFolder] {
+        folders.flatMap { [$0] + flatten($0.children) }
     }
 }
 
@@ -174,6 +382,67 @@ enum BuiltInCollectionAssignment {
         case .error: ["errors", "code"]
         case .text: ["research"]
         case .unknown: []
+        }
+    }
+}
+
+private struct PreparedGeneratedPrompt {
+    var sourceClipID: String
+    var clip: Clip
+    var payload: ClipPayload
+}
+
+private enum GeneratedPromptBatchPreparation {
+    static func prepare(
+        drafts: [GeneratedPromptDraft],
+        sourceTitleByID: [String: String],
+        existingFingerprints: Set<UInt64>,
+        sensitiveRules: SensitiveRuleEngine,
+        index: any SearchIndexing
+    ) throws -> [PreparedGeneratedPrompt] {
+        var sourceIDs: Set<String> = []
+        for draft in drafts {
+            guard sourceIDs.insert(draft.sourceClipID).inserted else {
+                throw GeneratedPromptStoreError.duplicateSource(draft.sourceClipID)
+            }
+        }
+        var batchFingerprints: Set<UInt64> = []
+
+        return try drafts.map { draft in
+            guard let sourceTitle = sourceTitleByID[draft.sourceClipID] else {
+                throw GeneratedPromptStoreError.sourceMissing(draft.sourceClipID)
+            }
+            let enhancedText = draft.enhancedText.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !enhancedText.isEmpty,
+                  !sensitiveRules.classify(enhancedText).isExcluded else {
+                throw GeneratedPromptStoreError.rejectedOutput(draft.sourceClipID)
+            }
+            let payload = ClipPayload(
+                kind: .text,
+                displayText: enhancedText,
+                extractedText: enhancedText,
+                metadata: ["promptSourceClipID": draft.sourceClipID]
+            )
+            let fingerprint = index.fingerprint(payload.searchableText)
+            guard !existingFingerprints.contains(fingerprint),
+                  batchFingerprints.insert(fingerprint).inserted else {
+                throw GeneratedPromptStoreError.duplicateOutput(draft.sourceClipID)
+            }
+            let clip = Clip(
+                kind: .text,
+                title: String("Enhanced — \(sourceTitle)".prefix(80)),
+                preview: payload.displayText,
+                extractedText: payload.extractedText,
+                collectionIDs: ["research", ClipCollection.prompts.id],
+                sourceApp: "ClipVault AI",
+                fingerprint: fingerprint,
+                metadata: payload.metadata
+            )
+            return PreparedGeneratedPrompt(
+                sourceClipID: draft.sourceClipID,
+                clip: clip,
+                payload: payload
+            )
         }
     }
 }
@@ -270,6 +539,7 @@ public final class SwiftDataClipStore: ClipStoring {
     }
 
     public func folders() throws -> [CollectionFolder] {
+        try reconcileWorkspaceDefaults()
         let descriptor = FetchDescriptor<FolderRecord>(
             sortBy: [
                 SortDescriptor(\.sortOrder),
@@ -277,12 +547,59 @@ public final class SwiftDataClipStore: ClipStoring {
             ]
         )
         let records = try context.fetch(descriptor)
-        if records.isEmpty {
-            try seedDefaultFolders()
-            return try folders()
-        }
-
         return folderTree(from: records, parentID: nil)
+    }
+
+    public func reconcileWorkspaceDefaults() throws {
+        try withFolderRollback {
+            let records = try context.fetch(FetchDescriptor<FolderRecord>())
+            let reconciliation = try WorkspacePromptsReconciliation.plan(
+                for: folderTree(from: records, parentID: nil)
+            )
+            var didChange = false
+
+            for record in records where reconciliation.nodeIDsToRemove.contains(record.id) {
+                context.delete(record)
+                didChange = true
+            }
+            if reconciliation.needsDefaultRoot {
+                insertFolderTree(CollectionFolder.defaults[0], parentID: nil, sortOrder: 0)
+                didChange = true
+            } else {
+                if reconciliation.needsCanonicalNode {
+                    guard records.contains(where: { $0.id == reconciliation.rootID }) else {
+                        throw FolderStoreError.notFound
+                    }
+                    let canonicalNode = CollectionFolder(
+                        id: WorkspacePromptsReconciliation.canonicalNodeID,
+                        title: ClipCollection.prompts.title,
+                        collectionID: ClipCollection.prompts.id
+                    )
+                    context.insert(FolderRecord(
+                        folder: canonicalNode,
+                        parentID: reconciliation.rootID,
+                        sortOrder: nextSortOrder(parentID: reconciliation.rootID, in: records)
+                    ))
+                    didChange = true
+                }
+            }
+
+            let clipRecords = try context.fetch(FetchDescriptor<ClipRecord>())
+            for record in clipRecords {
+                let existingIDs = split(record.collectionIDsRaw)
+                let migratedIDs = reconciliation.migratedCollectionIDs(existingIDs)
+                guard migratedIDs != existingIDs else {
+                    continue
+                }
+                record.collectionIDsRaw = migratedIDs.joined(separator: ",")
+                record.updatedAt = Date()
+                didChange = true
+            }
+
+            if didChange {
+                try saveFolderContext(context)
+            }
+        }
     }
 
     public func payload(for clipID: String) throws -> ClipPayload? {
@@ -293,6 +610,10 @@ public final class SwiftDataClipStore: ClipStoring {
             return nil
         }
 
+        _ = try details(from: record)
+        if context.hasChanges {
+            try context.save()
+        }
         return try payload(from: record)
     }
 
@@ -309,12 +630,14 @@ public final class SwiftDataClipStore: ClipStoring {
         let existing = try context.fetch(existingDescriptor).first
 
         if let existing {
+            var details = try details(from: existing)
             existing.copyCount = (existing.copyCount ?? 1) + 1
             existing.updatedAt = Date()
-            existing.preview = payload.displayText
             let data = try encoder.encode(payload)
             existing.encryptedPayload = try encryptor.encrypt(data)
-            existing.encryptedListPayload = try encryptedListPayload(for: payload)
+            details.listPayload = listPayload(for: payload)
+            existing.encryptedListPayload = try encryptedDetailsPayload(details)
+            clearPlaintextDetails(on: existing)
             try context.save()
             return try recordToClip(existing)
         }
@@ -334,14 +657,83 @@ public final class SwiftDataClipStore: ClipStoring {
 
         let data = try encoder.encode(payload)
         let encrypted = try encryptor.encrypt(data)
-        let encryptedListPayload = try encryptor.encrypt(encoder.encode(listPayload))
-        context.insert(ClipRecord(
+        let encryptedDetails = try encryptedDetailsPayload(EncryptedClipDetails(
+            listPayload: listPayload,
+            title: clip.title,
+            userNote: clip.userNote,
+            tags: clip.tags,
+            sourceApp: clip.sourceApp
+        ))
+        let record = ClipRecord(
             clip: clip,
             encryptedPayload: encrypted,
-            encryptedListPayload: encryptedListPayload
-        ))
+            encryptedListPayload: encryptedDetails
+        )
+        clearPlaintextDetails(on: record)
+        context.insert(record)
         try context.save()
         return clip
+    }
+
+    public func saveGeneratedPrompts(_ drafts: [GeneratedPromptDraft]) throws -> [Clip] {
+        guard !drafts.isEmpty else {
+            throw GeneratedPromptStoreError.emptyBatch
+        }
+        do {
+            let folderRecords = try context.fetch(FetchDescriptor<FolderRecord>())
+            guard folderRecords.contains(where: {
+                $0.id == WorkspacePromptsReconciliation.canonicalNodeID
+                    && $0.title == ClipCollection.prompts.title
+                    && $0.collectionID == ClipCollection.prompts.id
+            }) else {
+                throw GeneratedPromptStoreError.promptsUnavailable
+            }
+
+            let sourceIDs = Set(drafts.map(\.sourceClipID))
+            let clipRecords = try context.fetch(FetchDescriptor<ClipRecord>())
+            let sourceRecords = clipRecords.filter { sourceIDs.contains($0.id) }
+            let prepared = try GeneratedPromptBatchPreparation.prepare(
+                drafts: drafts,
+                sourceTitleByID: Dictionary(uniqueKeysWithValues: try sourceRecords.map {
+                    ($0.id, try storedTitle(from: $0))
+                }),
+                existingFingerprints: Set(clipRecords.map(\.fingerprintValue)),
+                sensitiveRules: sensitiveRules,
+                index: index
+            )
+            let encrypted = try prepared.map { preparedPrompt in
+                do {
+                    let encryptedPayload = try encryptor.encrypt(encoder.encode(preparedPrompt.payload))
+                    let encryptedDetails = try encryptedDetailsPayload(EncryptedClipDetails(
+                        listPayload: preparedPrompt.payload,
+                        title: preparedPrompt.clip.title,
+                        userNote: preparedPrompt.clip.userNote,
+                        tags: preparedPrompt.clip.tags,
+                        sourceApp: preparedPrompt.clip.sourceApp
+                    ))
+                    return (preparedPrompt.clip, encryptedPayload, encryptedDetails)
+                } catch {
+                    throw GeneratedPromptStoreError.encryptionFailed(preparedPrompt.sourceClipID)
+                }
+            }
+
+            for (clip, encryptedPayload, encryptedDetails) in encrypted {
+                context.insert(ClipRecord(
+                    clip: clip,
+                    encryptedPayload: encryptedPayload,
+                    encryptedListPayload: encryptedDetails
+                ))
+            }
+            do {
+                try saveFolderContext(context)
+            } catch {
+                throw GeneratedPromptStoreError.batchSaveFailed(prepared.map(\.sourceClipID))
+            }
+            return prepared.map(\.clip)
+        } catch {
+            context.rollback()
+            throw error
+        }
     }
 
     public func addClips(ids: [String], toCollectionID collectionID: String) throws {
@@ -367,6 +759,35 @@ public final class SwiftDataClipStore: ClipStoring {
         try context.save()
     }
 
+    public func moveClips(ids: [String], toCollectionID collectionID: String) throws {
+        try withFolderRollback {
+            let requestedIDs = Set(ids)
+            guard !requestedIDs.isEmpty else { throw ClipCollectionMoveError.noClips }
+
+            let destination = collectionID.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !destination.isEmpty else { throw ClipCollectionMoveError.destinationNotFound }
+            let folderRecords = try context.fetch(FetchDescriptor<FolderRecord>())
+            guard folderRecords.contains(where: { $0.collectionID == destination }) else {
+                throw ClipCollectionMoveError.destinationNotFound
+            }
+            guard !ClipCollection.smartCollectionIDs.contains(destination) else {
+                throw ClipCollectionMoveError.invalidDestination
+            }
+
+            let records = try context.fetch(FetchDescriptor<ClipRecord>())
+                .filter { requestedIDs.contains($0.id) }
+            guard records.count == requestedIDs.count else { throw ClipCollectionMoveError.clipNotFound }
+            for record in records {
+                let preserved = split(record.collectionIDsRaw).filter {
+                    ClipCollection.smartCollectionIDs.contains($0)
+                }
+                record.collectionIDsRaw = (preserved + [destination]).joined(separator: ",")
+                record.updatedAt = Date()
+            }
+            try saveFolderContext(context)
+        }
+    }
+
     public func togglePinned(id: String) throws {
         let descriptor = FetchDescriptor<ClipRecord>(
             predicate: #Predicate { record in record.id == id }
@@ -388,7 +809,10 @@ public final class SwiftDataClipStore: ClipStoring {
             return
         }
 
-        record.userNote = note
+        var details = try details(from: record)
+        details.userNote = note
+        record.encryptedListPayload = try encryptedDetailsPayload(details)
+        clearPlaintextDetails(on: record)
         record.updatedAt = Date()
         try context.save()
     }
@@ -405,7 +829,10 @@ public final class SwiftDataClipStore: ClipStoring {
         guard !trimmed.isEmpty else {
             return
         }
-        record.title = trimmed
+        var details = try details(from: record)
+        details.title = trimmed
+        record.encryptedListPayload = try encryptedDetailsPayload(details)
+        clearPlaintextDetails(on: record)
         record.updatedAt = Date()
         try context.save()
     }
@@ -418,7 +845,10 @@ public final class SwiftDataClipStore: ClipStoring {
             return
         }
 
-        record.tagsRaw = normalizedTags(tags).joined(separator: ",")
+        var details = try details(from: record)
+        details.tags = normalizedTags(tags)
+        record.encryptedListPayload = try encryptedDetailsPayload(details)
+        clearPlaintextDetails(on: record)
         record.updatedAt = Date()
         try context.save()
     }
@@ -538,25 +968,26 @@ public final class SwiftDataClipStore: ClipStoring {
     }
 
     private func recordToClip(_ record: ClipRecord) throws -> Clip? {
-        let payload = try listPayload(from: record)
+        let details = try details(from: record)
+        let payload = details.listPayload
 
         return Clip(
             id: record.id,
             createdAt: record.createdAt,
             updatedAt: record.updatedAt,
             kind: ClipKind(rawValue: record.kindRaw) ?? .unknown,
-            title: record.title,
-            preview: record.preview,
+            title: details.title,
+            preview: payload.displayText,
             extractedText: payload.extractedText,
             isPinned: record.isPinned,
             collectionIDs: split(record.collectionIDsRaw),
             pinboardIDs: split(record.pinboardIDsRaw),
-            sourceApp: record.sourceApp,
+            sourceApp: details.sourceApp,
             fingerprint: record.fingerprintValue,
             previewData: payload.previewData,
             metadata: payload.metadata,
-            userNote: record.userNote ?? "",
-            tags: split(record.tagsRaw ?? ""),
+            userNote: details.userNote,
+            tags: details.tags,
             copyCount: record.copyCount ?? 1
         )
     }
@@ -659,23 +1090,116 @@ public final class SwiftDataClipStore: ClipStoring {
         return try decoder.decode(ClipPayload.self, from: payloadData)
     }
 
-    private func listPayload(from record: ClipRecord) throws -> ClipPayload {
-        if let encryptedListPayload = record.encryptedListPayload,
-           let payload = try? decoder.decode(
-               ClipPayload.self,
-               from: encryptor.decrypt(encryptedListPayload)
-           ) {
-            return payload
+    private func storedTitle(from record: ClipRecord) throws -> String {
+        guard let encryptedListPayload = record.encryptedListPayload else {
+            return try legacyStoredTitle(from: record)
         }
 
-        let payload = try payload(from: record)
-        let listPayload = listPayload(for: payload)
-        record.encryptedListPayload = try encryptor.encrypt(encoder.encode(listPayload))
-        return listPayload
+        let decrypted: Data
+        do {
+            decrypted = try encryptor.decrypt(encryptedListPayload)
+        } catch {
+            guard hasLegacyPlaintextDetails(record) else {
+                throw error
+            }
+            return try legacyStoredTitle(from: record)
+        }
+
+        if let header = try? decoder.decode(EncryptedClipDetailsHeader.self, from: decrypted) {
+            guard header.version == EncryptedClipDetails.currentVersion else {
+                throw EncryptedClipDetailsError.unsupportedVersion(header.version)
+            }
+            return try decoder.decode(EncryptedClipDetails.self, from: decrypted).title
+        }
+
+        do {
+            let legacyListPayload = try decoder.decode(ClipPayload.self, from: decrypted)
+            return record.title.isEmpty ? title(for: legacyListPayload) : record.title
+        } catch {
+            guard hasLegacyPlaintextDetails(record) else {
+                throw error
+            }
+            return try legacyStoredTitle(from: record)
+        }
     }
 
-    private func encryptedListPayload(for payload: ClipPayload) throws -> Data {
-        try encryptor.encrypt(encoder.encode(listPayload(for: payload)))
+    private func legacyStoredTitle(from record: ClipRecord) throws -> String {
+        let legacyPayload = try payload(from: record)
+        return record.title.isEmpty ? title(for: listPayload(for: legacyPayload)) : record.title
+    }
+
+    private func details(from record: ClipRecord) throws -> EncryptedClipDetails {
+        if let encryptedListPayload = record.encryptedListPayload {
+            let decrypted: Data
+            do {
+                decrypted = try encryptor.decrypt(encryptedListPayload)
+            } catch {
+                return try recoverLegacyDetails(for: record, after: error)
+            }
+            if let header = try? decoder.decode(EncryptedClipDetailsHeader.self, from: decrypted) {
+                guard header.version == EncryptedClipDetails.currentVersion else {
+                    throw EncryptedClipDetailsError.unsupportedVersion(header.version)
+                }
+                let details = try decoder.decode(EncryptedClipDetails.self, from: decrypted)
+                clearPlaintextDetails(on: record)
+                return details
+            }
+
+            let legacyListPayload: ClipPayload
+            do {
+                legacyListPayload = try decoder.decode(ClipPayload.self, from: decrypted)
+            } catch {
+                return try recoverLegacyDetails(for: record, after: error)
+            }
+            return try migrateDetails(for: record, listPayload: legacyListPayload)
+        }
+
+        let legacyPayload = try payload(from: record)
+        return try migrateDetails(for: record, listPayload: listPayload(for: legacyPayload))
+    }
+
+    private func migrateDetails(for record: ClipRecord, listPayload: ClipPayload) throws -> EncryptedClipDetails {
+        let details = EncryptedClipDetails(
+            listPayload: listPayload,
+            title: record.title.isEmpty ? title(for: listPayload) : record.title,
+            userNote: record.userNote ?? "",
+            tags: split(record.tagsRaw ?? ""),
+            sourceApp: record.sourceApp
+        )
+        record.encryptedListPayload = try encryptedDetailsPayload(details)
+        clearPlaintextDetails(on: record)
+        return details
+    }
+
+    private func encryptedDetailsPayload(_ details: EncryptedClipDetails) throws -> Data {
+        try encryptor.encrypt(encoder.encode(details))
+    }
+
+    private func clearPlaintextDetails(on record: ClipRecord) {
+        record.title = ""
+        record.preview = ""
+        record.sourceApp = nil
+        record.userNote = nil
+        record.tagsRaw = nil
+    }
+
+    private func hasLegacyPlaintextDetails(_ record: ClipRecord) -> Bool {
+        !record.title.isEmpty
+            || !record.preview.isEmpty
+            || record.sourceApp != nil
+            || record.userNote != nil
+            || record.tagsRaw != nil
+    }
+
+    private func recoverLegacyDetails(
+        for record: ClipRecord,
+        after error: any Error
+    ) throws -> EncryptedClipDetails {
+        guard hasLegacyPlaintextDetails(record) else {
+            throw error
+        }
+        let legacyPayload = try payload(from: record)
+        return try migrateDetails(for: record, listPayload: listPayload(for: legacyPayload))
     }
 
     private func listPayload(for payload: ClipPayload) -> ClipPayload {
@@ -741,12 +1265,59 @@ public final class InMemoryClipStore: ClipStoring {
         self.index = index
     }
 
+    init(
+        foldersForTesting: [CollectionFolder],
+        sensitiveRules: SensitiveRuleEngine = .default,
+        index: any SearchIndexing = RustSearchIndexCore()
+    ) {
+        self.storedFolders = foldersForTesting
+        self.sensitiveRules = sensitiveRules
+        self.index = index
+    }
+
     public func allClips() throws -> [Clip] {
         clips.sorted { $0.createdAt > $1.createdAt }
     }
 
     public func folders() throws -> [CollectionFolder] {
-        storedFolders
+        try reconcileWorkspaceDefaults()
+        return storedFolders
+    }
+
+    public func reconcileWorkspaceDefaults() throws {
+        var stagedClips = clips
+        var stagedFolders = storedFolders
+        let reconciliation = try WorkspacePromptsReconciliation.plan(for: stagedFolders)
+
+        for nodeID in reconciliation.nodeIDsToRemove {
+            _ = removeFolder(id: nodeID, from: &stagedFolders)
+        }
+        if reconciliation.needsDefaultRoot {
+            stagedFolders.append(CollectionFolder.defaults[0])
+        } else {
+            if reconciliation.needsCanonicalNode {
+                let canonicalNode = CollectionFolder(
+                    id: WorkspacePromptsReconciliation.canonicalNodeID,
+                    title: ClipCollection.prompts.title,
+                    collectionID: ClipCollection.prompts.id
+                )
+                guard insert(canonicalNode, under: reconciliation.rootID, in: &stagedFolders) else {
+                    throw FolderStoreError.notFound
+                }
+            }
+        }
+
+        for index in stagedClips.indices {
+            let migratedIDs = reconciliation.migratedCollectionIDs(stagedClips[index].collectionIDs)
+            guard migratedIDs != stagedClips[index].collectionIDs else {
+                continue
+            }
+            stagedClips[index].collectionIDs = migratedIDs
+            stagedClips[index].updatedAt = Date()
+        }
+
+        clips = stagedClips
+        storedFolders = stagedFolders
     }
 
     public func payload(for clipID: String) throws -> ClipPayload? {
@@ -785,6 +1356,38 @@ public final class InMemoryClipStore: ClipStoring {
         return clip
     }
 
+    public func saveGeneratedPrompts(_ drafts: [GeneratedPromptDraft]) throws -> [Clip] {
+        guard !drafts.isEmpty else {
+            throw GeneratedPromptStoreError.emptyBatch
+        }
+        guard allFolders(in: storedFolders).contains(where: {
+            $0.id == WorkspacePromptsReconciliation.canonicalNodeID
+                && $0.title == ClipCollection.prompts.title
+                && $0.collectionID == ClipCollection.prompts.id
+        }) else {
+            throw GeneratedPromptStoreError.promptsUnavailable
+        }
+
+        let prepared = try GeneratedPromptBatchPreparation.prepare(
+            drafts: drafts,
+            sourceTitleByID: Dictionary(uniqueKeysWithValues: clips.map { ($0.id, $0.title) }),
+            existingFingerprints: Set(clips.map(\.fingerprint)),
+            sensitiveRules: sensitiveRules,
+            index: index
+        )
+        var stagedClips = clips
+        var stagedPayloads = payloads
+
+        for preparedPrompt in prepared {
+            stagedClips.append(preparedPrompt.clip)
+            stagedPayloads[preparedPrompt.clip.id] = preparedPrompt.payload
+        }
+
+        clips = stagedClips
+        payloads = stagedPayloads
+        return prepared.map(\.clip)
+    }
+
     public func addClips(ids: [String], toCollectionID collectionID: String) throws {
         let idSet = Set(ids)
         guard !idSet.isEmpty, !collectionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -796,6 +1399,30 @@ public final class InMemoryClipStore: ClipStoring {
                 clips[index].collectionIDs.append(collectionID)
                 clips[index].updatedAt = Date()
             }
+        }
+    }
+
+    public func moveClips(ids: [String], toCollectionID collectionID: String) throws {
+        let requestedIDs = Set(ids)
+        guard !requestedIDs.isEmpty else { throw ClipCollectionMoveError.noClips }
+
+        let destination = collectionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !destination.isEmpty,
+              allFolders(in: storedFolders).contains(where: { $0.collectionID == destination }) else {
+            throw ClipCollectionMoveError.destinationNotFound
+        }
+        guard !ClipCollection.smartCollectionIDs.contains(destination) else {
+            throw ClipCollectionMoveError.invalidDestination
+        }
+
+        let indexes = clips.indices.filter { requestedIDs.contains(clips[$0].id) }
+        guard indexes.count == requestedIDs.count else { throw ClipCollectionMoveError.clipNotFound }
+        for index in indexes {
+            let preserved = clips[index].collectionIDs.filter {
+                ClipCollection.smartCollectionIDs.contains($0)
+            }
+            clips[index].collectionIDs = preserved + [destination]
+            clips[index].updatedAt = Date()
         }
     }
 

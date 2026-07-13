@@ -9,9 +9,10 @@ APP_VERSION="${APP_VERSION:-0.1.0}"
 APP_BUILD="${APP_BUILD:-1}"
 LOCAL_SIGNING_IDENTITY="${LOCAL_SIGNING_IDENTITY:-}"
 SWIFT_CONFIGURATION="${SWIFT_CONFIGURATION:-release}"
+ENABLE_STORE_PROBE="${ENABLE_STORE_PROBE:-false}"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DIST_DIR="$ROOT_DIR/dist"
+DIST_DIR="${DIST_DIR:-$ROOT_DIR/dist}"
 APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
 APP_CONTENTS="$APP_BUNDLE/Contents"
 APP_MACOS="$APP_CONTENTS/MacOS"
@@ -28,11 +29,23 @@ APP_ICON="$ROOT_DIR/Resources/AppIcon.icns"
 
 cd "$ROOT_DIR"
 
-pkill -x "$APP_NAME" >/dev/null 2>&1 || true
+SWIFT_BUILD_ARGS=(-c "$SWIFT_CONFIGURATION")
+if [[ "$ENABLE_STORE_PROBE" == "true" ]]; then
+  SWIFT_BUILD_ARGS+=(-Xswiftc -D -Xswiftc CLIPVAULT_E2E_PROBE)
+fi
+
+terminate_staged_app() {
+  local app_pid
+  while read -r app_pid; do
+    [[ -n "$app_pid" ]] && kill "$app_pid" >/dev/null 2>&1 || true
+  done < <(pgrep -f -x -- "$APP_BINARY" || true)
+}
+
+terminate_staged_app
 
 cargo build --manifest-path rust/SearchIndexCore/Cargo.toml --release
-swift build -c "$SWIFT_CONFIGURATION"
-BUILD_BINARY="$(swift build -c "$SWIFT_CONFIGURATION" --show-bin-path)/$APP_NAME"
+swift build "${SWIFT_BUILD_ARGS[@]}"
+BUILD_BINARY="$(swift build "${SWIFT_BUILD_ARGS[@]}" --show-bin-path)/$APP_NAME"
 
 if [[ ! -f "$APP_ICON" ]]; then
   swift script/generate_app_icon.swift "$APP_ICON"
@@ -82,6 +95,19 @@ cat >"$INFO_PLIST" <<PLIST
   <string>NSApplication</string>
   <key>NSSupportsAutomaticGraphicsSwitching</key>
   <true/>
+  <key>UTExportedTypeDeclarations</key>
+  <array>
+    <dict>
+      <key>UTTypeConformsTo</key>
+      <array>
+        <string>public.data</string>
+      </array>
+      <key>UTTypeDescription</key>
+      <string>ClipVault Clip Move</string>
+      <key>UTTypeIdentifier</key>
+      <string>com.andrzej.ClipVault.clip-move</string>
+    </dict>
+  </array>
 </dict>
 </plist>
 PLIST
@@ -123,15 +149,17 @@ case "$MODE" in
     ;;
   --verify|verify)
     open_app
-    for _ in {1..40}; do
-      APP_PID="$(pgrep -f "^$APP_BINARY$" | head -1 || true)"
-      READY_PID="$(defaults read "$BUNDLE_ID" captureReadyProcessID 2>/dev/null || true)"
-      if [[ -n "$APP_PID" && "$READY_PID" == "$APP_PID" ]]; then
-        exit 0
+    for _ in {1..80}; do
+      APP_PID="$(pgrep -f -x -- "$APP_BINARY" | head -1 || true)"
+      if [[ -n "$APP_PID" ]]; then
+        sleep 1
+        if kill -0 "$APP_PID" 2>/dev/null; then
+          exit 0
+        fi
       fi
       sleep 0.25
     done
-    echo "$APP_NAME did not report capture readiness within 10 seconds." >&2
+    echo "$APP_NAME did not launch and remain alive within 20 seconds." >&2
     exit 1
     ;;
   *)

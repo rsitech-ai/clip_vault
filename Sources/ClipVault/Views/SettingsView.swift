@@ -5,6 +5,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @Bindable var model: ClipVaultViewModel
+    var openWorkspace: () -> Void
     @AppStorage(ClipVaultSettingsKey.ordinaryClipRetentionDays) private var retentionDays = ClipVaultSettingsDefault.ordinaryClipRetentionDays
     @AppStorage(ClipVaultSettingsKey.cloudAIEnabled) private var cloudAIEnabled = ClipVaultSettingsDefault.cloudAIEnabled
     @AppStorage(ClipVaultSettingsKey.dockBadgeEnabled) private var dockBadgeEnabled = ClipVaultSettingsDefault.dockBadgeEnabled
@@ -15,7 +16,7 @@ struct SettingsView: View {
 
     var body: some View {
         TabView {
-            GeneralSettingsTab(model: model)
+            GeneralSettingsTab(model: model, openWorkspace: openWorkspace)
                 .tabItem {
                     Label("General", systemImage: "gearshape")
                 }
@@ -73,12 +74,14 @@ struct SettingsView: View {
 
 private struct GeneralSettingsTab: View {
     @Bindable var model: ClipVaultViewModel
+    var openWorkspace: () -> Void
+    @State private var confirmConsentRevocation = false
 
     var body: some View {
         Form {
             Section("Status") {
                 LabeledContent("Capture") {
-                    Label(model.isCapturing ? "Watching clipboard" : "Paused", systemImage: model.isCapturing ? "checkmark.circle.fill" : "pause.circle")
+                    Label(model.captureStateTitle, systemImage: model.isCapturing ? "checkmark.circle.fill" : "pause.circle")
                         .foregroundStyle(model.isCapturing ? .green : .secondary)
                 }
                 LabeledContent("Indexed clips", value: "\(model.clips.count)")
@@ -96,6 +99,9 @@ private struct GeneralSettingsTab: View {
                             return
                         }
                         model.toggleCapture()
+                        if model.isCaptureConsentDisclosurePresented {
+                            openWorkspace()
+                        }
                     }
                 ))
                 .help(model.isCapturing ? "Pause clipboard capture" : "Start clipboard capture")
@@ -103,6 +109,17 @@ private struct GeneralSettingsTab: View {
                 Text("When capture is paused, existing clips remain searchable and copyable.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                if model.hasCaptureConsent {
+                    Button("Revoke Clipboard Capture Consent", role: .destructive) {
+                        confirmConsentRevocation = true
+                    }
+                    .help("Stop capture and require the disclosure before capture can be enabled again")
+                } else {
+                    Label("Capture remains off until you enable it from the disclosure.", systemImage: "hand.raised")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             Section("Workspace") {
@@ -112,6 +129,18 @@ private struct GeneralSettingsTab: View {
             }
         }
         .formStyle(.grouped)
+        .confirmationDialog(
+            "Revoke Clipboard Capture Consent?",
+            isPresented: $confirmConsentRevocation,
+            titleVisibility: .visible
+        ) {
+            Button("Revoke Consent", role: .destructive) {
+                model.revokeCaptureConsent()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Clipboard capture will stop. To resume, you must accept the capture disclosure again.")
+        }
     }
 }
 
@@ -171,6 +200,17 @@ private struct PrivacyAccessSettingsTab: View {
                 Label("Clipboard payloads are encrypted locally with a keychain-backed key.", systemImage: "key")
                 Label("Obvious secrets are excluded before storage and indexing.", systemImage: "lock.shield")
                 Label("Cloud AI providers are disabled until explicit opt-in configuration exists.", systemImage: "icloud.slash")
+
+                DisclosureGroup("Privacy Policy") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("ClipVault does not collect, track, sell, or transmit personal data to the developer or third parties.")
+                        Text("Clipboard items, screenshots, OCR text, titles, tags, notes, folders, source-application names, clipboard types, organization state, and settings stay on this Mac. Clipboard payloads, source context, and clip details are encrypted with a Keychain-backed key. Identifiers, kind, timestamps, deduplication fingerprints, copy counts, folder names, pin state, collection membership, and settings remain plaintext local metadata inside ClipVault's sandbox.")
+                        Text("Ordinary clips are retained for 30 days by default. You can change retention, delete clips, pause capture, or revoke clipboard consent at any time.")
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                }
             }
 
             Section("Permissions") {

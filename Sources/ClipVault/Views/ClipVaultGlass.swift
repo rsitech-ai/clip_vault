@@ -22,24 +22,14 @@ extension View {
         tint: Color? = nil,
         interactive: Bool = false
     ) -> some View {
-        if #available(macOS 26.0, *) {
-            if let tint {
-                if interactive {
-                    glassEffect(.regular.tint(tint).interactive(), in: .rect(cornerRadius: cornerRadius))
-                } else {
-                    glassEffect(.regular.tint(tint), in: .rect(cornerRadius: cornerRadius))
-                }
-            } else if interactive {
-                glassEffect(.regular.interactive(), in: .rect(cornerRadius: cornerRadius))
-            } else {
-                glassEffect(.regular, in: .rect(cornerRadius: cornerRadius))
-            }
-        } else {
-            background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .strokeBorder(.white.opacity(0.12), lineWidth: 1)
-                }
+        background(
+            (tint ?? Color.clear).opacity(interactive ? 0.10 : 0.07),
+            in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        )
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .strokeBorder(.white.opacity(interactive ? 0.18 : 0.11), lineWidth: 1)
         }
     }
 
@@ -48,25 +38,12 @@ extension View {
         tint: Color? = nil,
         interactive: Bool = false
     ) -> some View {
-        if #available(macOS 26.0, *) {
-            if let tint {
-                if interactive {
-                    glassEffect(.regular.tint(tint).interactive(), in: .capsule)
-                } else {
-                    glassEffect(.regular.tint(tint), in: .capsule)
-                }
-            } else if interactive {
-                glassEffect(.regular.interactive(), in: .capsule)
-            } else {
-                glassEffect(.regular, in: .capsule)
+        background((tint ?? Color.clear).opacity(interactive ? 0.10 : 0.07), in: Capsule())
+            .background(.ultraThinMaterial, in: Capsule())
+            .overlay {
+                Capsule()
+                    .strokeBorder(.white.opacity(interactive ? 0.18 : 0.11), lineWidth: 1)
             }
-        } else {
-            background(.ultraThinMaterial, in: Capsule())
-                .overlay {
-                    Capsule()
-                        .strokeBorder(.white.opacity(0.12), lineWidth: 1)
-                }
-        }
     }
 
     @ViewBuilder

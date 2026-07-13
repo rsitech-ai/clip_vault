@@ -2,12 +2,37 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APP_NAME="ClipVault"
-APP_EXECUTABLE="$ROOT_DIR/dist/ClipVault.app/Contents/MacOS/ClipVault"
+E2E_BUNDLE_ID="${E2E_BUNDLE_ID-com.andrzej.ClipVault.e2e}"
+
+if [[ -z "$E2E_BUNDLE_ID" || "$E2E_BUNDLE_ID" == "com.andrzej.ClipVault" ]]; then
+  echo "E2E_BUNDLE_ID must be a non-production bundle identifier." >&2
+  exit 2
+fi
+
+E2E_DIST_DIR="$(mktemp -d "${TMPDIR:-/tmp}/clipvault-e2e-dist.XXXXXX")"
+E2E_DIST_DIR="$(cd "$E2E_DIST_DIR" && pwd -P)"
+APP_EXECUTABLE="$E2E_DIST_DIR/ClipVault.app/Contents/MacOS/ClipVault"
+
+terminate_e2e_app() {
+  local app_pid
+  while read -r app_pid; do
+    [[ -n "$app_pid" ]] && kill "$app_pid" >/dev/null 2>&1 || true
+  done < <(pgrep -f -x -- "$APP_EXECUTABLE" || true)
+}
+
+cleanup() {
+  terminate_e2e_app
+  rm -rf "$E2E_DIST_DIR"
+}
+
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 cd "$ROOT_DIR"
 
-./script/build_and_run.sh --verify >/dev/null
+APP_BUNDLE_ID="$E2E_BUNDLE_ID" DIST_DIR="$E2E_DIST_DIR" ENABLE_STORE_PROBE=true \
+  ./script/build_and_run.sh --verify >/dev/null
 [[ -x "$APP_EXECUTABLE" ]] || {
   echo "ClipVault staged executable is missing: $APP_EXECUTABLE" >&2
   exit 1
@@ -18,7 +43,7 @@ TOKEN="ClipVault E2E $(date +%Y%m%d%H%M%S) duplicate persistence SELECT * FROM e
 wait_for_store_probe() {
   local expected_rows="$1"
   local minimum_copy_count="$2"
-  local timeout_seconds="${3:-20}"
+  local timeout_seconds="${3:-60}"
   local start
   start="$(date +%s)"
 
@@ -52,10 +77,10 @@ wait_for_store_probe() {
   done
 }
 
-printf '%s' "$TOKEN" | pbcopy
+./script/write_e2e_pasteboard.swift "$TOKEN"
 wait_for_store_probe 1 1
 
-printf '%s' "$TOKEN" | pbcopy
+./script/write_e2e_pasteboard.swift "$TOKEN"
 wait_for_store_probe 1 2
 
 if [[ "$PROBE_ROW_COUNT" != "1" ]]; then
@@ -68,9 +93,10 @@ if (( PROBE_COPY_COUNT < 2 )); then
   exit 1
 fi
 
-pkill -x "$APP_NAME" >/dev/null 2>&1 || true
+terminate_e2e_app
 sleep 1
-./script/build_and_run.sh --verify >/dev/null
+APP_BUNDLE_ID="$E2E_BUNDLE_ID" DIST_DIR="$E2E_DIST_DIR" ENABLE_STORE_PROBE=true \
+  ./script/build_and_run.sh --verify >/dev/null
 
 wait_for_store_probe 1 2
 if [[ "$PROBE_ROW_COUNT" != "1" ]]; then

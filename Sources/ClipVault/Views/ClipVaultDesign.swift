@@ -2,9 +2,17 @@ import ClipVaultCore
 import SwiftUI
 
 enum ClipVaultDesign {
+    static let compactPadding: CGFloat = 12
+    static let regularPadding: CGFloat = 20
     static let panelRadius: CGFloat = 18
     static let sectionRadius: CGFloat = 14
     static let controlRadius: CGFloat = 10
+    static let rowRadius: CGFloat = 10
+    static let heroIconSize: CGFloat = 44
+    static let controlGroupSpacing: CGFloat = 8
+    static let moveIcon = "folder"
+    static let enhancePromptIcon = "wand.and.stars"
+    static let enhancePromptTint = Color.purple
 
     static func icon(for kind: ClipKind) -> String {
         switch kind {

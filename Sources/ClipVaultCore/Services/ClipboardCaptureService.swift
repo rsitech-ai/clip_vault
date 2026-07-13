@@ -5,15 +5,28 @@ import Vision
 
 @MainActor
 public final class ClipboardCaptureService {
+    typealias PayloadBuilder = @Sendable (PasteboardSnapshot) async -> ClipPayload?
+
     public var onClipCaptured: (@MainActor (ClipPayload, String?) -> Void)?
     public private(set) var isRunning = false
 
     private let pasteboard: NSPasteboard
+    private let payloadBuilder: PayloadBuilder
     private var timer: Timer?
     private var lastChangeCount: Int
+    private var lifecycleGeneration: UInt = 0
 
-    public init(pasteboard: NSPasteboard = .general) {
+    public convenience init(pasteboard: NSPasteboard = .general) {
+        self.init(pasteboard: pasteboard) { snapshot in
+            await Task.detached(priority: .utility) {
+                Self.payload(from: snapshot)
+            }.value
+        }
+    }
+
+    init(pasteboard: NSPasteboard, payloadBuilder: @escaping PayloadBuilder) {
         self.pasteboard = pasteboard
+        self.payloadBuilder = payloadBuilder
         self.lastChangeCount = pasteboard.changeCount
     }
 
@@ -22,6 +35,8 @@ public final class ClipboardCaptureService {
             return
         }
 
+        lastChangeCount = pasteboard.changeCount
+        lifecycleGeneration &+= 1
         isRunning = true
         timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             Task { @MainActor in
@@ -34,6 +49,7 @@ public final class ClipboardCaptureService {
         timer?.invalidate()
         timer = nil
         isRunning = false
+        lifecycleGeneration &+= 1
     }
 
     public func consumeCurrentPasteboardChange() {
@@ -41,22 +57,25 @@ public final class ClipboardCaptureService {
     }
 
     public func poll() {
-        guard pasteboard.changeCount != lastChangeCount else {
+        guard isRunning, pasteboard.changeCount != lastChangeCount else {
             return
         }
 
         lastChangeCount = pasteboard.changeCount
         let snapshot = Self.snapshot(from: pasteboard)
         let sourceApp = NSWorkspace.shared.frontmostApplication?.localizedName
-        Task { @MainActor [snapshot, sourceApp] in
-            let payload = await Task.detached(priority: .utility) {
-                Self.payload(from: snapshot)
-            }.value
+        let generation = lifecycleGeneration
+        let payloadBuilder = payloadBuilder
+        Task { @MainActor [weak self, snapshot, sourceApp] in
+            let payload = await payloadBuilder(snapshot)
 
-            guard let payload else {
+            guard let self,
+                  self.isRunning,
+                  self.lifecycleGeneration == generation,
+                  let payload else {
                 return
             }
-            onClipCaptured?(payload, sourceApp)
+            self.onClipCaptured?(payload, sourceApp)
         }
     }
 
@@ -228,7 +247,7 @@ public final class ClipboardCaptureService {
     }
 }
 
-private struct PasteboardSnapshot: Sendable {
+struct PasteboardSnapshot: Sendable {
     var uniformTypeIdentifiers: [String]
     var string: String?
     var urlString: String?
