@@ -3,17 +3,17 @@ import Testing
 
 @Suite("Workspace presentation policy")
 struct WorkspacePresentationPolicyTests {
-    @Test("compact width begins below 1040 points")
+    @Test("compact width begins below the reachable 900 point window minimum")
     func widthClassesUseTheCompactBreakpoint() {
-        #expect(WorkspaceWidthClass(width: 1_039) == .compact)
-        #expect(WorkspaceWidthClass(width: 1_040) == .regular)
+        #expect(WorkspaceWidthClass(width: 899) == .compact)
+        #expect(WorkspaceWidthClass(width: 900) == .regular)
     }
 
     @Test("automatically collapsed sidebar restores at regular width")
     func automaticSidebarCollapseRestores() {
         var adaptation = WorkspaceSidebarAdaptation()
 
-        #expect(adaptation.update(width: 900, current: .all) == .contentAndDetail)
+        #expect(adaptation.update(width: 899, current: .all) == .contentAndDetail)
         #expect(adaptation.isAutomaticallyCollapsed)
         #expect(adaptation.update(width: 1_200, current: .contentAndDetail) == .all)
         #expect(!adaptation.isAutomaticallyCollapsed)
@@ -22,7 +22,7 @@ struct WorkspacePresentationPolicyTests {
     @Test("manual sidebar choice prevents automatic restoration")
     func manualSidebarChoiceIsPreserved() {
         var adaptation = WorkspaceSidebarAdaptation()
-        #expect(adaptation.update(width: 900, current: .all) == .contentAndDetail)
+        #expect(adaptation.update(width: 899, current: .all) == .contentAndDetail)
 
         adaptation.recordManualVisibilityChange()
 
@@ -46,5 +46,23 @@ struct WorkspacePresentationPolicyTests {
         ))
         #expect(AIWorkspaceDisclosurePolicy.shouldExpandForGeneration(isGenerating: true))
         #expect(!AIWorkspaceDisclosurePolicy.shouldExpandForGeneration(isGenerating: false))
+    }
+
+    @Test("compact AI layout never exceeds its available height")
+    func compactAIHeightIsClamped() {
+        let metrics = AIWorkspaceLayoutPolicy.metrics(availableHeight: 430)
+
+        #expect(metrics.detailMinimum + metrics.aiMinimum + metrics.dividerAllowance <= 430)
+        #expect(metrics.detailMinimum >= 150)
+        #expect(metrics.aiMinimum >= 210)
+    }
+
+    @Test("regular AI layout keeps comfortable minimums")
+    func regularAIHeightKeepsComfortableMinimums() {
+        let metrics = AIWorkspaceLayoutPolicy.metrics(availableHeight: 720)
+
+        #expect(metrics.detailMinimum == 280)
+        #expect(metrics.aiMinimum == 320)
+        #expect(metrics.dividerAllowance == 8)
     }
 }

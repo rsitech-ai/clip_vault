@@ -69,6 +69,8 @@ struct SidebarView: View {
                 }
             } label: {
                 Label("Add", systemImage: "plus")
+                    .labelStyle(.iconOnly)
+                    .frame(width: 20, height: 20)
             }
             .menuStyle(.button)
             .controlSize(.small)
@@ -81,13 +83,22 @@ struct SidebarView: View {
             Circle()
                 .fill(model.isCapturing ? .green : .secondary)
                 .frame(width: 8, height: 8)
-            Text(model.captureStatus)
+            Text(compactCaptureStatus)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
+                .help(model.captureStatus)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(.horizontal, ClipVaultDesign.compactPadding)
+        .padding(.vertical, 9)
+        .background(.bar)
+    }
+
+    private var compactCaptureStatus: String {
+        if model.isCapturing {
+            return "Capturing"
+        }
+        return model.hasCaptureConsent ? "Paused" : "Consent"
     }
 
     private var deleteDialogTitle: String {

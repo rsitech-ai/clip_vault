@@ -75,6 +75,7 @@ struct SettingsView: View {
 private struct GeneralSettingsTab: View {
     @Bindable var model: ClipVaultViewModel
     var openWorkspace: () -> Void
+    @State private var confirmConsentRevocation = false
 
     var body: some View {
         Form {
@@ -111,7 +112,7 @@ private struct GeneralSettingsTab: View {
 
                 if model.hasCaptureConsent {
                     Button("Revoke Clipboard Capture Consent", role: .destructive) {
-                        model.revokeCaptureConsent()
+                        confirmConsentRevocation = true
                     }
                     .help("Stop capture and require the disclosure before capture can be enabled again")
                 } else {
@@ -128,6 +129,18 @@ private struct GeneralSettingsTab: View {
             }
         }
         .formStyle(.grouped)
+        .confirmationDialog(
+            "Revoke Clipboard Capture Consent?",
+            isPresented: $confirmConsentRevocation,
+            titleVisibility: .visible
+        ) {
+            Button("Revoke Consent", role: .destructive) {
+                model.revokeCaptureConsent()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Clipboard capture will stop. To resume, you must accept the capture disclosure again.")
+        }
     }
 }
 

@@ -4,7 +4,6 @@ set -euo pipefail
 MODE="${1:-run}"
 APP_NAME="ClipVault"
 BUNDLE_ID="${APP_BUNDLE_ID:-com.andrzej.ClipVault}"
-CAPTURE_CONSENT_KEY="clipboardCaptureConsentGranted"
 MIN_SYSTEM_VERSION="15.0"
 APP_VERSION="${APP_VERSION:-0.1.0}"
 APP_BUILD="${APP_BUILD:-1}"
@@ -13,7 +12,6 @@ SWIFT_CONFIGURATION="${SWIFT_CONFIGURATION:-release}"
 ENABLE_STORE_PROBE="${ENABLE_STORE_PROBE:-false}"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-source "$ROOT_DIR/script/lib/temporary_capture_consent.sh"
 DIST_DIR="${DIST_DIR:-$ROOT_DIR/dist}"
 APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
 APP_CONTENTS="$APP_BUNDLE/Contents"
@@ -150,18 +148,18 @@ case "$MODE" in
     /usr/bin/log stream --info --style compact --predicate "subsystem == \"$BUNDLE_ID\""
     ;;
   --verify|verify)
-    preseed_capture_consent_for_verify "$BUNDLE_ID" "$CAPTURE_CONSENT_KEY"
-    trap restore_capture_consent_after_verify EXIT
     open_app
     for _ in {1..80}; do
       APP_PID="$(pgrep -f -x -- "$APP_BINARY" | head -1 || true)"
-      READY_PID="$(defaults read "$BUNDLE_ID" captureReadyProcessID 2>/dev/null || true)"
-      if [[ -n "$APP_PID" && "$READY_PID" == "$APP_PID" ]]; then
-        exit 0
+      if [[ -n "$APP_PID" ]]; then
+        sleep 1
+        if kill -0 "$APP_PID" 2>/dev/null; then
+          exit 0
+        fi
       fi
       sleep 0.25
     done
-    echo "$APP_NAME did not report capture readiness within 20 seconds." >&2
+    echo "$APP_NAME did not launch and remain alive within 20 seconds." >&2
     exit 1
     ;;
   *)

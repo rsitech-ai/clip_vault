@@ -22,7 +22,7 @@ struct ClipListView: View {
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {
-                        LazyVStack(spacing: 0) {
+                        LazyVStack(spacing: 2) {
                             ForEach(model.visibleResults) { result in
                                 draggableClipRow(clip: result.clip) {
                                     ClipRowView(
@@ -32,10 +32,18 @@ struct ClipListView: View {
                                             model.select(result.clip)
                                         }
                                     )
-                                    .padding(.horizontal, 10)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 2)
                                     .id(result.clip.id)
                                     .contentShape(Rectangle())
-                                    .background(rowBackground(for: result.clip))
+                                    .background {
+                                        RoundedRectangle(
+                                            cornerRadius: ClipVaultDesign.rowRadius,
+                                            style: .continuous
+                                        )
+                                        .fill(rowBackground(for: result.clip))
+                                        .padding(.horizontal, 4)
+                                    }
                                     .onTapGesture(count: 2) {
                                         model.selectAndCopy(result.clip)
                                     }
@@ -63,11 +71,9 @@ struct ClipListView: View {
                                     }
                                     .accessibilityAddTraits(model.selectedClipID == result.clip.id ? .isSelected : [])
                                 }
-
-                                Divider()
-                                    .padding(.leading, 58)
                             }
                         }
+                        .padding(.vertical, 4)
                     }
                     .focusable()
                     .onMoveCommand(perform: moveSelection)
@@ -112,8 +118,8 @@ struct ClipListView: View {
         }
     }
 
-    private func rowBackground(for clip: Clip) -> some ShapeStyle {
-        model.selectedClipID == clip.id ? Color.accentColor.opacity(0.16) : Color.clear
+    private func rowBackground(for clip: Clip) -> Color {
+        model.selectedClipID == clip.id ? Color.accentColor.opacity(0.14) : Color.clear
     }
 
     @ViewBuilder
@@ -161,7 +167,7 @@ struct ClipListView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(model.selectedCollectionTitle)
                     .font(.headline)
-                Text("\(model.visibleResults.count) visible")
+                Text(resultCountLabel)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -198,6 +204,14 @@ struct ClipListView: View {
                 .frame(width: 560, height: 460)
         }
     }
+
+    private var resultCountLabel: String {
+        let count = model.visibleResults.count
+        if model.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return "\(count) \(count == 1 ? "clip" : "clips")"
+        }
+        return "\(count) \(count == 1 ? "match" : "matches")"
+    }
 }
 
 struct ClipRowView: View {
@@ -221,10 +235,16 @@ struct ClipRowView: View {
             thumbnail
                 .accessibilityHidden(true)
 
-            Text(result.clip.title)
-                .font(.callout.weight(.medium))
-                .lineLimit(1)
-                .truncationMode(.middle)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(result.clip.title)
+                    .font(.callout.weight(.semibold))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text(result.clip.kind.title)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
 
             Spacer(minLength: 8)
 
@@ -246,7 +266,7 @@ struct ClipRowView: View {
                 .foregroundStyle(.tertiary)
                 .monospacedDigit()
         }
-        .frame(height: 36)
+        .frame(height: 44)
         .help(result.clip.preview.isEmpty ? result.clip.title : result.clip.preview)
     }
 
@@ -265,7 +285,11 @@ struct ClipRowView: View {
         } else {
             Image(systemName: icon)
                 .foregroundStyle(ClipVaultDesign.tint(for: result.clip.kind))
-                .frame(width: 28, height: 28)
+                .frame(width: 34, height: 34)
+                .background(
+                    ClipVaultDesign.tint(for: result.clip.kind).opacity(0.11),
+                    in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                )
         }
     }
 

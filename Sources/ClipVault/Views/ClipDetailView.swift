@@ -40,7 +40,7 @@ struct ClipDetailView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .background(.regularMaterial)
+        .background(Color(nsColor: .windowBackgroundColor).opacity(0.72))
         .confirmationDialog(
             "Delete Clip?",
             isPresented: Binding(
@@ -68,27 +68,41 @@ private struct ClipDetailHeader: View {
     var requestDelete: () -> Void
 
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .top, spacing: 12) {
-                titleBlock
-                Spacer(minLength: 12)
-                actionButtons
-            }
-
-            VStack(alignment: .leading, spacing: 10) {
-                titleBlock
-                actionButtons
-            }
+        VStack(alignment: .leading, spacing: 12) {
+            titleBlock
+            actionButtons
         }
     }
 
     private var titleBlock: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            EditableClipTitle(clip: clip, model: model)
-            Text("\(clip.kind.title) • \(clip.createdAt.formatted(date: .abbreviated, time: .shortened))")
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: ClipVaultDesign.icon(for: clip.kind))
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(ClipVaultDesign.tint(for: clip.kind))
+                .frame(
+                    width: ClipVaultDesign.heroIconSize,
+                    height: ClipVaultDesign.heroIconSize
+                )
+                .background(
+                    ClipVaultDesign.tint(for: clip.kind).opacity(0.12),
+                    in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                )
+
+            VStack(alignment: .leading, spacing: 6) {
+                EditableClipTitle(clip: clip, model: model)
+                HStack(spacing: 6) {
+                    Text(clip.kind.title)
+                    Text("•")
+                    Text(clip.createdAt.formatted(date: .abbreviated, time: .shortened))
+                    if let sourceApp = clip.sourceApp, !sourceApp.isEmpty {
+                        Text("•")
+                        Text(sourceApp)
+                    }
+                }
                 .font(.caption)
                 .foregroundStyle(.secondary)
-                .lineLimit(2)
+                .lineLimit(1)
+            }
         }
         .frame(minWidth: 180, maxWidth: .infinity, alignment: .leading)
     }
@@ -115,6 +129,9 @@ private struct ClipDetailHeader: View {
                 MoveToCollectionMenu(clip: clip, model: model, label: "Move")
                     .menuStyle(.button)
                     .clipVaultGlassButtonStyle()
+
+                Divider()
+                    .frame(height: 22)
 
                 Button(role: .destructive) {
                     requestDelete()
@@ -255,10 +272,16 @@ struct ClipNoteEditor: View {
                 .frame(minHeight: clip.kind == .image ? 110 : 82)
                 .padding(8)
                 .scrollContentBackground(.hidden)
-                .clipVaultGlassSurface(cornerRadius: 10, interactive: true)
+                .background(
+                    Color(nsColor: .textBackgroundColor).opacity(0.72),
+                    in: RoundedRectangle(cornerRadius: ClipVaultDesign.controlRadius, style: .continuous)
+                )
                 .overlay {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(isFocused ? Color.accentColor.opacity(0.55) : Color.clear, lineWidth: 1)
+                    RoundedRectangle(cornerRadius: ClipVaultDesign.controlRadius, style: .continuous)
+                        .stroke(
+                            isFocused ? Color.accentColor.opacity(0.62) : Color.secondary.opacity(0.18),
+                            lineWidth: 1
+                        )
                 }
                 .onAppear {
                     draft = clip.userNote

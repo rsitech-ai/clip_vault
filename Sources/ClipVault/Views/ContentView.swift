@@ -8,13 +8,18 @@ struct ContentView: View {
     @State private var isApplyingAutomaticVisibility = false
 
     var body: some View {
-        GeometryReader { proxy in
-            workspace
-                .task(id: WorkspaceWidthClass(width: proxy.size.width)) {
-                    await Task.yield()
-                    guard !Task.isCancelled else { return }
-                    adaptSidebar(to: proxy.size.width)
-                }
+        workspace
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.width
+        } action: { width in
+            adaptSidebar(to: width)
+        }
+        .background {
+            LinearGradient(
+                colors: [Color.accentColor.opacity(0.055), Color.clear],
+                startPoint: .topLeading,
+                endPoint: .center
+            )
         }
         .searchable(text: $model.searchText, placement: .toolbar, prompt: "Search clips")
         .toolbar {
@@ -80,15 +85,28 @@ struct DetailWorkspaceView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        GeometryReader { proxy in
+        Group {
             if isAIExpanded {
-                VSplitView {
-                    ClipDetailView(model: model)
-                        .frame(minHeight: detailMinimumHeight(for: proxy.size), idealHeight: detailIdealHeight(for: proxy.size), maxHeight: .infinity)
-                    AIActionPanel(model: model, placement: .inline) {
-                        setAIExpanded(false)
+                GeometryReader { proxy in
+                    let metrics = AIWorkspaceLayoutPolicy.metrics(
+                        availableHeight: Double(proxy.size.height)
+                    )
+                    VSplitView {
+                        ClipDetailView(model: model)
+                            .frame(
+                                minHeight: CGFloat(metrics.detailMinimum),
+                                idealHeight: max(CGFloat(metrics.detailMinimum), proxy.size.height * 0.46),
+                                maxHeight: .infinity
+                            )
+                        AIActionPanel(model: model, placement: .inline) {
+                            setAIExpanded(false)
+                        }
+                        .frame(
+                            minHeight: CGFloat(metrics.aiMinimum),
+                            idealHeight: max(CGFloat(metrics.aiMinimum), proxy.size.height * 0.50),
+                            maxHeight: .infinity
+                        )
                     }
-                    .frame(minHeight: aiMinimumHeight(for: proxy.size), idealHeight: aiIdealHeight(for: proxy.size), maxHeight: .infinity)
                 }
             } else {
                 VStack(spacing: 0) {
@@ -116,23 +134,6 @@ struct DetailWorkspaceView: View {
                 setAIExpanded(true)
             }
         }
-    }
-
-    private func detailMinimumHeight(for size: CGSize) -> CGFloat {
-        size.height < 640 ? 190 : 280
-    }
-
-    private func detailIdealHeight(for size: CGSize) -> CGFloat {
-        max(detailMinimumHeight(for: size), size.height * 0.46)
-    }
-
-    private func aiMinimumHeight(for size: CGSize) -> CGFloat {
-        // Preserve the result canvas without crowding compact-height windows.
-        size.height < 640 ? 270 : 320
-    }
-
-    private func aiIdealHeight(for size: CGSize) -> CGFloat {
-        max(aiMinimumHeight(for: size), size.height * 0.50)
     }
 
     private func setAIExpanded(_ isExpanded: Bool) {
