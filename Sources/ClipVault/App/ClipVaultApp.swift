@@ -1,6 +1,8 @@
 import AppKit
 import ClipVaultCore
+#if CLIPVAULT_E2E_PROBE
 import Darwin
+#endif
 import SwiftData
 import SwiftUI
 
@@ -14,9 +16,11 @@ struct ClipVaultApp: App {
         let model = ClipVaultViewModel()
         _model = State(initialValue: model)
 
+        #if CLIPVAULT_E2E_PROBE
         if let request = ClipVaultStoreProbeRequest.parse(arguments: CommandLine.arguments) {
             Self.runStoreProbe(request, model: model)
         }
+        #endif
     }
 
     var body: some Scene {
@@ -31,6 +35,11 @@ struct ClipVaultApp: App {
                         },
                         toggleCapture: {
                             model.toggleCapture()
+                            if model.isCaptureConsentDisclosurePresented {
+                                presentClipVaultWorkspace {
+                                    openWindow(id: "workspace")
+                                }
+                            }
                         },
                         openWorkspace: {
                             presentClipVaultWorkspace {
@@ -80,10 +89,15 @@ struct ClipVaultApp: App {
         .menuBarExtraStyle(.window)
 
         Settings {
-            SettingsView(model: model)
+            SettingsView(model: model) {
+                presentClipVaultWorkspace {
+                    openWindow(id: "workspace")
+                }
+            }
         }
     }
 
+    #if CLIPVAULT_E2E_PROBE
     private static func runStoreProbe(
         _ request: ClipVaultStoreProbeRequest,
         model: ClipVaultViewModel
@@ -96,17 +110,32 @@ struct ClipVaultApp: App {
 
         do {
             let store = SwiftDataClipStore(context: ModelContext(model.container))
-            let matches = try store.allClips().filter { $0.preview == request.token }
-            let copyCount = matches.map(\.copyCount).max() ?? 0
-            print("CLIPVAULT_STORE_PROBE row_count=\(matches.count) copy_count=\(copyCount)")
+            let clips = try store.allClips()
+            var exitCode = EXIT_SUCCESS
+            switch request.mode {
+            case .storedClip:
+                let matches = clips.filter { $0.preview == request.tokens[0] }
+                let copyCount = matches.map(\.copyCount).max() ?? 0
+                print("CLIPVAULT_STORE_PROBE row_count=\(matches.count) copy_count=\(copyCount)")
+            case .generatedPromptBatch:
+                let result = ClipVaultGeneratedPromptBatchProbeResult.inspect(
+                    sourceTokens: request.tokens,
+                    clips: clips
+                )
+                print(result.outputLine)
+                if !result.isExactBatch {
+                    exitCode = EX_DATAERR
+                }
+            }
             fflush(stdout)
-            Darwin.exit(EXIT_SUCCESS)
+            Darwin.exit(exitCode)
         } catch {
             let message = "CLIPVAULT_STORE_PROBE_ERROR \(error.localizedDescription)\n"
             FileHandle.standardError.write(Data(message.utf8))
             Darwin.exit(EX_IOERR)
         }
     }
+    #endif
 }
 
 @MainActor

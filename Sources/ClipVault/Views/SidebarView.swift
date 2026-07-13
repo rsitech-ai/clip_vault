@@ -69,6 +69,8 @@ struct SidebarView: View {
                 }
             } label: {
                 Label("Add", systemImage: "plus")
+                    .labelStyle(.iconOnly)
+                    .frame(width: 20, height: 20)
             }
             .menuStyle(.button)
             .controlSize(.small)
@@ -81,13 +83,22 @@ struct SidebarView: View {
             Circle()
                 .fill(model.isCapturing ? .green : .secondary)
                 .frame(width: 8, height: 8)
-            Text(model.captureStatus)
+            Text(compactCaptureStatus)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
+                .help(model.captureStatus)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(.horizontal, ClipVaultDesign.compactPadding)
+        .padding(.vertical, 9)
+        .background(.bar)
+    }
+
+    private var compactCaptureStatus: String {
+        if model.isCapturing {
+            return "Capturing"
+        }
+        return model.hasCaptureConsent ? "Paused" : "Consent"
     }
 
     private var deleteDialogTitle: String {
@@ -109,10 +120,17 @@ private struct FolderNodeView: View {
     var prompt: (SidebarPrompt) -> Void
     var delete: (CollectionFolder) -> Void
     @State private var isExpanded = true
+    @State private var isMoveDropTargeted = false
 
     @ViewBuilder
     var body: some View {
-        if showsManagementMenu {
+        if let manualDestinationCollectionID {
+            manualCollectionDropTarget(collectionID: manualDestinationCollectionID) {
+                nodeContent.contextMenu {
+                    folderActions
+                }
+            }
+        } else if showsManagementMenu {
             nodeContent.contextMenu {
                 folderActions
             }
@@ -183,14 +201,59 @@ private struct FolderNodeView: View {
         folder.collectionID == nil || model.canManageWorkspaceFolder(folder)
     }
 
+    private var manualDestinationCollectionID: String? {
+        model.manualDestinationCollectionID(for: folder)
+    }
+
+    private func manualCollectionDropTarget<Content: View>(
+        collectionID: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        content()
+            .background {
+                RoundedRectangle(cornerRadius: 7)
+                    .fill(isMoveDropTargeted ? Color.accentColor.opacity(0.16) : Color.clear)
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 7)
+                    .stroke(
+                        isMoveDropTargeted ? Color.accentColor : Color.clear,
+                        lineWidth: 1.5
+                    )
+            }
+            .dropDestination(for: ClipMovePayload.self) { payloads, _ in
+                guard payloads.count == 1, let payload = payloads.first else {
+                    return false
+                }
+                return model.moveClip(id: payload.clipID, toCollectionID: collectionID)
+            } isTargeted: { isTargeted in
+                isMoveDropTargeted = isTargeted
+            }
+            .accessibilityHint(moveDropAccessibilityHint)
+    }
+
+    private var moveDropAccessibilityHint: String {
+        if isMoveDropTargeted {
+            return "Drop the clip to move it to \(folder.title)."
+        }
+        return rowAccessibilityHint
+    }
+
     private var folderLabel: some View {
         Label {
             Text(folder.title)
                 .lineLimit(1)
         } icon: {
-            Image(systemName: folder.collectionID == nil ? "folder" : "tray.full")
+            Image(systemName: folderIconName)
                 .foregroundStyle(iconColor)
         }
+    }
+
+    private var folderIconName: String {
+        if isMoveDropTargeted {
+            return "tray.and.arrow.down.fill"
+        }
+        return folder.collectionID == nil ? "folder" : "tray.full"
     }
 
     private func activateFolder() {

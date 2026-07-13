@@ -247,6 +247,16 @@ mod tests {
     }
 
     #[test]
+    fn lexical_score_ignores_incidental_short_word_overlap() {
+        let score = lexical_score(
+            "resizable responsive",
+            "This is a review of release risks and remaining work.",
+        );
+
+        assert!(score.abs() < f64::EPSILON);
+    }
+
+    #[test]
     #[allow(unsafe_code)]
     fn ffi_string_round_trip_and_comparison_are_consistent() {
         let input = b"  Hello   World  ";

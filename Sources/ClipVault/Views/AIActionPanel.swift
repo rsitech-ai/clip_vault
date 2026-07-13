@@ -89,15 +89,17 @@ struct AIActionPanel: View {
         ClipVaultGlassContainer(spacing: 10) {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 106), spacing: 8)], alignment: .leading, spacing: 8) {
                 actionButtons
+                enhancePromptButton
             }
         }
     }
 
     private var inlineActionToolbar: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: ClipVaultDesign.controlGroupSpacing) {
             ForEach(Self.visibleActionKinds, id: \.self) { action in
                 compactActionButton(for: action)
             }
+            compactEnhancePromptButton
             Spacer(minLength: 0)
         }
     }
@@ -153,6 +155,43 @@ struct AIActionPanel: View {
         .accessibilityHint(Text(ClipVaultDesign.hint(for: action)))
     }
 
+    private var enhancePromptButton: some View {
+        Button(action: enhancePrompts) {
+            Label("Enhance Prompt", systemImage: ClipVaultDesign.enhancePromptIcon)
+                .font(.caption.weight(.semibold))
+                .frame(maxWidth: .infinity)
+                .frame(height: 30)
+        }
+        .tint(ClipVaultDesign.enhancePromptTint)
+        .clipVaultGlassButtonStyle()
+        .disabled(!model.canEnhancePrompts)
+        .help(enhancePromptHelp)
+        .accessibilityValue(enhancePromptAccessibilityValue)
+        .accessibilityHint(Self.enhancePromptHint)
+    }
+
+    private var compactEnhancePromptButton: some View {
+        Button(action: enhancePrompts) {
+            Label("Enhance Prompt", systemImage: ClipVaultDesign.enhancePromptIcon)
+                .labelStyle(.iconOnly)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(ClipVaultDesign.enhancePromptTint)
+                .frame(width: 34, height: 34)
+                .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                .clipVaultGlassSurface(
+                    cornerRadius: 9,
+                    tint: ClipVaultDesign.enhancePromptTint.opacity(0.12),
+                    interactive: true
+                )
+        }
+        .buttonStyle(.plain)
+        .disabled(!model.canEnhancePrompts)
+        .help(enhancePromptHelp)
+        .accessibilityLabel("Enhance Prompt")
+        .accessibilityValue(enhancePromptAccessibilityValue)
+        .accessibilityHint(Self.enhancePromptHint)
+    }
+
     private var header: some View {
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
@@ -185,6 +224,16 @@ struct AIActionPanel: View {
 
     @ViewBuilder
     private var resultContent: some View {
+        switch model.promptEnhancementState {
+        case .idle:
+            ordinaryAIResultContent
+        case .enhancing, .saving, .success, .failed, .cancelled:
+            promptEnhancementResult
+        }
+    }
+
+    @ViewBuilder
+    private var ordinaryAIResultContent: some View {
         if model.isGenerating {
             ProgressView("Thinking")
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -200,6 +249,49 @@ struct AIActionPanel: View {
             .scrollIndicators(.visible)
         } else {
             emptyResultState
+        }
+    }
+
+    @ViewBuilder
+    private var promptEnhancementResult: some View {
+        switch model.promptEnhancementState {
+        case .idle:
+            EmptyView()
+        case .enhancing(let current, let total, let sourceTitle):
+            VStack(alignment: .leading, spacing: 10) {
+                ProgressView(value: Double(current), total: Double(total))
+                    .accessibilityLabel("Prompt enhancement progress")
+                    .accessibilityValue("\(current) of \(total)")
+                Text("Enhancing \(current) of \(total)")
+                    .font(.callout.weight(.medium))
+                Text(sourceTitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if model.promptEnhancementState.showsCancelControl {
+                    Button("Cancel") {
+                        model.cancelPromptEnhancement()
+                    }
+                    .clipVaultGlassButtonStyle()
+                }
+            }
+        case .saving(let total):
+            ProgressView("Saving \(enhancedPromptCountText(total))")
+                .frame(maxWidth: .infinity, alignment: .leading)
+        case .success(let count):
+            VStack(alignment: .leading, spacing: 10) {
+                Label("\(enhancedPromptCountText(count)) saved to Prompts", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                Button("Open Prompts") {
+                    model.openPrompts()
+                }
+                .clipVaultGlassButtonStyle(prominent: true)
+            }
+        case .failed(_, let message):
+            Label(message, systemImage: "exclamationmark.triangle")
+                .foregroundStyle(.red)
+        case .cancelled:
+            Text("Prompt enhancement cancelled. Nothing was saved.")
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -256,13 +348,6 @@ struct AIActionPanel: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var availabilityText: String {
-        if model.aiAvailability.isAvailable {
-            return "Foundation Models ready"
-        }
-        return model.aiAvailability.reason ?? "AI unavailable"
-    }
-
     private var contextText: String {
         aiWorkspaceContextText(for: model)
     }
@@ -271,27 +356,53 @@ struct AIActionPanel: View {
         "\(count) \(count == 1 ? "clip" : "clips") \(suffix)"
     }
 
+    private func enhancedPromptCountText(_ count: Int) -> String {
+        "\(count) enhanced \(count == 1 ? "prompt" : "prompts")"
+    }
+
     private var askRow: some View {
         HStack(spacing: 8) {
             TextField(askPlaceholder, text: $model.question)
                 .textFieldStyle(.roundedBorder)
                 .frame(minWidth: placement.askMinimumWidth)
                 .layoutPriority(1)
-            Button {
-                model.runAIAction(.ask)
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: ClipVaultDesign.icon(for: .ask))
-                    Text("Ask")
-                }
-                .font(.caption.weight(.semibold))
+            styledAskButton
+        }
+    }
+
+    private var askButton: some View {
+        Button {
+            model.runAIAction(.ask)
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: ClipVaultDesign.icon(for: .ask))
+                Text("Ask")
             }
-            .tint(ClipVaultDesign.tint(for: .ask))
-            .fixedSize(horizontal: true, vertical: false)
-            .clipVaultGlassButtonStyle(prominent: true)
-            .disabled(!model.canAskQuestion)
-            .help(askHelp)
-            .accessibilityHint(ClipVaultDesign.hint(for: .ask))
+            .font(.caption.weight(.semibold))
+        }
+        .tint(ClipVaultDesign.tint(for: .ask))
+        .fixedSize(horizontal: true, vertical: false)
+        .disabled(!model.canAskQuestion)
+        .help(askHelp)
+        .accessibilityHint(ClipVaultDesign.hint(for: .ask))
+    }
+
+    @ViewBuilder
+    private var styledAskButton: some View {
+        switch placement {
+        case .inspector:
+            askButton
+                .clipVaultGlassButtonStyle(prominent: true)
+        case .inline:
+            askButton
+                .buttonStyle(.plain)
+                .padding(.horizontal, 12)
+                .frame(height: 30)
+                .clipVaultGlassSurface(
+                    cornerRadius: 9,
+                    tint: ClipVaultDesign.tint(for: .ask).opacity(0.16),
+                    interactive: true
+                )
         }
     }
 
@@ -309,6 +420,28 @@ struct AIActionPanel: View {
         return "Ask a question about the selected clips"
     }
 
+    private func enhancePrompts() {
+        model.runPromptEnhancement()
+    }
+
+    private var enhancePromptHelp: String {
+        if model.isGenerating {
+            return "Wait for the current generation to finish."
+        }
+        if model.selectedClips.isEmpty, model.selectedClip == nil {
+            return "Select or open a source clip first."
+        }
+        let availability = model.promptEnhancerAvailability
+        if !availability.isAvailable {
+            return availability.reason ?? "Apple Intelligence is unavailable."
+        }
+        return Self.enhancePromptHint
+    }
+
+    private var enhancePromptAccessibilityValue: String {
+        model.canEnhancePrompts ? "Available" : enhancePromptHelp
+    }
+
     private func actionHelp(for action: AIActionKind) -> String {
         "\(action.title): \(ClipVaultDesign.hint(for: action))"
     }
@@ -317,7 +450,7 @@ struct AIActionPanel: View {
     private var availabilityBadge: some View {
         switch placement {
         case .inspector:
-            Label(model.aiAvailability.isAvailable ? "Ready" : "Local fallback", systemImage: model.aiAvailability.isAvailable ? "sparkles" : "exclamationmark.triangle")
+            Label(aiWorkspaceActionStatus(for: model), systemImage: model.aiAvailability.isAvailable ? "sparkles" : "exclamationmark.triangle")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(model.aiAvailability.isAvailable ? Color.accentColor : Color.orange)
                 .lineLimit(1)
@@ -325,7 +458,8 @@ struct AIActionPanel: View {
                 .padding(.horizontal, 9)
                 .padding(.vertical, 5)
                 .clipVaultGlassCapsule(tint: model.aiAvailability.isAvailable ? .accentColor.opacity(0.10) : .orange.opacity(0.10))
-                .help(availabilityText)
+                .help(aiWorkspaceActionAvailabilityText(for: model))
+                .accessibilityLabel(aiWorkspaceActionAvailabilityText(for: model))
         case .inline:
             inlineAvailabilityIndicator
         }
@@ -336,16 +470,17 @@ struct AIActionPanel: View {
             Circle()
                 .fill(model.aiAvailability.isAvailable ? Color.green : Color.orange)
                 .frame(width: 6, height: 6)
-            Text(model.aiAvailability.isAvailable ? "Ready" : "Fallback")
+            Text(aiWorkspaceActionStatus(for: model))
                 .font(.caption.weight(.medium))
                 .foregroundStyle(.secondary)
         }
-        .help(availabilityText)
+        .help(aiWorkspaceActionAvailabilityText(for: model))
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(availabilityText)
+        .accessibilityLabel(aiWorkspaceActionAvailabilityText(for: model))
     }
 
     private static let visibleActionKinds: [AIActionKind] = [.summarize, .explain, .todos]
+    private static let enhancePromptHint = "Creates one improved prompt per source clip and saves the completed batch to Prompts."
 }
 
 struct AIWorkspaceShelf: View {
@@ -356,7 +491,13 @@ struct AIWorkspaceShelf: View {
         Button(action: expand) {
             HStack(spacing: 10) {
                 Image(systemName: "sparkles")
+                    .font(.caption.weight(.semibold))
                     .foregroundStyle(Color.accentColor)
+                    .frame(width: 28, height: 28)
+                    .background(
+                        Color.accentColor.opacity(0.11),
+                        in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    )
                 Text("AI Workspace")
                     .font(.callout.weight(.semibold))
                 Text(aiWorkspaceContextText(for: model))
@@ -367,24 +508,37 @@ struct AIWorkspaceShelf: View {
                 Circle()
                     .fill(model.aiAvailability.isAvailable ? Color.green : Color.orange)
                     .frame(width: 6, height: 6)
-                Text(model.aiAvailability.isAvailable ? "Ready" : "Fallback")
+                Text(aiWorkspaceActionStatus(for: model))
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.secondary)
                 Image(systemName: "chevron.up")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, ClipVaultDesign.compactPadding)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background(.regularMaterial)
-        .help("Expand AI Workspace")
+        .background(.bar)
+        .help("Expand AI Workspace. \(aiWorkspaceActionAvailabilityText(for: model))")
         .accessibilityLabel("Expand AI Workspace")
-        .accessibilityValue(aiWorkspaceContextText(for: model))
-        .accessibilityHint("Shows AI actions, results, and questions.")
+        .accessibilityValue("\(aiWorkspaceContextText(for: model)). \(aiWorkspaceActionStatus(for: model))")
+        .accessibilityHint("Shows AI actions, results, and questions. \(aiWorkspaceActionAvailabilityText(for: model))")
     }
+}
+
+@MainActor
+private func aiWorkspaceActionStatus(for model: ClipVaultViewModel) -> String {
+    model.aiAvailability.isAvailable ? "Actions ready" : "Actions local"
+}
+
+@MainActor
+private func aiWorkspaceActionAvailabilityText(for model: ClipVaultViewModel) -> String {
+    if model.aiAvailability.isAvailable {
+        return "Standard actions are ready. Enhance Prompt checks Apple Intelligence separately."
+    }
+    return "Standard actions may use local processing. Enhance Prompt checks Apple Intelligence separately."
 }
 
 @MainActor

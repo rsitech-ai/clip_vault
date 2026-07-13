@@ -1,3 +1,6 @@
+#if CLIPVAULT_E2E_PROBE
+import AppKit
+#endif
 import ClipVaultCore
 import Foundation
 import Observation
@@ -8,6 +11,12 @@ import SwiftData
 @Observable
 final class ClipVaultViewModel {
     private static let logger = Logger(subsystem: "com.andrzej.ClipVault", category: "ViewModel")
+
+    private static func logFailure(operation: String, error: any Error) {
+        logger.error(
+            "operation_failed operation=\(operation, privacy: .public) details=\(error.localizedDescription, privacy: .private)"
+        )
+    }
 
     let container: ModelContainer
     let storageStartupError: String?
@@ -29,25 +38,71 @@ final class ClipVaultViewModel {
         }
     }
     var isCapturing = false
-    var captureStatus = "Ready"
+    var captureStatus = "Capture paused — consent required"
     var aiResult: AIActionResult?
     var aiError: String?
     var isGenerating = false
+    var promptEnhancementState: PromptEnhancementState = .idle
     var question = ""
     var statusMenuFocusIndex = 0
     var cleanupFilter: CleanupFilter = .unpinned
 
     var canAskQuestion: Bool {
-        !isGenerating && !question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !isGenerating
+            && !promptEnhancementState.blocksAIOperations
+            && !question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    #if CLIPVAULT_E2E_PROBE
+    private let captureService = ClipboardCaptureService(
+        pasteboard: NSPasteboard(name: NSPasteboard.Name("com.andrzej.ClipVault.e2e.capture"))
+    )
+    #else
     private let captureService = ClipboardCaptureService()
+    #endif
     private let pasteboardWriter = ClipPayloadPasteboardWriter()
     private let searcher = ClipSearcher()
     private let aiProvider: any AIActionProviding = FoundationModelsAIActionProvider()
+    private let promptEnhancementRunner: PromptEnhancementBatchRunner
+    private var promptEnhancementTask: Task<Void, Never>?
+    private var promptEnhancementTaskID: UUID?
     private var store: (any ClipStoring)?
+    private static var initialCaptureConsent: Bool {
+        #if CLIPVAULT_E2E_PROBE
+        true
+        #else
+        UserDefaults.standard.bool(
+            forKey: ClipVaultSettingsKey.clipboardCaptureConsentGranted,
+            default: false
+        )
+        #endif
+    }
 
-    init() {
+    private var captureConsentPolicy = CaptureConsentPolicy(
+        hasPersistedConsent: ClipVaultViewModel.initialCaptureConsent
+    )
+
+    var hasCaptureConsent: Bool {
+        captureConsentPolicy.hasConsent
+    }
+
+    var isCaptureConsentDisclosurePresented: Bool {
+        captureConsentPolicy.isDisclosurePresented
+    }
+
+    var captureStateTitle: String {
+        if isCapturing {
+            return "Capturing"
+        }
+        return hasCaptureConsent ? "Paused" : "Consent required"
+    }
+
+    init(
+        promptEnhancementRunner: PromptEnhancementBatchRunner = PromptEnhancementBatchRunner(
+            enhancer: FoundationModelsPromptEnhancer()
+        )
+    ) {
+        self.promptEnhancementRunner = promptEnhancementRunner
         let schema = Schema([ClipRecord.self, FolderRecord.self])
         do {
             let configuration = ModelConfiguration("ClipVault", schema: schema)
@@ -79,18 +134,20 @@ final class ClipVaultViewModel {
             self?.captureStatus = didCapture ? "Screenshot copied to clipboard" : "Screenshot cancelled"
             self?.updateDockTile()
         }
-        captureService.start()
-        isCapturing = true
-        UserDefaults.standard.set(
-            Int(ProcessInfo.processInfo.processIdentifier),
-            forKey: ClipVaultSettingsKey.captureReadyProcessID
-        )
-        captureStatus = screenshotHotKeyRegistered ? "Watching clipboard" : "Watching clipboard, screenshot shortcut unavailable"
+        if captureConsentPolicy.isCapturing {
+            startCapture()
+        } else {
+            stopCapture()
+        }
         reload()
         pruneExpiredClips(retentionDays: configuredRetentionDays, updatesStatus: false)
         if let storageStartupError {
             Self.logger.error("Persistent storage startup failed; using fallback storage")
             captureStatus = storageStartupError
+        } else if captureConsentPolicy.isCapturing {
+            captureStatus = screenshotHotKeyRegistered ? "Watching clipboard" : "Watching clipboard, screenshot shortcut unavailable"
+        } else {
+            captureStatus = "Capture paused — consent required"
         }
     }
 
@@ -113,6 +170,10 @@ final class ClipVaultViewModel {
         clips.filter { selectedClipIDs.contains($0.id) }
     }
 
+    var moveDestinationFolders: [CollectionFolder] {
+        folders.compactMap(moveDestinationFolder)
+    }
+
     var visibleResults: [SearchResult] {
         let collection = selectedCollectionID == "all" ? nil : selectedCollectionID
         return searcher.search(
@@ -125,18 +186,46 @@ final class ClipVaultViewModel {
         aiProvider.availability()
     }
 
-    func reload() {
+    var promptEnhancerAvailability: AIAvailability {
+        promptEnhancementRunner.availability()
+    }
+
+    var canEnhancePrompts: Bool {
+        !isGenerating
+            && !promptEnhancementState.blocksAIOperations
+            && !promptEnhancementSources.isEmpty
+            && promptEnhancerAvailability.isAvailable
+    }
+
+    private var promptEnhancementSources: [Clip] {
+        selectedClips.isEmpty ? selectedClip.map { [$0] } ?? [] : selectedClips
+    }
+
+    @discardableResult
+    func reload() -> Bool {
         do {
-            clips = try store?.allClips() ?? []
-            folders = try store?.folders() ?? CollectionFolder.defaults
+            let snapshot: WorkspaceReloadSnapshot
+            if let store {
+                snapshot = try WorkspaceReloadSnapshot.load(from: store)
+            } else {
+                snapshot = WorkspaceReloadSnapshot(
+                    clips: [],
+                    folders: CollectionFolder.defaults
+                )
+            }
+            clips = snapshot.clips
+            folders = snapshot.folders
             syncCollectionsFromFolders()
             captureStatus = clips.isEmpty ? "Ready" : "\(clips.count) clips indexed"
             selectFirstVisibleResultIfNeeded()
+            updateDockTile()
+            return true
         } catch {
-            Self.logger.error("Failed to reload clips: \(error.localizedDescription, privacy: .public)")
+            Self.logFailure(operation: "reload_clips", error: error)
             captureStatus = error.localizedDescription
+            updateDockTile()
+            return false
         }
-        updateDockTile()
     }
 
     var visibleClips: [Clip] {
@@ -153,23 +242,74 @@ final class ClipVaultViewModel {
 
     func toggleCapture() {
         if isCapturing {
-            captureService.stop()
-            isCapturing = false
+            captureConsentPolicy.pause()
+            stopCapture()
             captureStatus = "Paused"
         } else {
-            captureService.start()
-            isCapturing = true
-            captureStatus = "Watching clipboard"
+            captureConsentPolicy.requestResume()
+            if captureConsentPolicy.isCapturing {
+                startCapture()
+                captureStatus = "Watching clipboard"
+            } else {
+                captureStatus = "Capture paused — consent required"
+            }
         }
         updateDockTile()
     }
 
+    func acceptCaptureConsent() {
+        captureConsentPolicy.accept()
+        UserDefaults.standard.set(true, forKey: ClipVaultSettingsKey.clipboardCaptureConsentGranted)
+        startCapture()
+        captureStatus = "Watching clipboard"
+        updateDockTile()
+    }
+
+    func declineCaptureConsent() {
+        captureConsentPolicy.decline()
+        stopCapture()
+        captureStatus = "Capture paused — consent required"
+        updateDockTile()
+    }
+
+    func revokeCaptureConsent() {
+        captureConsentPolicy.revoke()
+        UserDefaults.standard.removeObject(forKey: ClipVaultSettingsKey.clipboardCaptureConsentGranted)
+        stopCapture()
+        captureStatus = "Capture paused — consent revoked"
+        updateDockTile()
+    }
+
+    private func startCapture() {
+        captureService.start()
+        isCapturing = true
+        UserDefaults.standard.set(
+            Int(ProcessInfo.processInfo.processIdentifier),
+            forKey: ClipVaultSettingsKey.captureReadyProcessID
+        )
+    }
+
+    private func stopCapture() {
+        captureService.stop()
+        isCapturing = false
+        UserDefaults.standard.removeObject(forKey: ClipVaultSettingsKey.captureReadyProcessID)
+        Self.logger.info("Clipboard capture stopped")
+    }
+
     func togglePinned(_ clip: Clip) {
+        let previousSelection = selectedClipID
         do {
             try store?.togglePinned(id: clip.id)
-            reload()
+            guard reload() else {
+                selectedClipID = previousSelection
+                return
+            }
+            if visibleResults.contains(where: { $0.clip.id == clip.id }) {
+                selectedClipID = clip.id
+            }
         } catch {
-            Self.logger.error("Failed to toggle pinned state: \(error.localizedDescription, privacy: .public)")
+            selectedClipID = previousSelection
+            Self.logFailure(operation: "toggle_pinned", error: error)
             captureStatus = error.localizedDescription
             updateDockTile()
         }
@@ -185,7 +325,7 @@ final class ClipVaultViewModel {
             captureStatus = note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Note cleared" : "Note saved"
             updateDockTile()
         } catch {
-            Self.logger.error("Failed to update note: \(error.localizedDescription, privacy: .public)")
+            Self.logFailure(operation: "update_note", error: error)
             captureStatus = error.localizedDescription
             updateDockTile()
         }
@@ -201,7 +341,7 @@ final class ClipVaultViewModel {
             captureStatus = "Title saved"
             updateDockTile()
         } catch {
-            Self.logger.error("Failed to update title: \(error.localizedDescription, privacy: .public)")
+            Self.logFailure(operation: "update_title", error: error)
             captureStatus = error.localizedDescription
             updateDockTile()
         }
@@ -222,7 +362,7 @@ final class ClipVaultViewModel {
             captureStatus = tags.isEmpty ? "Tags cleared" : "Tags saved"
             updateDockTile()
         } catch {
-            Self.logger.error("Failed to update tags: \(error.localizedDescription, privacy: .public)")
+            Self.logFailure(operation: "update_tags", error: error)
             captureStatus = error.localizedDescription
             updateDockTile()
         }
@@ -239,7 +379,7 @@ final class ClipVaultViewModel {
             captureStatus = "Deleted clip"
             updateDockTile()
         } catch {
-            Self.logger.error("Failed to delete clip: \(error.localizedDescription, privacy: .public)")
+            Self.logFailure(operation: "delete_clip", error: error)
             captureStatus = error.localizedDescription
             updateDockTile()
         }
@@ -259,7 +399,7 @@ final class ClipVaultViewModel {
             captureStatus = "Cleared \(removable.count) clips"
             updateDockTile()
         } catch {
-            Self.logger.error("Failed to clear unpinned clips: \(error.localizedDescription, privacy: .public)")
+            Self.logFailure(operation: "clear_unpinned", error: error)
             captureStatus = error.localizedDescription
             updateDockTile()
         }
@@ -300,7 +440,7 @@ final class ClipVaultViewModel {
             captureStatus = "Deleted \(candidates.count) clips"
             updateDockTile()
         } catch {
-            Self.logger.error("Failed to delete cleanup candidates: \(error.localizedDescription, privacy: .public)")
+            Self.logFailure(operation: "delete_cleanup_candidates", error: error)
             captureStatus = error.localizedDescription
             updateDockTile()
         }
@@ -350,7 +490,7 @@ final class ClipVaultViewModel {
             Self.logger.info("Copied clip payload to pasteboard")
             captureStatus = "Copied \(clip.kind.title)"
         } catch {
-            Self.logger.error("Failed to copy clip payload: \(error.localizedDescription, privacy: .public)")
+            Self.logFailure(operation: "copy_clip_payload", error: error)
             captureStatus = error.localizedDescription
         }
         updateDockTile()
@@ -418,7 +558,7 @@ final class ClipVaultViewModel {
             captureStatus = "Created collection"
         } catch {
             collections.removeAll { $0.id == id }
-            Self.logger.error("Failed to create collection: \(error.localizedDescription, privacy: .public)")
+            Self.logFailure(operation: "create_collection", error: error)
             captureStatus = error.localizedDescription
         }
         updateDockTile()
@@ -437,9 +577,48 @@ final class ClipVaultViewModel {
             captureStatus = "Added \(ids.count) clips to collection"
             updateDockTile()
         } catch {
-            Self.logger.error("Failed to create custom collection assignment: \(error.localizedDescription, privacy: .public)")
+            Self.logFailure(operation: "assign_custom_collection", error: error)
             captureStatus = error.localizedDescription
             updateDockTile()
+        }
+    }
+
+    @discardableResult
+    func moveClip(id: String, toCollectionID collectionID: String) -> Bool {
+        guard let destination = flatten(moveDestinationFolders).first(where: {
+            $0.collectionID == collectionID
+        }), let destinationID = destination.collectionID else {
+            let error = ClipCollectionMoveError.destinationNotFound
+            Self.logFailure(operation: "move_clip", error: error)
+            captureStatus = error.localizedDescription
+            updateDockTile()
+            return false
+        }
+
+        guard let store else {
+            Self.logger.error("operation_failed operation=move_clip reason=store_unavailable")
+            captureStatus = "Storage is not ready. Try again."
+            updateDockTile()
+            return false
+        }
+
+        do {
+            try store.moveClips(ids: [id], toCollectionID: destinationID)
+            let didRefresh = reload()
+            captureStatus = didRefresh
+                ? "Moved to \(destination.title)"
+                : "Moved, but the clip list couldn’t refresh. Reopen ClipVault to update it."
+            updateDockTile()
+            return true
+        } catch {
+            Self.logFailure(operation: "move_clip", error: error)
+            if let moveError = error as? ClipCollectionMoveError {
+                captureStatus = moveError.localizedDescription
+            } else {
+                captureStatus = "Couldn’t move clip. Try again."
+            }
+            updateDockTile()
+            return false
         }
     }
 
@@ -458,7 +637,7 @@ final class ClipVaultViewModel {
             insert(folder, under: parentFolderID)
             captureStatus = "Created folder"
         } catch {
-            Self.logger.error("Failed to create folder: \(error.localizedDescription, privacy: .public)")
+            Self.logFailure(operation: "create_folder", error: error)
             captureStatus = error.localizedDescription
         }
         updateDockTile()
@@ -470,7 +649,7 @@ final class ClipVaultViewModel {
             reload()
             captureStatus = "Updated workspace item"
         } catch {
-            Self.logger.error("Failed to update folder: \(error.localizedDescription, privacy: .public)")
+            Self.logFailure(operation: "update_folder", error: error)
             captureStatus = error.localizedDescription
             updateDockTile()
         }
@@ -487,14 +666,18 @@ final class ClipVaultViewModel {
             reload()
             captureStatus = folder.collectionID == nil ? "Removed folder" : "Removed collection"
         } catch {
-            Self.logger.error("Failed to delete folder: \(error.localizedDescription, privacy: .public)")
+            Self.logFailure(operation: "delete_folder", error: error)
             captureStatus = error.localizedDescription
             updateDockTile()
         }
     }
 
     func canManageWorkspaceFolder(_ folder: CollectionFolder) -> Bool {
-        !isProtectedWorkspaceFolder(folder)
+        WorkspaceFolderPolicy.canManage(folder)
+    }
+
+    func manualDestinationCollectionID(for folder: CollectionFolder) -> String? {
+        WorkspaceManualDestinationPolicy.collectionID(for: folder, collections: collections)
     }
 
     func parentFolderID(for folderID: String) -> String? {
@@ -523,6 +706,12 @@ final class ClipVaultViewModel {
     }
 
     func runAIAction(_ kind: AIActionKind) {
+        guard promptEnhancementTask == nil,
+              !isGenerating,
+              !promptEnhancementState.blocksAIOperations else {
+            return
+        }
+        promptEnhancementState = .idle
         let selection = selectedClips.isEmpty ? selectedClip.map { [$0] } ?? [] : selectedClips
         let trimmedQuestion = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !selection.isEmpty else {
@@ -551,12 +740,112 @@ final class ClipVaultViewModel {
                 }
             } catch {
                 await MainActor.run {
-                    Self.logger.error("AI action failed: \(error.localizedDescription, privacy: .public)")
+                    Self.logFailure(operation: "ai_action", error: error)
                     aiError = error.localizedDescription
                     isGenerating = false
                 }
             }
         }
+    }
+
+    func runPromptEnhancement() {
+        guard promptEnhancementTask == nil,
+              !isGenerating,
+              !promptEnhancementState.blocksAIOperations else {
+            return
+        }
+
+        let sources = promptEnhancementSources
+        let selectionSnapshot = PromptEnhancementSelectionSnapshot(
+            currentClipID: selectedClipID,
+            selectedClipIDs: selectedClipIDs,
+            sourceIDs: sources.map(\.id)
+        )
+        guard !sources.isEmpty else {
+            promptEnhancementState = .failed(
+                sourceTitle: nil,
+                message: "\(PromptEnhancementError.emptySelection.localizedDescription) Nothing was saved."
+            )
+            return
+        }
+        guard let store else {
+            promptEnhancementState = .failed(
+                sourceTitle: nil,
+                message: "Storage is unavailable. Nothing was saved."
+            )
+            return
+        }
+
+        let taskID = UUID()
+        let workflow = PromptEnhancementWorkflow(runner: promptEnhancementRunner)
+        promptEnhancementTaskID = taskID
+        isGenerating = true
+        aiResult = nil
+        aiError = nil
+        promptEnhancementState = .enhancing(
+            current: 1,
+            total: sources.count,
+            sourceTitle: sources[0].title
+        )
+
+        promptEnhancementTask = Task { [weak self] in
+            guard let self else {
+                return
+            }
+            defer {
+                if promptEnhancementTaskID == taskID {
+                    promptEnhancementTask = nil
+                    promptEnhancementTaskID = nil
+                    isGenerating = false
+                }
+            }
+
+            _ = await workflow.run(
+                sources: sources,
+                save: { drafts in
+                    try store.saveGeneratedPrompts(drafts).count
+                },
+                reload: {
+                    guard reload() else {
+                        return false
+                    }
+                    restorePromptSourceSelection(selectionSnapshot)
+                    return true
+                },
+                isActive: {
+                    self.promptEnhancementTaskID == taskID
+                },
+                publish: { state in
+                    self.promptEnhancementState = state
+                },
+                logError: { error in
+                    Self.logFailure(operation: "prompt_enhancement", error: error)
+                }
+            )
+        }
+    }
+
+    func cancelPromptEnhancement() {
+        guard case .enhancing = promptEnhancementState else {
+            return
+        }
+        promptEnhancementTask?.cancel()
+    }
+
+    func openPrompts() {
+        guard promptEnhancementState.canOpenPrompts,
+              collections.contains(where: { $0.id == ClipCollection.prompts.id }) else {
+            return
+        }
+        selectedCollectionID = ClipCollection.prompts.id
+    }
+
+    private func restorePromptSourceSelection(
+        _ snapshot: PromptEnhancementSelectionSnapshot
+    ) {
+        let restored = snapshot.restoring(existingClipIDs: Set(clips.map(\.id)))
+        selectedClipID = restored.currentClipID
+        selectedClipIDs = restored.selectedClipIDs
     }
 
     private func ingest(payload: ClipPayload, sourceApp: String?) {
@@ -576,7 +865,7 @@ final class ClipVaultViewModel {
             }
             reload()
         } catch {
-            Self.logger.error("Failed to ingest clipboard item: \(error.localizedDescription, privacy: .public)")
+            Self.logFailure(operation: "ingest_clipboard", error: error)
             captureStatus = error.localizedDescription
             updateDockTile()
         }
@@ -619,7 +908,7 @@ final class ClipVaultViewModel {
                 captureStatus = "Removed \(expired.count) expired clips"
             }
         } catch {
-            Self.logger.error("Failed to prune expired clips: \(error.localizedDescription, privacy: .public)")
+            Self.logFailure(operation: "prune_expired", error: error)
             captureStatus = error.localizedDescription
         }
         updateDockTile()
@@ -657,6 +946,27 @@ final class ClipVaultViewModel {
 
     private func syncCollectionsFromFolders() {
         collections = WorkspaceCollectionCatalog.rebuild(from: folders)
+    }
+
+    private func moveDestinationFolder(_ folder: CollectionFolder) -> CollectionFolder? {
+        if folder.collectionID != nil {
+            guard let collectionID = manualDestinationCollectionID(for: folder) else {
+                return nil
+            }
+            var destination = folder
+            destination.collectionID = collectionID
+            destination.children = []
+            return destination
+        }
+
+        let destinationChildren = folder.children.compactMap(moveDestinationFolder)
+        guard !destinationChildren.isEmpty else {
+            return nil
+        }
+
+        var ancestor = folder
+        ancestor.children = destinationChildren
+        return ancestor
     }
 
     private func folderTitle(forCollectionID collectionID: String, in folders: [CollectionFolder]) -> String? {
@@ -714,9 +1024,6 @@ final class ClipVaultViewModel {
         return findFolder(withID: parentFolderID, in: folders)?.collectionID == nil
     }
 
-    private func isProtectedWorkspaceFolder(_ folder: CollectionFolder) -> Bool {
-        WorkspaceFolderPolicy.isProtected(folder)
-    }
 }
 
 struct FolderParentOption: Identifiable, Hashable {

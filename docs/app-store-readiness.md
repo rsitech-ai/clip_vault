@@ -1,5 +1,7 @@
 # ClipVault App Store Readiness
 
+> Superseded for release 0.1.0 by `docs/release/0.1.0/RELEASE_STATUS.md`. Current verdict: **BLOCKED** on external App Store Connect, metadata, asset, provisioning, and owner-declaration gates.
+
 ## Current State
 
 - SwiftPM package with executable product `ClipVault`.
@@ -86,7 +88,7 @@ package exists and API key values are supplied.
 ## Verified Local Candidate (2026-07-10)
 
 - Package: `dist/AppStore/ClipVault-0.1.0-1.pkg`
-- Size: 2,654,411 bytes
-- SHA-256: `8e3fe4de72edcf162da77af71b9f6ee043ff80990fdead1739bc2bdcbfb13866`
+- Size: 2,734,791 bytes
+- SHA-256: `264b949215d02a07cc35211eff956873b9f120e85ff35a4834a3440ebede5d0d`
 - Local checks: app distribution signature, installer signature, entitlements, privacy manifest, dylib linkage, live sandbox persistence smoke, and ClipVault-authored error/fault logs all pass.
-- Still external: App Store Connect record/metadata/privacy answers/screenshots, upload validation, clean-account package installation, and App Review.
+- Still external: App Store Connect record/metadata/privacy answers/screenshots, provisioning and upload validation, clean-account package installation, legal/business declarations, and App Review.

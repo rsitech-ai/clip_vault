@@ -139,6 +139,9 @@ struct LiveActivityIslandView: View {
 
                 Button {
                     model.toggleCapture()
+                    if model.isCaptureConsentDisclosurePresented {
+                        openWorkspace()
+                    }
                 } label: {
                     Label(model.isCapturing ? "Pause" : "Resume", systemImage: model.isCapturing ? "pause.fill" : "play.fill")
                 }
