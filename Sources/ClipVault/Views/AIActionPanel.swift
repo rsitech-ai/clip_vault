@@ -167,6 +167,7 @@ struct AIActionPanel: View {
         .clipVaultGlassButtonStyle()
         .disabled(!model.canEnhancePrompts)
         .help(enhancePromptHelp)
+        .accessibilityValue(enhancePromptAccessibilityValue)
         .accessibilityHint(Self.enhancePromptHint)
     }
 
@@ -183,6 +184,7 @@ struct AIActionPanel: View {
         .disabled(!model.canEnhancePrompts)
         .help(enhancePromptHelp)
         .accessibilityLabel("Enhance Prompt")
+        .accessibilityValue(enhancePromptAccessibilityValue)
         .accessibilityHint(Self.enhancePromptHint)
     }
 
@@ -267,11 +269,11 @@ struct AIActionPanel: View {
                 .clipVaultGlassButtonStyle()
             }
         case .saving(let total):
-            ProgressView("Saving \(total) enhanced prompts")
+            ProgressView("Saving \(enhancedPromptCountText(total))")
                 .frame(maxWidth: .infinity, alignment: .leading)
         case .success(let count):
             VStack(alignment: .leading, spacing: 10) {
-                Label("\(count) enhanced prompts saved to Prompts", systemImage: "checkmark.circle.fill")
+                Label("\(enhancedPromptCountText(count)) saved to Prompts", systemImage: "checkmark.circle.fill")
                     .foregroundStyle(.green)
                 Button("Open Prompts") {
                     model.openPrompts()
@@ -340,19 +342,16 @@ struct AIActionPanel: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var availabilityText: String {
-        if model.aiAvailability.isAvailable {
-            return "Foundation Models ready"
-        }
-        return model.aiAvailability.reason ?? "AI unavailable"
-    }
-
     private var contextText: String {
         aiWorkspaceContextText(for: model)
     }
 
     private func clipCountText(_ count: Int, suffix: String) -> String {
         "\(count) \(count == 1 ? "clip" : "clips") \(suffix)"
+    }
+
+    private func enhancedPromptCountText(_ count: Int) -> String {
+        "\(count) enhanced \(count == 1 ? "prompt" : "prompts")"
     }
 
     private var askRow: some View {
@@ -404,11 +403,15 @@ struct AIActionPanel: View {
         if model.selectedClips.isEmpty, model.selectedClip == nil {
             return "Select or open a source clip first."
         }
-        if !model.promptEnhancerAvailability.isAvailable,
-           let reason = model.promptEnhancerAvailability.reason {
-            return reason
+        let availability = model.promptEnhancerAvailability
+        if !availability.isAvailable {
+            return availability.reason ?? "Apple Intelligence is unavailable."
         }
         return Self.enhancePromptHint
+    }
+
+    private var enhancePromptAccessibilityValue: String {
+        model.canEnhancePrompts ? "Available" : enhancePromptHelp
     }
 
     private func actionHelp(for action: AIActionKind) -> String {
@@ -419,7 +422,7 @@ struct AIActionPanel: View {
     private var availabilityBadge: some View {
         switch placement {
         case .inspector:
-            Label(model.aiAvailability.isAvailable ? "Ready" : "Local fallback", systemImage: model.aiAvailability.isAvailable ? "sparkles" : "exclamationmark.triangle")
+            Label(aiWorkspaceActionStatus(for: model), systemImage: model.aiAvailability.isAvailable ? "sparkles" : "exclamationmark.triangle")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(model.aiAvailability.isAvailable ? Color.accentColor : Color.orange)
                 .lineLimit(1)
@@ -427,7 +430,8 @@ struct AIActionPanel: View {
                 .padding(.horizontal, 9)
                 .padding(.vertical, 5)
                 .clipVaultGlassCapsule(tint: model.aiAvailability.isAvailable ? .accentColor.opacity(0.10) : .orange.opacity(0.10))
-                .help(availabilityText)
+                .help(aiWorkspaceActionAvailabilityText(for: model))
+                .accessibilityLabel(aiWorkspaceActionAvailabilityText(for: model))
         case .inline:
             inlineAvailabilityIndicator
         }
@@ -438,13 +442,13 @@ struct AIActionPanel: View {
             Circle()
                 .fill(model.aiAvailability.isAvailable ? Color.green : Color.orange)
                 .frame(width: 6, height: 6)
-            Text(model.aiAvailability.isAvailable ? "Ready" : "Fallback")
+            Text(aiWorkspaceActionStatus(for: model))
                 .font(.caption.weight(.medium))
                 .foregroundStyle(.secondary)
         }
-        .help(availabilityText)
+        .help(aiWorkspaceActionAvailabilityText(for: model))
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(availabilityText)
+        .accessibilityLabel(aiWorkspaceActionAvailabilityText(for: model))
     }
 
     private static let visibleActionKinds: [AIActionKind] = [.summarize, .explain, .todos]
@@ -476,7 +480,7 @@ struct AIWorkspaceShelf: View {
                 Circle()
                     .fill(model.aiAvailability.isAvailable ? Color.green : Color.orange)
                     .frame(width: 6, height: 6)
-                Text(model.aiAvailability.isAvailable ? "Ready" : "Fallback")
+                Text(aiWorkspaceActionStatus(for: model))
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.secondary)
                 Image(systemName: "chevron.up")
@@ -489,11 +493,24 @@ struct AIWorkspaceShelf: View {
         }
         .buttonStyle(.plain)
         .background(.bar)
-        .help("Expand AI Workspace")
+        .help("Expand AI Workspace. \(aiWorkspaceActionAvailabilityText(for: model))")
         .accessibilityLabel("Expand AI Workspace")
-        .accessibilityValue(aiWorkspaceContextText(for: model))
-        .accessibilityHint("Shows AI actions, results, and questions.")
+        .accessibilityValue("\(aiWorkspaceContextText(for: model)). \(aiWorkspaceActionStatus(for: model))")
+        .accessibilityHint("Shows AI actions, results, and questions. \(aiWorkspaceActionAvailabilityText(for: model))")
     }
+}
+
+@MainActor
+private func aiWorkspaceActionStatus(for model: ClipVaultViewModel) -> String {
+    model.aiAvailability.isAvailable ? "Actions ready" : "Actions local"
+}
+
+@MainActor
+private func aiWorkspaceActionAvailabilityText(for model: ClipVaultViewModel) -> String {
+    if model.aiAvailability.isAvailable {
+        return "Standard actions are ready. Enhance Prompt checks Apple Intelligence separately."
+    }
+    return "Standard actions may use local processing. Enhance Prompt checks Apple Intelligence separately."
 }
 
 @MainActor
