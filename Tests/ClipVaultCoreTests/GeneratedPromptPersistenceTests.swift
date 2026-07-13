@@ -47,6 +47,12 @@ struct GeneratedPromptPersistenceTests {
         try assertWithinBatchDuplicateRejected(by: makeSwiftDataStoreForGeneratedPromptTests().store)
     }
 
+    @Test("both stores reject repeated source IDs before publishing distinct outputs")
+    func bothStoresRejectRepeatedSourceIDsAtomically() throws {
+        try assertRepeatedSourceRejected(by: InMemoryClipStore())
+        try assertRepeatedSourceRejected(by: makeSwiftDataStoreForGeneratedPromptTests().store)
+    }
+
     @Test("both stores require the canonical Prompts destination")
     func bothStoresRequireCanonicalPromptsDestination() throws {
         try assertPromptsDestinationRequired(
@@ -92,7 +98,9 @@ struct GeneratedPromptPersistenceTests {
             previewTransformer: { $0 }
         )
 
-        #expect(throws: ForcedGeneratedPromptSaveError()) {
+        let expectedError = GeneratedPromptStoreError.batchSaveFailed([first.id, second.id])
+        #expect(expectedError.errorDescription == "The enhanced prompts could not be saved.")
+        #expect(throws: expectedError) {
             try failingStore.saveGeneratedPrompts([
                 GeneratedPromptDraft(
                     sourceClipID: first.id,
@@ -117,6 +125,58 @@ struct GeneratedPromptPersistenceTests {
         }
         for id in insertedIDs {
             #expect(try failingStore.payload(for: id) == nil)
+        }
+    }
+
+    @Test("SwiftData attributes a second-draft encryption failure without inserting the batch")
+    func swiftDataGeneratedPromptEncryptionFailureIsSourceScoped() throws {
+        let fixture = try makeSwiftDataStoreForGeneratedPromptTests()
+        try fixture.store.reconcileWorkspaceDefaults()
+        let first = try #require(try fixture.store.save(
+            payload: ClipPayload(kind: .text, displayText: "Encrypt first", extractedText: "Encrypt first"),
+            sourceApp: nil
+        ))
+        let second = try #require(try fixture.store.save(
+            payload: ClipPayload(kind: .text, displayText: "Encrypt second", extractedText: "Encrypt second"),
+            sourceApp: nil
+        ))
+        let before = try fixture.store.allClips()
+        let beforeIDs = Set(before.map(\.id))
+        let beforePayloads = try Dictionary(uniqueKeysWithValues: before.map { clip in
+            (clip.id, try fixture.store.payload(for: clip.id))
+        })
+        var saveAttempts = 0
+        let failingStore = SwiftDataClipStore(
+            context: fixture.context,
+            encryptor: ThirdEncryptionFailingGeneratedPromptEncryptor(),
+            saveContext: { context in
+                saveAttempts += 1
+                try context.save()
+            },
+            previewTransformer: { $0 }
+        )
+
+        #expect(throws: GeneratedPromptStoreError.encryptionFailed(second.id)) {
+            try failingStore.saveGeneratedPrompts([
+                GeneratedPromptDraft(
+                    sourceClipID: first.id,
+                    sourceTitle: first.title,
+                    enhancedText: "Encrypted first output"
+                ),
+                GeneratedPromptDraft(
+                    sourceClipID: second.id,
+                    sourceTitle: second.title,
+                    enhancedText: "Encrypted second output"
+                )
+            ])
+        }
+
+        #expect(saveAttempts == 0)
+        #expect(!fixture.context.hasChanges)
+        #expect(Set(try fixture.context.fetch(FetchDescriptor<ClipRecord>()).map(\.id)) == beforeIDs)
+        #expect(try failingStore.allClips() == before)
+        for (id, payload) in beforePayloads {
+            #expect(try failingStore.payload(for: id) == payload)
         }
     }
 
@@ -358,6 +418,38 @@ struct GeneratedPromptPersistenceTests {
         #expect(try store.allClips() == before)
     }
 
+    private func assertRepeatedSourceRejected(by store: any ClipStoring) throws {
+        try store.reconcileWorkspaceDefaults()
+        let source = try #require(try store.save(
+            payload: ClipPayload(
+                kind: .text,
+                displayText: "Repeated source",
+                extractedText: "Repeated source"
+            ),
+            sourceApp: nil
+        ))
+        let sourcePayload = try store.payload(for: source.id)
+        let before = try store.allClips()
+
+        #expect(throws: GeneratedPromptStoreError.duplicateSource(source.id)) {
+            try store.saveGeneratedPrompts([
+                GeneratedPromptDraft(
+                    sourceClipID: source.id,
+                    sourceTitle: source.title,
+                    enhancedText: "First distinct generated output"
+                ),
+                GeneratedPromptDraft(
+                    sourceClipID: source.id,
+                    sourceTitle: source.title,
+                    enhancedText: "Second distinct generated output"
+                )
+            ])
+        }
+
+        #expect(try store.allClips() == before)
+        #expect(try store.payload(for: source.id) == sourcePayload)
+    }
+
     private func assertPromptsDestinationRequired(
         by store: any ClipStoring,
         arrangeImpostor: Bool
@@ -428,3 +520,26 @@ private struct GeneratedPromptTestEncryptor: PayloadEncrypting {
 }
 
 private struct ForcedGeneratedPromptSaveError: Error, Equatable {}
+
+private final class ThirdEncryptionFailingGeneratedPromptEncryptor: PayloadEncrypting, @unchecked Sendable {
+    private let base = GeneratedPromptTestEncryptor()
+    private let lock = NSLock()
+    private var encryptionCount = 0
+
+    func encrypt(_ data: Data) throws -> Data {
+        lock.lock()
+        encryptionCount += 1
+        let shouldFail = encryptionCount == 3
+        lock.unlock()
+        if shouldFail {
+            throw ForcedGeneratedPromptEncryptionError()
+        }
+        return try base.encrypt(data)
+    }
+
+    func decrypt(_ data: Data) throws -> Data {
+        try base.decrypt(data)
+    }
+}
+
+private struct ForcedGeneratedPromptEncryptionError: Error {}
