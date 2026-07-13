@@ -110,11 +110,25 @@ struct ClipVaultApp: App {
 
         do {
             let store = SwiftDataClipStore(context: ModelContext(model.container))
-            let matches = try store.allClips().filter { $0.preview == request.token }
-            let copyCount = matches.map(\.copyCount).max() ?? 0
-            print("CLIPVAULT_STORE_PROBE row_count=\(matches.count) copy_count=\(copyCount)")
+            let clips = try store.allClips()
+            var exitCode = EXIT_SUCCESS
+            switch request.mode {
+            case .storedClip:
+                let matches = clips.filter { $0.preview == request.token }
+                let copyCount = matches.map(\.copyCount).max() ?? 0
+                print("CLIPVAULT_STORE_PROBE row_count=\(matches.count) copy_count=\(copyCount)")
+            case .generatedPromptSource:
+                let result = ClipVaultGeneratedPromptProbeResult.inspect(
+                    sourceToken: request.token,
+                    clips: clips
+                )
+                print(result.outputLine)
+                if !result.isExactSingleAssociation {
+                    exitCode = EX_DATAERR
+                }
+            }
             fflush(stdout)
-            Darwin.exit(EXIT_SUCCESS)
+            Darwin.exit(exitCode)
         } catch {
             let message = "CLIPVAULT_STORE_PROBE_ERROR \(error.localizedDescription)\n"
             FileHandle.standardError.write(Data(message.utf8))
