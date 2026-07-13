@@ -89,7 +89,7 @@ public struct PromptEnhancementSelectionSnapshot: Equatable, Sendable {
         let sourceIDSet = Set(sourceIDs)
         let survivingSourceIDs = sourceIDSet.intersection(existingClipIDs)
         let restoredCurrentClipID: String?
-        if let currentClipID, survivingSourceIDs.contains(currentClipID) {
+        if let currentClipID, existingClipIDs.contains(currentClipID) {
             restoredCurrentClipID = currentClipID
         } else {
             restoredCurrentClipID = sourceIDs.first(where: survivingSourceIDs.contains)
