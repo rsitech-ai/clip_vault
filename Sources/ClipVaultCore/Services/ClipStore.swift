@@ -96,6 +96,7 @@ public final class FolderRecord {
 public protocol ClipStoring: AnyObject {
     func allClips() throws -> [Clip]
     func folders() throws -> [CollectionFolder]
+    func reconcileWorkspaceDefaults() throws
     func payload(for clipID: String) throws -> ClipPayload?
     func save(payload: ClipPayload, sourceApp: String?) throws -> Clip?
     func addClips(ids: [String], toCollectionID collectionID: String) throws
@@ -221,6 +222,95 @@ public enum WorkspaceCollectionCatalog {
     }
 }
 
+private struct WorkspacePromptsReconciliation {
+    static let canonicalNodeID = "workspace-default-prompts"
+
+    var rootID: String
+    var needsDefaultRoot: Bool
+    var needsCanonicalNode: Bool
+    var nodeIDsToRemove: Set<String>
+    var adoptedCollectionIDs: Set<String>
+
+    static func plan(for folders: [CollectionFolder]) -> WorkspacePromptsReconciliation {
+        let allNodes = flatten(folders)
+        let defaultRoot = CollectionFolder.defaults[0]
+        let root = folders.first(where: isBuiltInRoot)
+            ?? folders.first(where: isLegacyCollectionsRoot)
+        let selectedRoot = root ?? defaultRoot
+        let canonicalNodeIsCurrent = selectedRoot.children.contains {
+            $0.id == canonicalNodeID
+                && $0.collectionID == ClipCollection.prompts.id
+                && $0.title == ClipCollection.prompts.title
+        }
+        let manualPromptNodes = allNodes.filter { node in
+            guard let collectionID = node.collectionID,
+                  !ClipCollection.smartCollectionIDs.contains(collectionID) else {
+                return false
+            }
+            return node.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                .caseInsensitiveCompare(ClipCollection.prompts.title) == .orderedSame
+        }
+        let reservedCanonicalNodes = allNodes.filter {
+            $0.id == canonicalNodeID || $0.collectionID == ClipCollection.prompts.id
+        }
+        let retainedCanonicalID = canonicalNodeIsCurrent ? canonicalNodeID : nil
+        let nodeIDsToRemove = Set((manualPromptNodes + reservedCanonicalNodes).compactMap { node in
+            node.id == retainedCanonicalID ? nil : node.id
+        })
+
+        return WorkspacePromptsReconciliation(
+            rootID: selectedRoot.id,
+            needsDefaultRoot: root == nil,
+            needsCanonicalNode: root != nil && !canonicalNodeIsCurrent,
+            nodeIDsToRemove: nodeIDsToRemove,
+            adoptedCollectionIDs: Set(manualPromptNodes.compactMap(\.collectionID))
+        )
+    }
+
+    func migratedCollectionIDs(_ collectionIDs: [String]) -> [String] {
+        var includedPrompts = false
+        return collectionIDs.compactMap { collectionID in
+            let migratedID = adoptedCollectionIDs.contains(collectionID)
+                ? ClipCollection.prompts.id
+                : collectionID
+            guard migratedID == ClipCollection.prompts.id else {
+                return migratedID
+            }
+            guard !includedPrompts else {
+                return nil
+            }
+            includedPrompts = true
+            return migratedID
+        }
+    }
+
+    private static func isBuiltInRoot(_ folder: CollectionFolder) -> Bool {
+        let childIDs = Set(folder.children.compactMap(\.collectionID))
+        return folder.id == CollectionFolder.defaults[0].id
+            || ClipCollection.smartCollectionIDs.isSubset(of: childIDs)
+    }
+
+    private static func isLegacyCollectionsRoot(_ folder: CollectionFolder) -> Bool {
+        guard folder.collectionID == nil,
+              folder.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                .caseInsensitiveCompare("Collections") == .orderedSame else {
+            return false
+        }
+        return folder.children.contains { child in
+            guard let collectionID = child.collectionID,
+                  !ClipCollection.smartCollectionIDs.contains(collectionID) else {
+                return false
+            }
+            return child.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                .caseInsensitiveCompare(ClipCollection.prompts.title) == .orderedSame
+        }
+    }
+
+    private static func flatten(_ folders: [CollectionFolder]) -> [CollectionFolder] {
+        folders.flatMap { [$0] + flatten($0.children) }
+    }
+}
+
 enum BuiltInCollectionAssignment {
     static func ids(for kind: ClipKind) -> [String] {
         switch kind {
@@ -329,6 +419,7 @@ public final class SwiftDataClipStore: ClipStoring {
     }
 
     public func folders() throws -> [CollectionFolder] {
+        try reconcileWorkspaceDefaults()
         let descriptor = FetchDescriptor<FolderRecord>(
             sortBy: [
                 SortDescriptor(\.sortOrder),
@@ -336,12 +427,59 @@ public final class SwiftDataClipStore: ClipStoring {
             ]
         )
         let records = try context.fetch(descriptor)
-        if records.isEmpty {
-            try seedDefaultFolders()
-            return try folders()
-        }
-
         return folderTree(from: records, parentID: nil)
+    }
+
+    public func reconcileWorkspaceDefaults() throws {
+        try withFolderRollback {
+            let records = try context.fetch(FetchDescriptor<FolderRecord>())
+            let reconciliation = WorkspacePromptsReconciliation.plan(
+                for: folderTree(from: records, parentID: nil)
+            )
+            var didChange = false
+
+            for record in records where reconciliation.nodeIDsToRemove.contains(record.id) {
+                context.delete(record)
+                didChange = true
+            }
+            if reconciliation.needsDefaultRoot {
+                insertFolderTree(CollectionFolder.defaults[0], parentID: nil, sortOrder: 0)
+                didChange = true
+            } else {
+                if reconciliation.needsCanonicalNode {
+                    guard records.contains(where: { $0.id == reconciliation.rootID }) else {
+                        throw FolderStoreError.notFound
+                    }
+                    let canonicalNode = CollectionFolder(
+                        id: WorkspacePromptsReconciliation.canonicalNodeID,
+                        title: ClipCollection.prompts.title,
+                        collectionID: ClipCollection.prompts.id
+                    )
+                    context.insert(FolderRecord(
+                        folder: canonicalNode,
+                        parentID: reconciliation.rootID,
+                        sortOrder: nextSortOrder(parentID: reconciliation.rootID, in: records)
+                    ))
+                    didChange = true
+                }
+            }
+
+            let clipRecords = try context.fetch(FetchDescriptor<ClipRecord>())
+            for record in clipRecords {
+                let existingIDs = split(record.collectionIDsRaw)
+                let migratedIDs = reconciliation.migratedCollectionIDs(existingIDs)
+                guard migratedIDs != existingIDs else {
+                    continue
+                }
+                record.collectionIDsRaw = migratedIDs.joined(separator: ",")
+                record.updatedAt = Date()
+                didChange = true
+            }
+
+            if didChange {
+                try saveFolderContext(context)
+            }
+        }
     }
 
     public func payload(for clipID: String) throws -> ClipPayload? {
@@ -451,17 +589,17 @@ public final class SwiftDataClipStore: ClipStoring {
             guard folderRecords.contains(where: { $0.collectionID == destination }) else {
                 throw ClipCollectionMoveError.destinationNotFound
             }
-            guard !ClipCollection.defaults.contains(where: { $0.id == destination }) else {
+            guard !ClipCollection.smartCollectionIDs.contains(destination) else {
                 throw ClipCollectionMoveError.invalidDestination
             }
 
             let records = try context.fetch(FetchDescriptor<ClipRecord>())
                 .filter { requestedIDs.contains($0.id) }
             guard records.count == requestedIDs.count else { throw ClipCollectionMoveError.clipNotFound }
-            let builtInIDs = Set(ClipCollection.defaults.map(\.id))
-
             for record in records {
-                let preserved = split(record.collectionIDsRaw).filter { builtInIDs.contains($0) }
+                let preserved = split(record.collectionIDsRaw).filter {
+                    ClipCollection.smartCollectionIDs.contains($0)
+                }
                 record.collectionIDsRaw = (preserved + [destination]).joined(separator: ",")
                 record.updatedAt = Date()
             }
@@ -908,12 +1046,59 @@ public final class InMemoryClipStore: ClipStoring {
         self.index = index
     }
 
+    init(
+        foldersForTesting: [CollectionFolder],
+        sensitiveRules: SensitiveRuleEngine = .default,
+        index: any SearchIndexing = RustSearchIndexCore()
+    ) {
+        self.storedFolders = foldersForTesting
+        self.sensitiveRules = sensitiveRules
+        self.index = index
+    }
+
     public func allClips() throws -> [Clip] {
         clips.sorted { $0.createdAt > $1.createdAt }
     }
 
     public func folders() throws -> [CollectionFolder] {
-        storedFolders
+        try reconcileWorkspaceDefaults()
+        return storedFolders
+    }
+
+    public func reconcileWorkspaceDefaults() throws {
+        var stagedClips = clips
+        var stagedFolders = storedFolders
+        let reconciliation = WorkspacePromptsReconciliation.plan(for: stagedFolders)
+
+        for nodeID in reconciliation.nodeIDsToRemove {
+            _ = removeFolder(id: nodeID, from: &stagedFolders)
+        }
+        if reconciliation.needsDefaultRoot {
+            stagedFolders.append(CollectionFolder.defaults[0])
+        } else {
+            if reconciliation.needsCanonicalNode {
+                let canonicalNode = CollectionFolder(
+                    id: WorkspacePromptsReconciliation.canonicalNodeID,
+                    title: ClipCollection.prompts.title,
+                    collectionID: ClipCollection.prompts.id
+                )
+                guard insert(canonicalNode, under: reconciliation.rootID, in: &stagedFolders) else {
+                    throw FolderStoreError.notFound
+                }
+            }
+        }
+
+        for index in stagedClips.indices {
+            let migratedIDs = reconciliation.migratedCollectionIDs(stagedClips[index].collectionIDs)
+            guard migratedIDs != stagedClips[index].collectionIDs else {
+                continue
+            }
+            stagedClips[index].collectionIDs = migratedIDs
+            stagedClips[index].updatedAt = Date()
+        }
+
+        clips = stagedClips
+        storedFolders = stagedFolders
     }
 
     public func payload(for clipID: String) throws -> ClipPayload? {
@@ -975,16 +1160,16 @@ public final class InMemoryClipStore: ClipStoring {
               allFolders(in: storedFolders).contains(where: { $0.collectionID == destination }) else {
             throw ClipCollectionMoveError.destinationNotFound
         }
-        guard !ClipCollection.defaults.contains(where: { $0.id == destination }) else {
+        guard !ClipCollection.smartCollectionIDs.contains(destination) else {
             throw ClipCollectionMoveError.invalidDestination
         }
 
         let indexes = clips.indices.filter { requestedIDs.contains(clips[$0].id) }
         guard indexes.count == requestedIDs.count else { throw ClipCollectionMoveError.clipNotFound }
-        let builtInIDs = Set(ClipCollection.defaults.map(\.id))
-
         for index in indexes {
-            let preserved = clips[index].collectionIDs.filter { builtInIDs.contains($0) }
+            let preserved = clips[index].collectionIDs.filter {
+                ClipCollection.smartCollectionIDs.contains($0)
+            }
             clips[index].collectionIDs = preserved + [destination]
             clips[index].updatedAt = Date()
         }
