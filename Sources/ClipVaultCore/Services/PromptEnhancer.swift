@@ -427,23 +427,69 @@ public struct PromptEnhancementValidator: Sendable {
         requiresContext: Bool
     ) -> Set<String> {
         let knownFormats = ["json", "yaml", "csv", "markdown"]
-        let contextWords = [
-            "as", "deliver", "emit", "export", "format", "formats", "output",
-            "produce", "provide", "render", "required", "respond", "response", "return", "write"
-        ]
-        let clauses = value
-            .lowercased()
-            .components(separatedBy: CharacterSet(charactersIn: ".!?;\n\r"))
+        let lowercasedValue = value.lowercased()
 
-        return clauses.reduce(into: Set<String>()) { formats, clause in
-            let words = Set(clause.split(whereSeparator: { !$0.isLetter }).map(String.init))
-            guard !requiresContext || !words.isDisjoint(with: contextWords) else {
-                return
+        guard requiresContext else {
+            let words = Set(
+                lowercasedValue.split(whereSeparator: { !$0.isLetter }).map(String.init)
+            )
+            return Set(
+                knownFormats
+                    .filter(words.contains)
+                    .map { "required-format:\($0)" }
+            )
+        }
+
+        let formatAlternation = knownFormats.joined(separator: "|")
+        let directObligationPatterns = [
+            #"\b("# + formatAlternation + #")\s+only\b"#,
+            #"\bmust\s+be\s+("# + formatAlternation + #")\b"#,
+            #"\b(?:answer|result|response|output)\s+in\s+("# + formatAlternation + #")\b"#,
+            #"\b(?:return|respond|deliver|emit|export|produce|provide|render|write)\b(?:\s+[a-z]+){0,4}\s+(?:as|in)\s+("#
+                + formatAlternation + #")\b"#
+        ]
+        var formats: Set<String> = []
+
+        for pattern in directObligationPatterns {
+            guard let expression = try? NSRegularExpression(pattern: pattern) else {
+                continue
             }
-            for format in knownFormats where words.contains(format) {
-                formats.insert("required-format:\(format)")
+            let range = NSRange(
+                lowercasedValue.startIndex..<lowercasedValue.endIndex,
+                in: lowercasedValue
+            )
+            for match in expression.matches(in: lowercasedValue, range: range) {
+                guard match.numberOfRanges > 1,
+                      let formatRange = Range(match.range(at: 1), in: lowercasedValue) else {
+                    continue
+                }
+                formats.insert("required-format:\(lowercasedValue[formatRange])")
             }
         }
+
+        let requiredListPattern = #"\brequired\s+(?:output\s+)?formats?\s*:\s*([^.!?;\n\r]+)"#
+        if let expression = try? NSRegularExpression(pattern: requiredListPattern) {
+            let range = NSRange(
+                lowercasedValue.startIndex..<lowercasedValue.endIndex,
+                in: lowercasedValue
+            )
+            for match in expression.matches(in: lowercasedValue, range: range) {
+                guard match.numberOfRanges > 1,
+                      let listRange = Range(match.range(at: 1), in: lowercasedValue) else {
+                    continue
+                }
+                let listWords = Set(
+                    lowercasedValue[listRange]
+                        .split(whereSeparator: { !$0.isLetter })
+                        .map(String.init)
+                )
+                for format in knownFormats where listWords.contains(format) {
+                    formats.insert("required-format:\(format)")
+                }
+            }
+        }
+
+        return formats
     }
 
     private func kebabCaseIdentifiers(
@@ -467,11 +513,10 @@ public struct PromptEnhancementValidator: Sendable {
             return []
         }
 
+        let localContextPattern = #"\b(?:"# + contextWords.sorted().joined(separator: "|")
+            + #")\s+(?:(?:named|called)\s+)?$"#
+
         return clauses.reduce(into: Set<String>()) { identifiers, clause in
-            let clauseWords = Set(
-                clause.lowercased().split(whereSeparator: { !$0.isLetter }).map(String.init)
-            )
-            let hasIdentifierContext = !clauseWords.isDisjoint(with: contextWords)
             let range = NSRange(clause.startIndex..<clause.endIndex, in: clause)
             for match in expression.matches(in: clause, range: range) {
                 guard let tokenRange = Range(match.range, in: clause) else {
@@ -479,9 +524,16 @@ public struct PromptEnhancementValidator: Sendable {
                 }
                 let token = String(clause[tokenRange])
                 let components = token.lowercased().split(separator: "-").map(String.init)
+                let prefix = String(clause[..<tokenRange.lowerBound])
+                let hasLocalIdentifierContext = prefix.range(
+                    of: localContextPattern,
+                    options: [.regularExpression, .caseInsensitive]
+                ) != nil
                 let hasCommonIdentifierShape = token.lowercased().hasPrefix("x-")
                     || components.last.map(identifierSuffixes.contains) == true
-                guard !requiresContext || hasIdentifierContext || hasCommonIdentifierShape else {
+                guard !requiresContext
+                        || hasLocalIdentifierContext
+                        || hasCommonIdentifierShape else {
                     continue
                 }
                 identifiers.insert("identifier:\(token)")
