@@ -2,73 +2,23 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-HELPER="$ROOT_DIR/script/lib/temporary_capture_consent.sh"
-TMP_DIR="$(mktemp -d)"
-trap 'rm -rf "$TMP_DIR"' EXIT
+BUILD_SCRIPT="$ROOT_DIR/script/build_and_run.sh"
+VIEW_MODEL="$ROOT_DIR/Sources/ClipVault/App/ClipVaultViewModel.swift"
 
-FAKE_DEFAULTS="$TMP_DIR/defaults"
-STATE_FILE="$TMP_DIR/state"
-
-CAPTURE_CONSENT_KEY="clipboardCaptureConsentGranted"
-source "$HELPER"
-if [[ "$CAPTURE_CONSENT_KEY" != "clipboardCaptureConsentGranted" ]]; then
-  echo "temporary consent helper overwrote the caller's consent key" >&2
+if rg -q 'temporary_capture_consent|defaults[[:space:]]+(read|write|delete)' "$BUILD_SCRIPT"; then
+  echo "signed launch verification must not mutate sandbox preferences from the host" >&2
   exit 1
 fi
 
-cat >"$FAKE_DEFAULTS" <<'SCRIPT'
-#!/usr/bin/env bash
-set -euo pipefail
-state_file="${FAKE_DEFAULTS_STATE:?}"
-command="$1"
-domain="$2"
-key="$3"
-case "$command" in
-  read)
-    [[ -f "$state_file" ]] || exit 1
-    cat "$state_file"
-    ;;
-  write)
-    [[ "$4" == "-bool" ]]
-    printf '%s\n' "$5" >"$state_file"
-    ;;
-  delete)
-    rm -f "$state_file"
-    ;;
-  *) exit 2 ;;
-esac
-SCRIPT
-chmod +x "$FAKE_DEFAULTS"
+VERIFY_BODY="$(sed -n '/--verify|verify)/,/^    ;;/p' "$BUILD_SCRIPT")"
+[[ "$VERIFY_BODY" == *'pgrep -f -x -- "$APP_BINARY"'* ]]
+[[ "$VERIFY_BODY" == *'kill -0 "$APP_PID"'* ]]
 
-assert_preseed_and_restore() {
-  local initial_state="$1"
-  local expected_state="${2:-$initial_state}"
-  rm -f "$STATE_FILE"
-  if [[ "$initial_state" != "absent" ]]; then
-    printf '%s\n' "$initial_state" >"$STATE_FILE"
-  fi
+rg -q 'private static var initialCaptureConsent: Bool' "$VIEW_MODEL"
+rg -q '#if CLIPVAULT_E2E_PROBE' "$VIEW_MODEL"
+rg -Fq 'CaptureConsentPolicy(' "$VIEW_MODEL"
+rg -q 'hasPersistedConsent: ClipVaultViewModel.initialCaptureConsent' "$VIEW_MODEL"
 
-  DEFAULTS_BIN="$FAKE_DEFAULTS" FAKE_DEFAULTS_STATE="$STATE_FILE" bash -c '
-    set -euo pipefail
-    source "$1"
-    preseed_capture_consent_for_verify "com.andrzej.ClipVault" "clipboardCaptureConsentGranted"
-    [[ "$(cat "$2")" == "true" ]]
-    restore_capture_consent_after_verify
-  ' _ "$HELPER" "$STATE_FILE"
-
-  if [[ "$initial_state" == "absent" ]]; then
-    [[ ! -e "$STATE_FILE" ]]
-  else
-    [[ "$(cat "$STATE_FILE")" == "$expected_state" ]]
-  fi
-}
-
-assert_preseed_and_restore absent
-assert_preseed_and_restore false
-assert_preseed_and_restore 0 false
-assert_preseed_and_restore 1 true
-
-VIEW_MODEL="$ROOT_DIR/Sources/ClipVault/App/ClipVaultViewModel.swift"
 STOP_CAPTURE_BODY="$(sed -n '/private func stopCapture()/,/^    }/p' "$VIEW_MODEL")"
 [[ "$STOP_CAPTURE_BODY" == *'captureService.stop()'* ]]
 [[ "$STOP_CAPTURE_BODY" == *'removeObject(forKey: ClipVaultSettingsKey.captureReadyProcessID)'* ]]
@@ -78,4 +28,4 @@ DISCLOSURE_HOST_COUNT="$(rg -l 'captureConsentDisclosure\(model: model\)' "$ROOT
 [[ "$DISCLOSURE_HOST_COUNT" == "1" ]]
 rg -q 'captureConsentDisclosure\(model: model\)' "$ROOT_DIR/Sources/ClipVault/Views/ContentView.swift"
 
-echo "Temporary capture-consent preference restore tests passed."
+echo "Sandbox-safe launch and E2E-only capture-consent tests passed."

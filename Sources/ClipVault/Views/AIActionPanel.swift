@@ -94,11 +94,13 @@ struct AIActionPanel: View {
     }
 
     private var inlineActionToolbar: some View {
-        HStack(spacing: 8) {
-            ForEach(Self.visibleActionKinds, id: \.self) { action in
-                compactActionButton(for: action)
+        ClipVaultGlassContainer(spacing: ClipVaultDesign.controlGroupSpacing) {
+            HStack(spacing: ClipVaultDesign.controlGroupSpacing) {
+                ForEach(Self.visibleActionKinds, id: \.self) { action in
+                    compactActionButton(for: action)
+                }
+                Spacer(minLength: 0)
             }
-            Spacer(minLength: 0)
         }
     }
 
@@ -143,9 +145,8 @@ struct AIActionPanel: View {
                 .foregroundStyle(tint)
                 .frame(width: 34, height: 34)
                 .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-                .clipVaultGlassSurface(cornerRadius: 9, tint: tint.opacity(0.12), interactive: true)
         }
-        .buttonStyle(.plain)
+        .clipVaultGlassButtonStyle()
         .opacity(model.isGenerating ? 0.55 : 1)
         .disabled(model.isGenerating)
         .help(model.isGenerating ? "Wait for the current AI action to finish" : actionHelp(for: action))
@@ -356,7 +357,13 @@ struct AIWorkspaceShelf: View {
         Button(action: expand) {
             HStack(spacing: 10) {
                 Image(systemName: "sparkles")
+                    .font(.caption.weight(.semibold))
                     .foregroundStyle(Color.accentColor)
+                    .frame(width: 28, height: 28)
+                    .background(
+                        Color.accentColor.opacity(0.11),
+                        in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    )
                 Text("AI Workspace")
                     .font(.callout.weight(.semibold))
                 Text(aiWorkspaceContextText(for: model))
@@ -374,12 +381,12 @@ struct AIWorkspaceShelf: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, ClipVaultDesign.compactPadding)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background(.regularMaterial)
+        .background(.bar)
         .help("Expand AI Workspace")
         .accessibilityLabel("Expand AI Workspace")
         .accessibilityValue(aiWorkspaceContextText(for: model))
