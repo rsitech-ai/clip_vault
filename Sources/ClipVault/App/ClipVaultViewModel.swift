@@ -204,10 +204,17 @@ final class ClipVaultViewModel {
     @discardableResult
     func reload() -> Bool {
         do {
-            let refreshedClips = try store?.allClips() ?? []
-            let refreshedFolders = try store?.folders() ?? CollectionFolder.defaults
-            clips = refreshedClips
-            folders = refreshedFolders
+            let snapshot: WorkspaceReloadSnapshot
+            if let store {
+                snapshot = try WorkspaceReloadSnapshot.load(from: store)
+            } else {
+                snapshot = WorkspaceReloadSnapshot(
+                    clips: [],
+                    folders: CollectionFolder.defaults
+                )
+            }
+            clips = snapshot.clips
+            folders = snapshot.folders
             syncCollectionsFromFolders()
             captureStatus = clips.isEmpty ? "Ready" : "\(clips.count) clips indexed"
             selectFirstVisibleResultIfNeeded()

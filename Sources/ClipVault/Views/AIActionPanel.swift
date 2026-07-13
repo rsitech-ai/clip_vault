@@ -267,10 +267,12 @@ struct AIActionPanel: View {
                 Text(sourceTitle)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Button("Cancel") {
-                    model.cancelPromptEnhancement()
+                if model.promptEnhancementState.showsCancelControl {
+                    Button("Cancel") {
+                        model.cancelPromptEnhancement()
+                    }
+                    .clipVaultGlassButtonStyle()
                 }
-                .clipVaultGlassButtonStyle()
             }
         case .saving(let total):
             ProgressView("Saving \(enhancedPromptCountText(total))")

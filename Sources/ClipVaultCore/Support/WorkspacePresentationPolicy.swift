@@ -1,3 +1,19 @@
+public struct WorkspaceReloadSnapshot: Sendable {
+    public var clips: [Clip]
+    public var folders: [CollectionFolder]
+
+    public init(clips: [Clip], folders: [CollectionFolder]) {
+        self.clips = clips
+        self.folders = folders
+    }
+
+    public static func load(from store: any ClipStoring) throws -> WorkspaceReloadSnapshot {
+        let folders = try store.folders()
+        let clips = try store.allClips()
+        return WorkspaceReloadSnapshot(clips: clips, folders: folders)
+    }
+}
+
 public enum WorkspaceWidthClass: Equatable, Sendable {
     case compact
     case regular

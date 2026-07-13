@@ -12,6 +12,12 @@ struct PromptEnhancerTests {
             sourceTitle: "One"
         ).allowsCancellation)
         #expect(!PromptEnhancementState.saving(total: 2).allowsCancellation)
+        #expect(!PromptEnhancementState.saving(total: 2).showsCancelControl)
+        #expect(PromptEnhancementState.enhancing(
+            current: 1,
+            total: 2,
+            sourceTitle: "One"
+        ).showsCancelControl)
         #expect(PromptEnhancementState.success(count: 2).savedCount == 2)
         #expect(PromptEnhancementState.cancelled.savedCount == nil)
     }
@@ -169,6 +175,56 @@ struct PromptEnhancerTests {
             .saving(total: 1),
             .success(count: 1)
         ])
+    }
+
+    @MainActor
+    @Test("Saving is observable before a noncancelable atomic commit")
+    func workflowSuspendsAfterSavingAndCommitsAfterCancellation() async {
+        let gate = PromptCommitBoundaryGate()
+        let enhancer = ScriptedPromptEnhancer(
+            outputs: ["one": "Goal: Produce one result."]
+        )
+        let workflow = PromptEnhancementWorkflow(
+            runner: PromptEnhancementBatchRunner(enhancer: enhancer),
+            commitBoundary: PromptEnhancementCommitBoundary {
+                await gate.suspendUntilReleased()
+            }
+        )
+        let source = makeClip(
+            id: "one",
+            title: "One",
+            preview: "one",
+            extractedText: "one"
+        )
+        var saveCalls = 0
+        var publishedStates: [PromptEnhancementState] = []
+
+        let task = Task { @MainActor in
+            await workflow.run(
+                sources: [source],
+                save: { drafts in
+                    saveCalls += 1
+                    return drafts.count
+                },
+                reload: { true },
+                isActive: { true },
+                publish: { publishedStates.append($0) },
+                logError: { _ in }
+            )
+        }
+
+        await gate.waitUntilSuspended()
+        #expect(publishedStates.last == .saving(total: 1))
+        #expect(!PromptEnhancementState.saving(total: 1).allowsCancellation)
+        #expect(saveCalls == 0)
+
+        task.cancel()
+        await gate.release()
+        let outcome = await task.value
+
+        #expect(outcome == .saved(count: 1))
+        #expect(saveCalls == 1)
+        #expect(publishedStates.last == .success(count: 1))
     }
 
     @MainActor
@@ -733,6 +789,88 @@ struct PromptEnhancerTests {
         #expect(validated == output)
     }
 
+    @Test("validator does not treat contraction apostrophes as quoted literals")
+    func validatorAllowsRewritingContractions() throws {
+        let sourceText = "Don't rewrite the user's request when it isn't ambiguous."
+        let source = makeClip(preview: sourceText, extractedText: sourceText)
+        let output = "Goal: Preserve the request whenever it is clear; do not rewrite what the user asked for."
+
+        let validated = try PromptEnhancementValidator().validate(output: output, source: source)
+
+        #expect(validated == output)
+    }
+
+    @Test("validator rejects dropping a required bare output format")
+    func validatorRejectsDroppedRequiredOutputFormats() {
+        for format in ["JSON", "YAML", "CSV", "Markdown"] {
+            let sourceText = "Return the response as \(format)."
+            let source = makeClip(preview: sourceText, extractedText: sourceText)
+
+            #expect(throws: PromptEnhancementError.droppedValue("Source")) {
+                try PromptEnhancementValidator().validate(
+                    output: "Goal: Return the response as structured data.",
+                    source: source
+                )
+            }
+        }
+    }
+
+    @Test("validator preserves required formats case-insensitively")
+    func validatorAllowsRequiredOutputFormatCasingRewrite() throws {
+        let sourceText = "Required output formats: JSON, YAML, CSV, and Markdown."
+        let source = makeClip(preview: sourceText, extractedText: sourceText)
+        let output = "Goal: Return markdown, csv, yaml, and json."
+
+        let validated = try PromptEnhancementValidator().validate(output: output, source: source)
+
+        #expect(validated == output)
+    }
+
+    @Test("validator allows rewriting nonrequired format references")
+    func validatorAllowsRewritingNonrequiredFormatReferences() throws {
+        let sourceText = "Compare JSON and YAML parser tradeoffs."
+        let source = makeClip(preview: sourceText, extractedText: sourceText)
+        let output = "Goal: Compare two structured-data parser approaches."
+
+        let validated = try PromptEnhancementValidator().validate(output: output, source: source)
+
+        #expect(validated == output)
+    }
+
+    @Test("validator rejects dropping curly-quoted and backtick literals")
+    func validatorRejectsDroppedCurlyAndBacktickLiterals() {
+        let cases: [(source: String, output: String)] = [
+            ("Keep the literal “release candidate” exactly.", "Goal: Keep the named build exactly."),
+            ("Keep the literal ‘launch owner’ exactly.", "Goal: Keep the named person exactly."),
+            ("Use the literal `strict mode`.", "Goal: Use strict behavior.")
+        ]
+
+        for item in cases {
+            let source = makeClip(preview: item.source, extractedText: item.source)
+            #expect(throws: PromptEnhancementError.droppedValue("Source")) {
+                try PromptEnhancementValidator().validate(output: item.output, source: source)
+            }
+        }
+    }
+
+    @Test("validator rejects dropping context-identified kebab-case identifiers")
+    func validatorRejectsDroppedKebabCaseIdentifiers() {
+        let cases: [(source: String, output: String)] = [
+            ("Set the field request-id before launch.", "Goal: Set the request field before launch."),
+            ("Preserve the header x-request-id.", "Goal: Preserve the request identifier header."),
+            ("Read the configuration key max-retries.", "Goal: Read the retry limit configuration."),
+            ("Preserve api-version.", "Goal: Preserve the API version."),
+            ("Preserve content-type.", "Goal: Preserve the content type.")
+        ]
+
+        for item in cases {
+            let source = makeClip(preview: item.source, extractedText: item.source)
+            #expect(throws: PromptEnhancementError.droppedValue("Source")) {
+                try PromptEnhancementValidator().validate(output: item.output, source: source)
+            }
+        }
+    }
+
     @Test("batch runner produces one draft per source in source order")
     func batchRunnerProducesSeparateDrafts() async throws {
         let enhancer = ScriptedPromptEnhancer(outputs: [
@@ -1059,5 +1197,37 @@ private actor PromptProgressRecorder {
 
     func values() -> [PromptEnhancementProgress] {
         storage
+    }
+}
+
+private actor PromptCommitBoundaryGate {
+    private var isSuspended = false
+    private var suspensionWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseContinuation: CheckedContinuation<Void, Never>?
+
+    func suspendUntilReleased() async {
+        isSuspended = true
+        let waiters = suspensionWaiters
+        suspensionWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
+        }
+        await withCheckedContinuation { continuation in
+            releaseContinuation = continuation
+        }
+    }
+
+    func waitUntilSuspended() async {
+        guard !isSuspended else {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            suspensionWaiters.append(continuation)
+        }
+    }
+
+    func release() {
+        releaseContinuation?.resume()
+        releaseContinuation = nil
     }
 }
