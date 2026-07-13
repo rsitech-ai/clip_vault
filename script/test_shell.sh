@@ -10,3 +10,4 @@ cd "$ROOT_DIR"
 ./script/test_build_and_run_consent.sh
 ./script/test_e2e_pasteboard.sh
 ./script/test_exported_clip_move_type.sh
+./script/test_ai_workspace_glass_policy.sh
