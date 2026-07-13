@@ -241,6 +241,115 @@ struct FolderTreeTests {
         }
     }
 
+    @Test("both stores fail closed when a foreign node uses the reserved Prompts collection ID")
+    func bothStoresPreserveStateOnReservedPromptsCollectionIDCollision() throws {
+        let collision = CollectionFolder(
+            id: "client-node",
+            title: "Client",
+            collectionID: "prompts"
+        )
+        let legacy = CollectionFolder(
+            id: "collection-id-collision-legacy-prompts",
+            title: "Prompts",
+            collectionID: "collection-id-collision-legacy-prompts-id"
+        )
+        let inMemoryStore = InMemoryClipStore(foldersForTesting: [
+            CollectionFolder(
+                id: "collection-id-collision-root",
+                title: "Collections",
+                children: [collision, legacy]
+            )
+        ])
+        let inMemoryClip = try #require(try inMemoryStore.save(
+            payload: ClipPayload(kind: .text, displayText: "Collision", extractedText: "Collision"),
+            sourceApp: nil
+        ))
+        try inMemoryStore.addClips(
+            ids: [inMemoryClip.id],
+            toCollectionID: "collection-id-collision-legacy-prompts-id"
+        )
+        try assertReservedPromptsIdentityCollisionFailsClosed(
+            in: inMemoryStore,
+            clipID: inMemoryClip.id,
+            retainedCollectionIDs: ["research", "collection-id-collision-legacy-prompts-id"]
+        )
+
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let storeURL = directory.appendingPathComponent("ClipVault.sqlite")
+        let swiftDataClipID = try arrangeSwiftDataReservedPromptsCollectionIDCollision(at: storeURL)
+        try withSwiftDataStore(at: storeURL) { store in
+            try assertReservedPromptsIdentityCollisionFailsClosed(
+                in: store,
+                clipID: swiftDataClipID,
+                retainedCollectionIDs: [
+                    "research",
+                    "swiftdata-legacy-prompts-id",
+                    "swiftdata-retained-id"
+                ]
+            )
+        }
+
+        let persistedContainer = try makeSwiftDataContainer(at: storeURL)
+        let persistedContext = ModelContext(persistedContainer)
+        let persistedFolders = try persistedContext.fetch(FetchDescriptor<FolderRecord>())
+        #expect(persistedFolders.contains { $0.id == "swiftdata-foreign-prompts-collection" })
+        #expect(persistedFolders.contains { $0.id == "swiftdata-legacy-prompts" })
+        #expect(!persistedFolders.contains { $0.id == "workspace-default-prompts" })
+    }
+
+    @Test("reserved Prompts identity requires the exact canonical title")
+    func reservedPromptsIdentityRequiresExactCanonicalTitle() throws {
+        for noncanonicalTitle in ["prompts", "PROMPTS", " Prompts "] {
+            let store = InMemoryClipStore(foldersForTesting: [
+                CollectionFolder(
+                    id: CollectionFolder.defaults[0].id,
+                    title: CollectionFolder.defaults[0].title,
+                    children: CollectionFolder.defaults[0].children.map { child in
+                        guard child.id == "workspace-default-prompts" else {
+                            return child
+                        }
+                        var changed = child
+                        changed.title = noncanonicalTitle
+                        return changed
+                    }
+                )
+            ])
+
+            #expect(throws: FolderStoreError.duplicateID) {
+                try store.reconcileWorkspaceDefaults()
+            }
+            #expect(throws: FolderStoreError.duplicateID) {
+                try store.reconcileWorkspaceDefaults()
+            }
+        }
+    }
+
+    @Test("canonical Prompts identity is rejected outside the selected built-in root")
+    func canonicalPromptsIdentityRequiresSelectedBuiltInRoot() throws {
+        let canonical = try #require(CollectionFolder.defaults[0].children.first {
+            $0.id == "workspace-default-prompts"
+        })
+        let builtInRoot = CollectionFolder(
+            id: CollectionFolder.defaults[0].id,
+            title: CollectionFolder.defaults[0].title,
+            children: CollectionFolder.defaults[0].children.filter {
+                $0.id != "workspace-default-prompts"
+            }
+        )
+        let store = InMemoryClipStore(foldersForTesting: [
+            builtInRoot,
+            CollectionFolder(id: "foreign-root", title: "Archive", children: [canonical])
+        ])
+
+        #expect(throws: FolderStoreError.duplicateID) {
+            try store.reconcileWorkspaceDefaults()
+        }
+        #expect(throws: FolderStoreError.duplicateID) {
+            try store.reconcileWorkspaceDefaults()
+        }
+    }
+
     @Test("folders support nested children")
     func nestedFolders() {
         let root = CollectionFolder(
@@ -685,6 +794,9 @@ struct FolderTreeTests {
         #expect(throws: FolderStoreError.duplicateID) {
             try store.reconcileWorkspaceDefaults()
         }
+        #expect(throws: FolderStoreError.duplicateID) {
+            _ = try store.folders()
+        }
 
         let unchanged = try #require(try store.allClips().first { $0.id == clipID })
         #expect(unchanged.collectionIDs.contains("research"))
@@ -702,6 +814,25 @@ struct FolderTreeTests {
                 sortOrder: 99
             )
         }
+    }
+
+    private func assertReservedPromptsIdentityCollisionFailsClosed(
+        in store: any ClipStoring,
+        clipID: String,
+        retainedCollectionIDs: Set<String>
+    ) throws {
+        #expect(throws: FolderStoreError.duplicateID) {
+            try store.reconcileWorkspaceDefaults()
+        }
+        #expect(throws: FolderStoreError.duplicateID) {
+            try store.reconcileWorkspaceDefaults()
+        }
+        #expect(throws: FolderStoreError.duplicateID) {
+            _ = try store.folders()
+        }
+
+        let unchanged = try #require(try store.allClips().first { $0.id == clipID })
+        #expect(Set(unchanged.collectionIDs) == retainedCollectionIDs)
     }
 
     private func assertBlankMoveDestinationIsRejected(by store: any ClipStoring) throws {
@@ -977,6 +1108,28 @@ struct FolderTreeTests {
         )
         context.insert(FolderRecord(
             folder: collision,
+            parentID: legacy.parentID,
+            sortOrder: 32
+        ))
+        try context.save()
+        return clipID
+    }
+
+    private func arrangeSwiftDataReservedPromptsCollectionIDCollision(at url: URL) throws -> String {
+        let clipID = try arrangeSwiftDataLegacyPromptsFixture(at: url)
+        let container = try makeSwiftDataContainer(at: url)
+        let context = ModelContext(container)
+        let legacy = try #require(
+            try context.fetch(FetchDescriptor<FolderRecord>()).first {
+                $0.id == "swiftdata-legacy-prompts"
+            }
+        )
+        context.insert(FolderRecord(
+            folder: CollectionFolder(
+                id: "swiftdata-foreign-prompts-collection",
+                title: "Client",
+                collectionID: "prompts"
+            ),
             parentID: legacy.parentID,
             sortOrder: 32
         ))

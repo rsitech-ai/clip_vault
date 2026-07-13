@@ -36,6 +36,10 @@ public enum PromptEnhancementState: Equatable, Sendable {
         return false
     }
 
+    public var showsCancelControl: Bool {
+        allowsCancellation
+    }
+
     public var savedCount: Int? {
         if case .success(let count) = self {
             return count
@@ -276,8 +280,14 @@ public struct PromptEnhancementValidator: Sendable {
         guard !sensitiveRules.classify(normalizedOutput).isExcluded else {
             throw PromptEnhancementError.sensitiveOutput(source.title)
         }
-        let sourceValues = observableValues(in: sourceText(for: source))
-        let outputValues = observableValues(in: normalizedOutput)
+        let sourceValues = observableValues(
+            in: sourceText(for: source),
+            extractingRequirements: true
+        )
+        let outputValues = observableValues(
+            in: normalizedOutput,
+            extractingRequirements: false
+        )
         guard sourceValues.isSubset(of: outputValues) else {
             throw PromptEnhancementError.droppedValue(source.title)
         }
@@ -350,7 +360,10 @@ public struct PromptEnhancementValidator: Sendable {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func observableValues(in value: String) -> Set<String> {
+    private func observableValues(
+        in value: String,
+        extractingRequirements: Bool
+    ) -> Set<String> {
         let patterns: [(String, NSRegularExpression.Options)] = [
             (#"https?://[^\s<>\"']+"#, [.caseInsensitive]),
             (#"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b"#, [.caseInsensitive]),
@@ -359,7 +372,6 @@ public struct PromptEnhancementValidator: Sendable {
             (#"(?<![\p{L}\p{N}_-])-[A-Za-z][A-Za-z0-9]*(?![\p{L}\p{N}_-])"#, []),
             (#"(?<![\p{L}\p{N}_])(?:[$€£¥]\s*[-+]?\d+(?:[.,]\d+)*|[-+]?\d+(?:[.,]\d+)*\s*(?:%|ms|s|secs?|seconds?|mins?|minutes?|h|hrs?|hours?|[kmgt]i?b|bytes?|px|pt|em|rem|hz|khz|mhz|ghz|ml|mg|kg|mm|cm|km|m|g|l|°c|°f))(?![\p{L}\p{N}_])"#, [.caseInsensitive]),
             (#"(?<![\p{L}\p{N}_])[-+]?\d+(?:[.,]\d+)*(?![\p{L}\p{N}_])"#, []),
-            (#"\"[^\"\r\n]+\"|'[^'\r\n]+'"#, []),
             (#"\b(?:[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]+|[a-z]+[A-Z][A-Za-z0-9]*|[A-Z][a-z0-9]+(?:[A-Z][A-Za-z0-9]*)+|[A-Za-z]+\d+[A-Za-z0-9]*|[A-Fa-f0-9]{8}(?:-[A-Fa-f0-9]{4}){3}-[A-Fa-f0-9]{12}|[A-Z]{2,}-\d+)\b"#, [])
         ]
 
@@ -398,7 +410,135 @@ public struct PromptEnhancementValidator: Sendable {
                 }
             }
         }
+        values.formUnion(quotedLiterals(in: value))
+        values.formUnion(requiredOutputFormats(
+            in: value,
+            requiresContext: extractingRequirements
+        ))
+        values.formUnion(kebabCaseIdentifiers(
+            in: value,
+            requiresContext: extractingRequirements
+        ))
         return values
+    }
+
+    private func requiredOutputFormats(
+        in value: String,
+        requiresContext: Bool
+    ) -> Set<String> {
+        let knownFormats = ["json", "yaml", "csv", "markdown"]
+        let contextWords = [
+            "as", "deliver", "emit", "export", "format", "formats", "output",
+            "produce", "provide", "render", "required", "respond", "response", "return", "write"
+        ]
+        let clauses = value
+            .lowercased()
+            .components(separatedBy: CharacterSet(charactersIn: ".!?;\n\r"))
+
+        return clauses.reduce(into: Set<String>()) { formats, clause in
+            let words = Set(clause.split(whereSeparator: { !$0.isLetter }).map(String.init))
+            guard !requiresContext || !words.isDisjoint(with: contextWords) else {
+                return
+            }
+            for format in knownFormats where words.contains(format) {
+                formats.insert("required-format:\(format)")
+            }
+        }
+    }
+
+    private func kebabCaseIdentifiers(
+        in value: String,
+        requiresContext: Bool
+    ) -> Set<String> {
+        let contextWords = Set([
+            "attribute", "config", "configuration", "field", "header", "id",
+            "identifier", "key", "metadata", "option", "parameter", "property",
+            "setting", "variable"
+        ])
+        let identifierSuffixes = Set([
+            "count", "format", "id", "key", "limit", "mode", "name", "path",
+            "policy", "retries", "schema", "timeout", "token", "type", "uri",
+            "url", "version"
+        ])
+        let clauses = value.components(separatedBy: CharacterSet(charactersIn: ".!?;\n\r"))
+        guard let expression = try? NSRegularExpression(
+            pattern: #"\b[A-Za-z0-9]+(?:-[A-Za-z0-9]+)+\b"#
+        ) else {
+            return []
+        }
+
+        return clauses.reduce(into: Set<String>()) { identifiers, clause in
+            let clauseWords = Set(
+                clause.lowercased().split(whereSeparator: { !$0.isLetter }).map(String.init)
+            )
+            let hasIdentifierContext = !clauseWords.isDisjoint(with: contextWords)
+            let range = NSRange(clause.startIndex..<clause.endIndex, in: clause)
+            for match in expression.matches(in: clause, range: range) {
+                guard let tokenRange = Range(match.range, in: clause) else {
+                    continue
+                }
+                let token = String(clause[tokenRange])
+                let components = token.lowercased().split(separator: "-").map(String.init)
+                let hasCommonIdentifierShape = token.lowercased().hasPrefix("x-")
+                    || components.last.map(identifierSuffixes.contains) == true
+                guard !requiresContext || hasIdentifierContext || hasCommonIdentifierShape else {
+                    continue
+                }
+                identifiers.insert("identifier:\(token)")
+            }
+        }
+    }
+
+    private func quotedLiterals(in value: String) -> Set<String> {
+        let characters = Array(value)
+        let closingDelimiter: [Character: Character] = [
+            "\"": "\"",
+            "'": "'",
+            "“": "”",
+            "‘": "’",
+            "`": "`"
+        ]
+        var literals: Set<String> = []
+        var index = 0
+
+        while index < characters.count {
+            let opening = characters[index]
+            guard let closing = closingDelimiter[opening],
+                  opening != "'" || !isWordCharacter(characters[safe: index - 1]) else {
+                index += 1
+                continue
+            }
+
+            var closingIndex = index + 1
+            while closingIndex < characters.count {
+                let candidate = characters[closingIndex]
+                if candidate == "\n" || candidate == "\r" {
+                    break
+                }
+                if candidate == closing,
+                   opening != "'" || !isWordCharacter(characters[safe: closingIndex + 1]) {
+                    guard closingIndex > index + 1 else {
+                        break
+                    }
+                    literals.insert(String(characters[index...closingIndex]))
+                    index = closingIndex
+                    break
+                }
+                closingIndex += 1
+            }
+            index += 1
+        }
+
+        return literals
+    }
+
+    private func isWordCharacter(_ character: Character?) -> Bool {
+        guard let character else {
+            return false
+        }
+        return character.unicodeScalars.allSatisfy {
+            CharacterSet.alphanumerics.contains($0) || $0 == "_"
+        }
     }
 
     private func normalizedObservableToken(_ value: String) -> String {
@@ -429,6 +569,12 @@ public struct PromptEnhancementValidator: Sendable {
         }
 
         return value.filter { $0 == closer }.count > value.filter { $0 == opener }.count
+    }
+}
+
+private extension Array {
+    subscript(safe index: Index) -> Element? {
+        indices.contains(index) ? self[index] : nil
     }
 }
 
@@ -532,12 +678,34 @@ public enum PromptEnhancementWorkflowOutcome: Equatable, Sendable {
     }
 }
 
+public struct PromptEnhancementCommitBoundary: Sendable {
+    private let suspendOperation: @MainActor @Sendable () async -> Void
+
+    public init(
+        _ suspendOperation: @escaping @MainActor @Sendable () async -> Void = {
+            await Task.yield()
+        }
+    ) {
+        self.suspendOperation = suspendOperation
+    }
+
+    @MainActor
+    func suspend() async {
+        await suspendOperation()
+    }
+}
+
 @MainActor
 public struct PromptEnhancementWorkflow {
     private let runner: PromptEnhancementBatchRunner
+    private let commitBoundary: PromptEnhancementCommitBoundary
 
-    public init(runner: PromptEnhancementBatchRunner) {
+    public init(
+        runner: PromptEnhancementBatchRunner,
+        commitBoundary: PromptEnhancementCommitBoundary = PromptEnhancementCommitBoundary()
+    ) {
         self.runner = runner
+        self.commitBoundary = commitBoundary
     }
 
     public func run(
@@ -592,6 +760,7 @@ public struct PromptEnhancementWorkflow {
         }
 
         publisher.publishIfActive(.saving(total: drafts.count))
+        await commitBoundary.suspend()
         let savedCount: Int
         do {
             savedCount = try save(drafts)

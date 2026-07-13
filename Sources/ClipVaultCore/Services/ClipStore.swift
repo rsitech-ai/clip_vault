@@ -274,13 +274,18 @@ private struct WorkspacePromptsReconciliation {
 
     static func plan(for folders: [CollectionFolder]) throws -> WorkspacePromptsReconciliation {
         let allNodes = flatten(folders)
-        if allNodes.contains(where: hasMismatchedReservedIdentity) {
-            throw FolderStoreError.duplicateID
-        }
         let defaultRoot = CollectionFolder.defaults[0]
         let root = folders.first(where: isBuiltInRoot)
             ?? folders.first(where: isLegacyCollectionsRoot)
         let selectedRoot = root ?? defaultRoot
+        let reservedNodes = allNodes.filter(usesReservedIdentity)
+        if reservedNodes.count > 1
+            || reservedNodes.contains(where: { !hasCanonicalReservedIdentity($0) })
+            || reservedNodes.contains(where: { reservedNode in
+                !selectedRoot.children.contains { $0.id == reservedNode.id }
+            }) {
+            throw FolderStoreError.duplicateID
+        }
         let canonicalNodeIsCurrent = selectedRoot.children.contains {
             $0.id == canonicalNodeID
                 && $0.collectionID == ClipCollection.prompts.id
@@ -334,13 +339,14 @@ private struct WorkspacePromptsReconciliation {
             || ClipCollection.smartCollectionIDs.isSubset(of: childIDs)
     }
 
-    private static func hasMismatchedReservedIdentity(_ folder: CollectionFolder) -> Bool {
-        guard folder.id == canonicalNodeID else {
-            return false
-        }
-        return folder.collectionID != ClipCollection.prompts.id
-            || folder.title.trimmingCharacters(in: .whitespacesAndNewlines)
-                .caseInsensitiveCompare(ClipCollection.prompts.title) != .orderedSame
+    private static func usesReservedIdentity(_ folder: CollectionFolder) -> Bool {
+        folder.id == canonicalNodeID || folder.collectionID == ClipCollection.prompts.id
+    }
+
+    private static func hasCanonicalReservedIdentity(_ folder: CollectionFolder) -> Bool {
+        folder.id == canonicalNodeID
+            && folder.collectionID == ClipCollection.prompts.id
+            && folder.title == ClipCollection.prompts.title
     }
 
     private static func isLegacyCollectionsRoot(_ folder: CollectionFolder) -> Bool {
