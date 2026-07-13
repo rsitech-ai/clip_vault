@@ -383,6 +383,25 @@ struct PromptEnhancerTests {
         #expect(!restored.selectedClipIDs.contains("generated"))
     }
 
+    @Test("selection restoration preserves a surviving current clip outside the sources")
+    func selectionRestorationPreservesSurvivingOpenClip() {
+        let snapshot = PromptEnhancementSelectionSnapshot(
+            currentClipID: "open",
+            selectedClipIDs: ["one", "two"],
+            sourceIDs: ["one", "two"]
+        )
+
+        let restored = snapshot.restoring(
+            existingClipIDs: ["open", "one", "two", "generated"]
+        )
+
+        #expect(restored == PromptEnhancementSelection(
+            currentClipID: "open",
+            selectedClipIDs: ["one", "two"]
+        ))
+        #expect(!restored.selectedClipIDs.contains("generated"))
+    }
+
     @Test("Open Prompts eligibility is success-only")
     func openPromptsEligibilityIsSuccessOnly() {
         #expect(PromptEnhancementState.success(count: 1).canOpenPrompts)
