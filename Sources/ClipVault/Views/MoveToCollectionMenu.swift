@@ -14,7 +14,7 @@ struct MoveToCollectionMenu: View {
                 moveClip: model.moveClip
             )
         } label: {
-            Label(label, systemImage: "folder.badge.arrow.forward")
+            Label(label, systemImage: ClipVaultDesign.moveIcon)
         }
         .disabled(model.moveDestinationFolders.isEmpty)
         .help(

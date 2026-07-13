@@ -61,11 +61,19 @@ final class ClipVaultViewModel {
     private let searcher = ClipSearcher()
     private let aiProvider: any AIActionProviding = FoundationModelsAIActionProvider()
     private var store: (any ClipStoring)?
-    private var captureConsentPolicy = CaptureConsentPolicy(
-        hasPersistedConsent: UserDefaults.standard.bool(
+    private static var initialCaptureConsent: Bool {
+        #if CLIPVAULT_E2E_PROBE
+        true
+        #else
+        UserDefaults.standard.bool(
             forKey: ClipVaultSettingsKey.clipboardCaptureConsentGranted,
             default: false
         )
+        #endif
+    }
+
+    private var captureConsentPolicy = CaptureConsentPolicy(
+        hasPersistedConsent: ClipVaultViewModel.initialCaptureConsent
     )
 
     var hasCaptureConsent: Bool {
@@ -256,10 +264,18 @@ final class ClipVaultViewModel {
     }
 
     func togglePinned(_ clip: Clip) {
+        let previousSelection = selectedClipID
         do {
             try store?.togglePinned(id: clip.id)
-            reload()
+            guard reload() else {
+                selectedClipID = previousSelection
+                return
+            }
+            if visibleResults.contains(where: { $0.clip.id == clip.id }) {
+                selectedClipID = clip.id
+            }
         } catch {
+            selectedClipID = previousSelection
             Self.logFailure(operation: "toggle_pinned", error: error)
             captureStatus = error.localizedDescription
             updateDockTile()

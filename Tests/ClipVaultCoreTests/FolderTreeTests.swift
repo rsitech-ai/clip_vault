@@ -656,7 +656,10 @@ struct FolderTreeTests {
 
     private func withSwiftDataStore(at url: URL, _ body: (SwiftDataClipStore) throws -> Void) throws {
         let container = try makeSwiftDataContainer(at: url)
-        let store = SwiftDataClipStore(context: ModelContext(container))
+        let store = SwiftDataClipStore(
+            context: ModelContext(container),
+            encryptor: FolderTreeTestPayloadEncryptor()
+        )
         try body(store)
     }
 
@@ -687,6 +690,16 @@ struct FolderTreeTests {
         folders.flatMap { folder in
             [folder] + allFolders(in: folder.children)
         }
+    }
+}
+
+private struct FolderTreeTestPayloadEncryptor: PayloadEncrypting {
+    func encrypt(_ data: Data) throws -> Data {
+        data
+    }
+
+    func decrypt(_ data: Data) throws -> Data {
+        data
     }
 }
 
