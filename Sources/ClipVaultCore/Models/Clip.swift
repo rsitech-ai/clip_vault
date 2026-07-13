@@ -175,6 +175,18 @@ public struct ClipCollection: Identifiable, Codable, Hashable, Sendable {
         self.isSmart = isSmart
     }
 
+    public static let prompts = ClipCollection(
+        id: "prompts",
+        title: "Prompts",
+        systemImage: "text.quote",
+        kind: nil,
+        isSmart: false
+    )
+
+    public static var smartCollectionIDs: Set<String> {
+        Set(defaults.filter(\.isSmart).map(\.id))
+    }
+
     public static let defaults: [ClipCollection] = [
         ClipCollection(id: "all", title: "All Clips", systemImage: "tray.full", kind: nil),
         ClipCollection(id: "code", title: "Code", systemImage: "curlybraces", kind: .code),
@@ -184,7 +196,8 @@ public struct ClipCollection: Identifiable, Codable, Hashable, Sendable {
         ClipCollection(id: "links", title: "Links", systemImage: "link", kind: .url),
         ClipCollection(id: "drafts", title: "Drafts", systemImage: "text.append", kind: .richText),
         ClipCollection(id: "images", title: "Images", systemImage: "photo", kind: .image),
-        ClipCollection(id: "files", title: "Files", systemImage: "folder", kind: .file)
+        ClipCollection(id: "files", title: "Files", systemImage: "folder", kind: .file),
+        .prompts
     ]
 }
 
@@ -235,7 +248,11 @@ public struct CollectionFolder: Identifiable, Codable, Hashable, Sendable {
         CollectionFolder(
             title: "Collections",
             children: ClipCollection.defaults.map {
-                CollectionFolder(title: $0.title, collectionID: $0.id)
+                CollectionFolder(
+                    id: $0.id == ClipCollection.prompts.id ? "workspace-default-prompts" : UUID().uuidString,
+                    title: $0.title,
+                    collectionID: $0.id
+                )
             }
         )
     ]
