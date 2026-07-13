@@ -30,6 +30,7 @@ public enum PromptEnhancementError: Error, LocalizedError, Equatable {
     case commentaryWrapper(String)
     case sensitiveOutput(String)
     case droppedValue(String)
+    case generationFailed(sourceTitle: String, reason: String)
 
     public var errorDescription: String? {
         switch self {
@@ -41,6 +42,8 @@ public enum PromptEnhancementError: Error, LocalizedError, Equatable {
         case .commentaryWrapper(let title): "\(title) produced commentary instead of a prompt."
         case .sensitiveOutput(let title): "\(title) produced content ClipVault cannot save safely."
         case .droppedValue(let title): "\(title) did not preserve required source values."
+        case .generationFailed(let sourceTitle, let reason):
+            "\(sourceTitle) could not be enhanced. \(reason)"
         }
     }
 }
@@ -97,10 +100,14 @@ public struct FoundationModelsPromptEnhancer: PromptEnhancing {
             } catch is CancellationError {
                 throw CancellationError()
             } catch let error as LanguageModelSession.GenerationError {
-                throw PromptEnhancementError.unavailable(generationFailureReason(error))
+                throw PromptEnhancementError.generationFailed(
+                    sourceTitle: source.title,
+                    reason: generationFailureReason(error)
+                )
             } catch {
-                throw PromptEnhancementError.unavailable(
-                    "Apple Intelligence could not enhance this prompt."
+                throw PromptEnhancementError.generationFailed(
+                    sourceTitle: source.title,
+                    reason: "Apple Intelligence could not enhance this prompt."
                 )
             }
         }
@@ -182,8 +189,7 @@ public struct PromptEnhancementValidator: Sendable {
         guard normalizedOutput != normalize(sourceText(for: source)) else {
             throw PromptEnhancementError.unchangedOutput(source.title)
         }
-        let lowercaseOutput = normalizedOutput.lowercased()
-        guard !commentaryPrefixes.contains(where: lowercaseOutput.hasPrefix) else {
+        guard !isCommentaryWrapper(normalizedOutput) else {
             throw PromptEnhancementError.commentaryWrapper(source.title)
         }
         guard !sensitiveRules.classify(normalizedOutput).isExcluded else {
@@ -197,13 +203,42 @@ public struct PromptEnhancementValidator: Sendable {
         return normalizedOutput
     }
 
-    private let commentaryPrefixes = [
+    private let commentaryWrapperLines: Set<String> = [
+        "enhanced prompt",
         "here is the enhanced prompt:",
         "here's the enhanced prompt:",
+        "here’s the enhanced prompt:",
         "enhanced prompt:",
+        "below is the enhanced prompt:",
         "sure, here is the enhanced prompt:",
-        "sure, here's the enhanced prompt:"
+        "sure, here's the enhanced prompt:",
+        "sure, here’s the enhanced prompt:"
     ]
+
+    private func isCommentaryWrapper(_ output: String) -> Bool {
+        guard let firstLine = output.components(separatedBy: "\n").first else {
+            return false
+        }
+
+        var line = firstLine.trimmingCharacters(in: .whitespaces)
+        line = line.replacingOccurrences(
+            of: #"^(?:#{1,6}|>|[-+*])\s+"#,
+            with: "",
+            options: .regularExpression
+        )
+
+        for marker in ["**", "__", "*", "_"] where line.hasPrefix(marker) {
+            line.removeFirst(marker.count)
+            if line.hasSuffix(marker) {
+                line.removeLast(marker.count)
+            }
+            break
+        }
+
+        return commentaryWrapperLines.contains(
+            line.trimmingCharacters(in: .whitespaces).lowercased()
+        )
+    }
 
     private func sourceText(for source: Clip) -> String {
         let extractedText = source.extractedText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -238,6 +273,11 @@ public struct PromptEnhancementValidator: Sendable {
         let patterns: [(String, NSRegularExpression.Options)] = [
             (#"https?://[^\s<>\"']+"#, [.caseInsensitive]),
             (#"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b"#, [.caseInsensitive]),
+            (#"(?<![\p{L}\p{N}_])(?:\./|\.\./|/)(?:[A-Za-z0-9._~-]+/)*[A-Za-z0-9._~-]+"#, []),
+            (#"\b(?=[A-Za-z0-9_-]*[A-Za-z])[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+\b"#, []),
+            (#"(?<![\p{L}\p{N}_-])--[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*(?:=[^\s,;]+)?"#, []),
+            (#"(?<![\p{L}\p{N}_-])-[A-Za-z](?![\p{L}\p{N}_-])"#, []),
+            (#"(?<![\p{L}\p{N}_])(?:[$€£¥]\s*[-+]?\d+(?:[.,]\d+)*|[-+]?\d+(?:[.,]\d+)*\s*(?:%|ms|s|secs?|seconds?|mins?|minutes?|h|hrs?|hours?|[kmgt]i?b|bytes?|px|pt|em|rem|hz|khz|mhz|ghz|ml|mg|kg|mm|cm|km|m|g|l|°c|°f))(?![\p{L}\p{N}_])"#, [.caseInsensitive]),
             (#"(?<![\p{L}\p{N}_])[-+]?\d+(?:[.,]\d+)*(?![\p{L}\p{N}_])"#, []),
             (#"\"[^\"\r\n]+\"|'[^'\r\n]+'"#, []),
             (#"\b(?:[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]+|[a-z]+[A-Z][A-Za-z0-9]*|[A-Z][a-z0-9]+(?:[A-Z][A-Za-z0-9]*)+|[A-Za-z]+\d+[A-Za-z0-9]*|[A-Fa-f0-9]{8}(?:-[A-Fa-f0-9]{4}){3}-[A-Fa-f0-9]{12}|[A-Z]{2,}-\d+)\b"#, [])
@@ -255,13 +295,42 @@ public struct PromptEnhancementValidator: Sendable {
                 guard let tokenRange = Range(match.range, in: value) else {
                     continue
                 }
-                let token = String(value[tokenRange])
-                    .trimmingCharacters(in: CharacterSet(charactersIn: ".,;:!?)]}"))
+                let token = normalizedObservableToken(String(value[tokenRange]))
                 if !token.isEmpty {
                     values.insert(token)
                 }
             }
         }
+    }
+
+    private func normalizedObservableToken(_ value: String) -> String {
+        var token = value
+        let sentencePunctuation: Set<Character> = [".", ",", ";", ":", "!", "?"]
+
+        while let last = token.last {
+            if sentencePunctuation.contains(last) {
+                token.removeLast()
+                continue
+            }
+            if isUnmatchedTrailingCloser(last, in: token) {
+                token.removeLast()
+                continue
+            }
+            break
+        }
+        return token
+    }
+
+    private func isUnmatchedTrailingCloser(_ closer: Character, in value: String) -> Bool {
+        let opener: Character
+        switch closer {
+        case ")": opener = "("
+        case "]": opener = "["
+        case "}": opener = "{"
+        default: return false
+        }
+
+        return value.filter { $0 == closer }.count > value.filter { $0 == opener }.count
     }
 }
 
@@ -303,7 +372,34 @@ public struct PromptEnhancementBatchRunner: Sendable {
                 total: sources.count,
                 sourceTitle: source.title
             ))
-            let output = try await enhancer.enhance(source)
+            let output: String
+            do {
+                output = try await enhancer.enhance(source)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch let error as PromptEnhancementError {
+                switch error {
+                case .emptySource,
+                     .emptyOutput,
+                     .unchangedOutput,
+                     .commentaryWrapper,
+                     .sensitiveOutput,
+                     .droppedValue,
+                     .generationFailed,
+                     .unavailable:
+                    throw error
+                case .emptySelection:
+                    throw PromptEnhancementError.generationFailed(
+                        sourceTitle: source.title,
+                        reason: "The prompt enhancer could not complete this source."
+                    )
+                }
+            } catch {
+                throw PromptEnhancementError.generationFailed(
+                    sourceTitle: source.title,
+                    reason: "The prompt enhancer could not complete this source."
+                )
+            }
             let validated = try validator.validate(output: output, source: source)
             drafts.append(GeneratedPromptDraft(
                 sourceClipID: source.id,
