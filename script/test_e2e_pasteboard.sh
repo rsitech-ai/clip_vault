@@ -38,7 +38,7 @@ success_output="$("$HELPER" "ClipVault private E2E pasteboard shell test" 2>&1)"
 [[ "$(rg -c 'com\.andrzej\.ClipVault\.e2e\.capture' "$PACKAGE_VALIDATOR")" == "1" ]]
 [[ "$(rg -c 'write_e2e_pasteboard\.swift \"\$TOKEN\"' "$E2E_SMOKE")" == "2" ]]
 ! rg -q 'pbcopy' "$E2E_SMOKE"
-rg -Fq -- '"--verify-generated-prompt-source"' "$PACKAGE_VALIDATOR"
-rg -Fq -- '"CLIPVAULT_GENERATED_PROMPT_PROBE"' "$PACKAGE_VALIDATOR"
+rg -Fq -- '"--verify-generated-prompt-batch"' "$PACKAGE_VALIDATOR"
+rg -Fq -- '"CLIPVAULT_GENERATED_PROMPT_BATCH_PROBE"' "$PACKAGE_VALIDATOR"
 
 echo "Private E2E pasteboard tests passed."
