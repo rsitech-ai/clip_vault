@@ -28,9 +28,12 @@ RUST_DYLIB_NAME="libsearch_index_core.dylib"
 RUST_DYLIB_SOURCE="$ROOT_DIR/rust/SearchIndexCore/target/release/deps/$RUST_DYLIB_NAME"
 RUST_DYLIB_BUNDLE="$APP_FRAMEWORKS/$RUST_DYLIB_NAME"
 PKG_PATH="$DIST_ROOT/$APP_NAME-$APP_VERSION-$APP_BUILD.pkg"
+DSYM_BUNDLE="$DIST_ROOT/$APP_NAME.app.dSYM"
 
 # shellcheck source=lib/signing_identities.sh
 source "$ROOT_DIR/script/lib/signing_identities.sh"
+# shellcheck source=lib/release_artifact.sh
+source "$ROOT_DIR/script/lib/release_artifact.sh"
 
 cd "$ROOT_DIR"
 
@@ -49,6 +52,11 @@ fi
 if [[ -z "$APP_SIGNING_IDENTITY" ]]; then
   echo "Missing APP_SIGNING_IDENTITY. Install an Apple Distribution/Mac App Distribution certificate first." >&2
   security find-identity -v -p codesigning >&2 || true
+  exit 2
+fi
+
+if [[ -z "$APPLE_TEAM_ID" ]]; then
+  echo "Missing APPLE_TEAM_ID and could not derive it from APP_SIGNING_IDENTITY." >&2
   exit 2
 fi
 
@@ -73,6 +81,10 @@ cp "$RUST_DYLIB_SOURCE" "$RUST_DYLIB_BUNDLE"
 chmod +x "$RUST_DYLIB_BUNDLE"
 install_name_tool -id "@rpath/$RUST_DYLIB_NAME" "$RUST_DYLIB_BUNDLE"
 install_name_tool -change "$RUST_DYLIB_SOURCE" "@executable_path/../Frameworks/$RUST_DYLIB_NAME" "$APP_BINARY"
+strip_nonallowlisted_rpaths "$APP_BINARY"
+strip_nonallowlisted_rpaths "$RUST_DYLIB_BUNDLE"
+assert_macho_paths_allowed "$APP_BINARY"
+assert_macho_paths_allowed "$RUST_DYLIB_BUNDLE"
 cp "$PRIVACY_MANIFEST" "$APP_RESOURCES/PrivacyInfo.xcprivacy"
 cp "$APP_ICON" "$APP_RESOURCES/AppIcon.icns"
 
@@ -113,6 +125,19 @@ cat >"$INFO_PLIST" <<PLIST
   <string>NSApplication</string>
   <key>NSSupportsAutomaticGraphicsSwitching</key>
   <true/>
+  <key>UTExportedTypeDeclarations</key>
+  <array>
+    <dict>
+      <key>UTTypeConformsTo</key>
+      <array>
+        <string>public.data</string>
+      </array>
+      <key>UTTypeDescription</key>
+      <string>ClipVault Clip Move</string>
+      <key>UTTypeIdentifier</key>
+      <string>com.andrzej.ClipVault.clip-move</string>
+    </dict>
+  </array>
 </dict>
 </plist>
 PLIST
@@ -155,6 +180,9 @@ fi
 
 /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE"
 
+/usr/bin/dsymutil "$APP_BINARY" -o "$DSYM_BUNDLE"
+assert_matching_uuids "$APP_BINARY" "$DSYM_BUNDLE"
+
 /usr/bin/productbuild \
   --component "$APP_BUNDLE" /Applications \
   --sign "$INSTALLER_SIGNING_IDENTITY" \
@@ -162,4 +190,10 @@ fi
 
 /usr/sbin/pkgutil --check-signature "$PKG_PATH"
 
+DSYM_BUNDLE="$DSYM_BUNDLE" \
+  EXPECTED_TEAM_ID="$APPLE_TEAM_ID" \
+  EXPECTED_INSTALLER_SIGNING_IDENTITY="$INSTALLER_SIGNING_IDENTITY" \
+  "$ROOT_DIR/script/validate_app_store_package.sh" "$PKG_PATH"
+
 echo "Created Mac App Store package: $PKG_PATH"
+echo "Created matching dSYM: $DSYM_BUNDLE"

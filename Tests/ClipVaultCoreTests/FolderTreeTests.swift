@@ -5,6 +5,351 @@ import SwiftData
 
 @Suite("Collection folder tree")
 struct FolderTreeTests {
+    @Test("Prompts is a protected default manual collection")
+    func promptsIsProtectedDefaultManualCollection() throws {
+        let prompts = try #require(ClipCollection.defaults.first { $0.id == "prompts" })
+        #expect(prompts == .prompts)
+        #expect(prompts.title == "Prompts")
+        #expect(prompts.systemImage == "text.quote")
+        #expect(!prompts.isSmart)
+
+        let node = try #require(CollectionFolder.defaults.first?.children.first {
+            $0.collectionID == "prompts"
+        })
+        #expect(node.id == "workspace-default-prompts")
+        #expect(WorkspaceFolderPolicy.isProtected(node))
+    }
+
+    @Test("moving between manual collections removes Prompts but preserves smart membership")
+    func movingOutOfPromptsUsesManualMembershipSemantics() throws {
+        let store = InMemoryClipStore()
+        let destination = CollectionFolder(
+            id: "client-folder",
+            title: "Client",
+            collectionID: "client"
+        )
+        try store.saveFolder(destination, parentID: CollectionFolder.defaults[0].id, sortOrder: 20)
+        let clip = try #require(try store.save(
+            payload: ClipPayload(kind: .text, displayText: "Prompt", extractedText: "Prompt"),
+            sourceApp: nil
+        ))
+        try store.addClips(ids: [clip.id], toCollectionID: "prompts")
+
+        try store.moveClips(ids: [clip.id], toCollectionID: "client")
+
+        let moved = try #require(try store.allClips().first { $0.id == clip.id })
+        #expect(Set(moved.collectionIDs) == ["research", "client"])
+    }
+
+    @Test("legacy Prompts collections merge into the protected canonical collection")
+    func legacyPromptsCollectionsAreAdopted() throws {
+        let legacy = CollectionFolder(
+            id: "legacy-prompts-node",
+            title: " prompts ",
+            collectionID: "legacy-prompts"
+        )
+        let retained = CollectionFolder(
+            id: "retained-node",
+            title: "Prompt Archive",
+            collectionID: "prompt-archive"
+        )
+        let secondLegacy = CollectionFolder(
+            id: "second-legacy-prompts-node",
+            title: "PROMPTS",
+            collectionID: "second-legacy-prompts"
+        )
+        let store = InMemoryClipStore(foldersForTesting: [
+            CollectionFolder(
+                id: "legacy-root",
+                title: "Collections",
+                children: [legacy, retained, secondLegacy]
+            )
+        ])
+        let clip = try #require(try store.save(
+            payload: ClipPayload(kind: .text, displayText: "Draft", extractedText: "Draft"),
+            sourceApp: nil
+        ))
+        try store.addClips(ids: [clip.id], toCollectionID: "legacy-prompts")
+        try store.addClips(ids: [clip.id], toCollectionID: "prompt-archive")
+        try store.addClips(ids: [clip.id], toCollectionID: "second-legacy-prompts")
+
+        try store.reconcileWorkspaceDefaults()
+        try store.reconcileWorkspaceDefaults()
+
+        let folders = try store.folders()
+        let promptNodes = flattenForTesting(folders).filter { $0.collectionID == "prompts" }
+        #expect(promptNodes.map(\.id) == ["workspace-default-prompts"])
+        #expect(folders.first { $0.id == "legacy-root" }?.children.contains {
+            $0.id == "workspace-default-prompts"
+        } == true)
+        #expect(!flattenForTesting(folders).contains { $0.id == legacy.id })
+        #expect(!flattenForTesting(folders).contains { $0.id == secondLegacy.id })
+        #expect(flattenForTesting(folders).contains { $0.id == retained.id })
+        let migrated = try #require(try store.allClips().first { $0.id == clip.id })
+        #expect(migrated.collectionIDs.contains("prompts"))
+        #expect(!migrated.collectionIDs.contains("legacy-prompts"))
+        #expect(!migrated.collectionIDs.contains("second-legacy-prompts"))
+        #expect(migrated.collectionIDs.filter { $0 == "prompts" }.count == 1)
+        #expect(migrated.collectionIDs.contains("prompt-archive"))
+    }
+
+    @Test("reconciliation adds defaults without replacing custom workspace roots")
+    func reconciliationAddsDefaultsWithoutReplacingCustomWorkspaceRoots() throws {
+        let legacy = CollectionFolder(
+            id: "nested-legacy-prompts",
+            title: "Prompts",
+            collectionID: "nested-legacy-prompts-id"
+        )
+        let retained = CollectionFolder(id: "retained-custom-folder", title: "Retained")
+        let store = InMemoryClipStore(foldersForTesting: [
+            CollectionFolder(id: "custom-root", title: "Archive", children: [legacy, retained])
+        ])
+        let clip = try #require(try store.save(
+            payload: ClipPayload(kind: .text, displayText: "Nested", extractedText: "Nested"),
+            sourceApp: nil
+        ))
+        try store.addClips(ids: [clip.id], toCollectionID: "nested-legacy-prompts-id")
+
+        let folders = try store.folders()
+
+        let allNodes = flattenForTesting(folders)
+        #expect(allNodes.filter { $0.collectionID == "prompts" }.count == 1)
+        #expect(allNodes.contains { $0.id == "custom-root" })
+        #expect(allNodes.contains { $0.id == retained.id })
+        #expect(!allNodes.contains { $0.id == legacy.id })
+        let migrated = try #require(try store.allClips().first { $0.id == clip.id })
+        #expect(migrated.collectionIDs.contains("prompts"))
+        #expect(!migrated.collectionIDs.contains("nested-legacy-prompts-id"))
+    }
+
+    @Test("SwiftData folders reconcile legacy Prompts collections idempotently")
+    func swiftDataFoldersReconcileLegacyPromptsCollections() throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let storeURL = directory.appendingPathComponent("ClipVault.sqlite")
+        let clipID = try arrangeSwiftDataLegacyPromptsFixture(at: storeURL)
+
+        do {
+            let container = try makeSwiftDataContainer(at: storeURL)
+            let context = ModelContext(container)
+            var saveAttempts = 0
+            let store = SwiftDataClipStore(
+                context: context,
+                encryptor: FolderTreeTestPayloadEncryptor(),
+                saveContext: { context in
+                    saveAttempts += 1
+                    try context.save()
+                }
+            )
+            let folders = try store.folders()
+            try store.reconcileWorkspaceDefaults()
+            try store.reconcileWorkspaceDefaults()
+
+            #expect(saveAttempts == 1)
+            let promptNodes = flattenForTesting(folders).filter { $0.collectionID == "prompts" }
+            #expect(promptNodes.map(\.id) == ["workspace-default-prompts"])
+            #expect(!flattenForTesting(folders).contains { $0.id == "swiftdata-legacy-prompts" })
+            #expect(flattenForTesting(folders).contains { $0.id == "swiftdata-retained" })
+            let migrated = try #require(try store.allClips().first { $0.id == clipID })
+            #expect(migrated.collectionIDs.contains("prompts"))
+            #expect(!migrated.collectionIDs.contains("swiftdata-legacy-prompts-id"))
+            #expect(migrated.collectionIDs.contains("swiftdata-retained-id"))
+        }
+
+        try withSwiftDataStore(at: storeURL) { reopenedStore in
+            let promptNodes = flattenForTesting(try reopenedStore.folders()).filter {
+                $0.collectionID == "prompts"
+            }
+            #expect(promptNodes.map(\.id) == ["workspace-default-prompts"])
+        }
+    }
+
+    @Test("SwiftData Prompts reconciliation rolls back a failed save")
+    func swiftDataPromptsReconciliationRollsBackFailedSave() throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let storeURL = directory.appendingPathComponent("ClipVault.sqlite")
+        let clipID = try arrangeSwiftDataLegacyPromptsFixture(at: storeURL)
+        do {
+            let container = try makeSwiftDataContainer(at: storeURL)
+            let context = ModelContext(container)
+            var saveAttempts = 0
+            let failingStore = SwiftDataClipStore(context: context, saveContext: { _ in
+                saveAttempts += 1
+                throw ForcedSaveError()
+            })
+
+            #expect(throws: ForcedSaveError()) {
+                try failingStore.reconcileWorkspaceDefaults()
+            }
+
+            #expect(saveAttempts == 1)
+            #expect(!context.hasChanges)
+            let persistedFolders = try context.fetch(FetchDescriptor<FolderRecord>())
+            #expect(persistedFolders.contains { $0.id == "swiftdata-legacy-prompts" })
+            #expect(!persistedFolders.contains { $0.id == "workspace-default-prompts" })
+        }
+
+        try withSwiftDataStore(at: storeURL) { reopenedStore in
+            let persistedClip = try #require(try reopenedStore.allClips().first { $0.id == clipID })
+            #expect(persistedClip.collectionIDs.contains("swiftdata-legacy-prompts-id"))
+            #expect(!persistedClip.collectionIDs.contains("prompts"))
+        }
+    }
+
+    @Test("both stores fail closed on a mismatched reserved Prompts node ID")
+    func bothStoresPreserveStateOnReservedPromptsNodeIDCollision() throws {
+        let collision = CollectionFolder(
+            id: "workspace-default-prompts",
+            title: "Client",
+            collectionID: "client"
+        )
+        let legacy = CollectionFolder(
+            id: "collision-legacy-prompts",
+            title: "Prompts",
+            collectionID: "collision-legacy-prompts-id"
+        )
+        let inMemoryStore = InMemoryClipStore(foldersForTesting: [
+            CollectionFolder(
+                id: "collision-root",
+                title: "Collections",
+                children: [collision, legacy]
+            )
+        ])
+        let inMemoryClip = try #require(try inMemoryStore.save(
+            payload: ClipPayload(kind: .text, displayText: "Collision", extractedText: "Collision"),
+            sourceApp: nil
+        ))
+        try inMemoryStore.addClips(ids: [inMemoryClip.id], toCollectionID: "client")
+        try inMemoryStore.addClips(ids: [inMemoryClip.id], toCollectionID: "collision-legacy-prompts-id")
+        try assertReservedPromptsNodeCollisionFailsClosed(
+            in: inMemoryStore,
+            clipID: inMemoryClip.id,
+            legacyCollectionID: "collision-legacy-prompts-id"
+        )
+
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let storeURL = directory.appendingPathComponent("ClipVault.sqlite")
+        let swiftDataClipID = try arrangeSwiftDataReservedPromptsNodeCollision(at: storeURL)
+        try withSwiftDataStore(at: storeURL) { store in
+            try assertReservedPromptsNodeCollisionFailsClosed(
+                in: store,
+                clipID: swiftDataClipID,
+                legacyCollectionID: "swiftdata-legacy-prompts-id"
+            )
+        }
+    }
+
+    @Test("both stores fail closed when a foreign node uses the reserved Prompts collection ID")
+    func bothStoresPreserveStateOnReservedPromptsCollectionIDCollision() throws {
+        let collision = CollectionFolder(
+            id: "client-node",
+            title: "Client",
+            collectionID: "prompts"
+        )
+        let legacy = CollectionFolder(
+            id: "collection-id-collision-legacy-prompts",
+            title: "Prompts",
+            collectionID: "collection-id-collision-legacy-prompts-id"
+        )
+        let inMemoryStore = InMemoryClipStore(foldersForTesting: [
+            CollectionFolder(
+                id: "collection-id-collision-root",
+                title: "Collections",
+                children: [collision, legacy]
+            )
+        ])
+        let inMemoryClip = try #require(try inMemoryStore.save(
+            payload: ClipPayload(kind: .text, displayText: "Collision", extractedText: "Collision"),
+            sourceApp: nil
+        ))
+        try inMemoryStore.addClips(
+            ids: [inMemoryClip.id],
+            toCollectionID: "collection-id-collision-legacy-prompts-id"
+        )
+        try assertReservedPromptsIdentityCollisionFailsClosed(
+            in: inMemoryStore,
+            clipID: inMemoryClip.id,
+            retainedCollectionIDs: ["research", "collection-id-collision-legacy-prompts-id"]
+        )
+
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let storeURL = directory.appendingPathComponent("ClipVault.sqlite")
+        let swiftDataClipID = try arrangeSwiftDataReservedPromptsCollectionIDCollision(at: storeURL)
+        try withSwiftDataStore(at: storeURL) { store in
+            try assertReservedPromptsIdentityCollisionFailsClosed(
+                in: store,
+                clipID: swiftDataClipID,
+                retainedCollectionIDs: [
+                    "research",
+                    "swiftdata-legacy-prompts-id",
+                    "swiftdata-retained-id"
+                ]
+            )
+        }
+
+        let persistedContainer = try makeSwiftDataContainer(at: storeURL)
+        let persistedContext = ModelContext(persistedContainer)
+        let persistedFolders = try persistedContext.fetch(FetchDescriptor<FolderRecord>())
+        #expect(persistedFolders.contains { $0.id == "swiftdata-foreign-prompts-collection" })
+        #expect(persistedFolders.contains { $0.id == "swiftdata-legacy-prompts" })
+        #expect(!persistedFolders.contains { $0.id == "workspace-default-prompts" })
+    }
+
+    @Test("reserved Prompts identity requires the exact canonical title")
+    func reservedPromptsIdentityRequiresExactCanonicalTitle() throws {
+        for noncanonicalTitle in ["prompts", "PROMPTS", " Prompts "] {
+            let store = InMemoryClipStore(foldersForTesting: [
+                CollectionFolder(
+                    id: CollectionFolder.defaults[0].id,
+                    title: CollectionFolder.defaults[0].title,
+                    children: CollectionFolder.defaults[0].children.map { child in
+                        guard child.id == "workspace-default-prompts" else {
+                            return child
+                        }
+                        var changed = child
+                        changed.title = noncanonicalTitle
+                        return changed
+                    }
+                )
+            ])
+
+            #expect(throws: FolderStoreError.duplicateID) {
+                try store.reconcileWorkspaceDefaults()
+            }
+            #expect(throws: FolderStoreError.duplicateID) {
+                try store.reconcileWorkspaceDefaults()
+            }
+        }
+    }
+
+    @Test("canonical Prompts identity is rejected outside the selected built-in root")
+    func canonicalPromptsIdentityRequiresSelectedBuiltInRoot() throws {
+        let canonical = try #require(CollectionFolder.defaults[0].children.first {
+            $0.id == "workspace-default-prompts"
+        })
+        let builtInRoot = CollectionFolder(
+            id: CollectionFolder.defaults[0].id,
+            title: CollectionFolder.defaults[0].title,
+            children: CollectionFolder.defaults[0].children.filter {
+                $0.id != "workspace-default-prompts"
+            }
+        )
+        let store = InMemoryClipStore(foldersForTesting: [
+            builtInRoot,
+            CollectionFolder(id: "foreign-root", title: "Archive", children: [canonical])
+        ])
+
+        #expect(throws: FolderStoreError.duplicateID) {
+            try store.reconcileWorkspaceDefaults()
+        }
+        #expect(throws: FolderStoreError.duplicateID) {
+            try store.reconcileWorkspaceDefaults()
+        }
+    }
+
     @Test("folders support nested children")
     func nestedFolders() {
         let root = CollectionFolder(
@@ -102,6 +447,21 @@ struct FolderTreeTests {
         #expect(reloaded.first { $0.id == "client-alpha" }?.title == "Client Work")
         #expect(afterDeletion.contains { $0.id == "client-alpha" } == false)
         #expect(reloaded.first { $0.id == "all" }?.title == "All Clips")
+    }
+
+    @Test("collection display titles hide internal storage identifiers")
+    func collectionDisplayTitlesHideStorageIdentifiers() {
+        let customID = "client-prompts-12345678-1234-1234-1234-123456789abc"
+        let collections = ClipCollection.defaults + [
+            ClipCollection(id: customID, title: "Client Prompts", systemImage: "folder", kind: nil, isSmart: false)
+        ]
+
+        #expect(
+            WorkspaceCollectionCatalog.displayTitles(
+                for: ["research", customID, "missing-legacy-id"],
+                in: collections
+            ) == ["Research", "Client Prompts", "missing-legacy-id"]
+        )
     }
 
     @Test("same-title custom collection IDs stay distinct and readable")
@@ -327,6 +687,95 @@ struct FolderTreeTests {
         }
     }
 
+    @Test("SwiftData clip moves preserve smart memberships across relaunch")
+    func swiftDataClipMovePersists() throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let storeURL = directory.appendingPathComponent("ClipVault.sqlite")
+        var clipID = ""
+
+        try withSwiftDataStore(at: storeURL) { store in
+            let archive = CollectionFolder(
+                id: "archive-folder",
+                title: "Archive",
+                collectionID: "archive"
+            )
+            let destination = CollectionFolder(
+                id: "prompts-folder",
+                title: "Prompts",
+                collectionID: "prompts"
+            )
+            try store.saveFolder(archive, parentID: nil, sortOrder: 20)
+            try store.saveFolder(destination, parentID: nil, sortOrder: 21)
+            let clip = try #require(try store.save(
+                payload: ClipPayload(kind: .text, displayText: "Prompt", extractedText: "Prompt"),
+                sourceApp: "Tests"
+            ))
+            clipID = clip.id
+            try store.addClips(ids: [clip.id], toCollectionID: "archive")
+            try store.moveClips(ids: [clip.id], toCollectionID: "prompts")
+        }
+
+        try withSwiftDataStore(at: storeURL) { store in
+            let moved = try #require(try store.allClips().first { $0.id == clipID })
+            #expect(moved.collectionIDs == ["research", "prompts"])
+        }
+    }
+
+    @Test("SwiftData clip moves roll back failed saves and leave disk unchanged")
+    func swiftDataClipMoveRollsBackFailedSave() throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let storeURL = directory.appendingPathComponent("ClipVault.sqlite")
+        var clipID = ""
+
+        try withSwiftDataStore(at: storeURL) { store in
+            try store.saveFolder(
+                CollectionFolder(id: "archive-folder", title: "Archive", collectionID: "archive"),
+                parentID: nil,
+                sortOrder: 20
+            )
+            try store.saveFolder(
+                CollectionFolder(id: "prompts-folder", title: "Prompts", collectionID: "prompts"),
+                parentID: nil,
+                sortOrder: 21
+            )
+            let clip = try #require(try store.save(
+                payload: ClipPayload(kind: .text, displayText: "Prompt", extractedText: "Prompt"),
+                sourceApp: "Tests"
+            ))
+            clipID = clip.id
+            try store.addClips(ids: [clip.id], toCollectionID: "archive")
+        }
+
+        do {
+            let container = try makeSwiftDataContainer(at: storeURL)
+            let context = ModelContext(container)
+            let failingStore = SwiftDataClipStore(context: context, saveContext: { _ in
+                throw ForcedSaveError()
+            })
+
+            #expect(throws: ForcedSaveError()) {
+                try failingStore.moveClips(ids: [clipID], toCollectionID: "prompts")
+            }
+            #expect(!context.hasChanges)
+        }
+
+        try withSwiftDataStore(at: storeURL) { store in
+            let clip = try #require(try store.allClips().first { $0.id == clipID })
+            #expect(clip.collectionIDs == ["research", "archive"])
+        }
+    }
+
+    @Test("both stores reject blank move destinations without changing memberships")
+    func bothStoresRejectBlankMoveDestinations() throws {
+        try assertBlankMoveDestinationIsRejected(by: InMemoryClipStore())
+
+        try withTemporarySwiftDataStore { store in
+            try assertBlankMoveDestinationIsRejected(by: store)
+        }
+    }
+
     private func assertCustomCollectionsFolderIsManageable(in store: any ClipStoring) throws {
         let custom = CollectionFolder(id: "custom-collections", title: "Collections")
 
@@ -335,6 +784,79 @@ struct FolderTreeTests {
         try store.deleteFolder(id: custom.id)
 
         #expect(!containsFolder(id: custom.id, in: try store.folders()))
+    }
+
+    private func assertReservedPromptsNodeCollisionFailsClosed(
+        in store: any ClipStoring,
+        clipID: String,
+        legacyCollectionID: String
+    ) throws {
+        #expect(throws: FolderStoreError.duplicateID) {
+            try store.reconcileWorkspaceDefaults()
+        }
+        #expect(throws: FolderStoreError.duplicateID) {
+            _ = try store.folders()
+        }
+
+        let unchanged = try #require(try store.allClips().first { $0.id == clipID })
+        #expect(unchanged.collectionIDs.contains("research"))
+        #expect(unchanged.collectionIDs.contains("client"))
+        #expect(unchanged.collectionIDs.contains(legacyCollectionID))
+        #expect(!unchanged.collectionIDs.contains("prompts"))
+        #expect(throws: FolderStoreError.duplicateID) {
+            try store.saveFolder(
+                CollectionFolder(
+                    id: "workspace-default-prompts",
+                    title: "Replacement",
+                    collectionID: "replacement"
+                ),
+                parentID: nil,
+                sortOrder: 99
+            )
+        }
+    }
+
+    private func assertReservedPromptsIdentityCollisionFailsClosed(
+        in store: any ClipStoring,
+        clipID: String,
+        retainedCollectionIDs: Set<String>
+    ) throws {
+        #expect(throws: FolderStoreError.duplicateID) {
+            try store.reconcileWorkspaceDefaults()
+        }
+        #expect(throws: FolderStoreError.duplicateID) {
+            try store.reconcileWorkspaceDefaults()
+        }
+        #expect(throws: FolderStoreError.duplicateID) {
+            _ = try store.folders()
+        }
+
+        let unchanged = try #require(try store.allClips().first { $0.id == clipID })
+        #expect(Set(unchanged.collectionIDs) == retainedCollectionIDs)
+    }
+
+    private func assertBlankMoveDestinationIsRejected(by store: any ClipStoring) throws {
+        try store.saveFolder(
+            CollectionFolder(id: "blank-folder", title: "Blank", collectionID: ""),
+            parentID: nil,
+            sortOrder: 20
+        )
+        try store.saveFolder(
+            CollectionFolder(id: "archive-folder", title: "Archive", collectionID: "archive"),
+            parentID: nil,
+            sortOrder: 21
+        )
+        let clip = try #require(try store.save(
+            payload: ClipPayload(kind: .text, displayText: "Prompt", extractedText: "Prompt"),
+            sourceApp: "Tests"
+        ))
+        try store.addClips(ids: [clip.id], toCollectionID: "archive")
+
+        #expect(throws: ClipCollectionMoveError.destinationNotFound) {
+            try store.moveClips(ids: [clip.id], toCollectionID: "   \n")
+        }
+        let unchanged = try #require(try store.allClips().first { $0.id == clip.id })
+        #expect(unchanged.collectionIDs == ["research", "archive"])
     }
 
     private func assertDistinctCustomCollectionAssignmentsAreIsolated(in store: any ClipStoring) throws {
@@ -526,9 +1048,101 @@ struct FolderTreeTests {
         try withSwiftDataStore(at: directory.appendingPathComponent("ClipVault.sqlite"), body)
     }
 
+    private func arrangeSwiftDataLegacyPromptsFixture(at url: URL) throws -> String {
+        let container = try makeSwiftDataContainer(at: url)
+        let context = ModelContext(container)
+        let store = SwiftDataClipStore(
+            context: context,
+            encryptor: FolderTreeTestPayloadEncryptor()
+        )
+        let rootID = try #require(try store.folders().first?.id)
+        try store.saveFolder(
+            CollectionFolder(
+                id: "swiftdata-legacy-prompts",
+                title: " PROMPTS ",
+                collectionID: "swiftdata-legacy-prompts-id"
+            ),
+            parentID: rootID,
+            sortOrder: 30
+        )
+        try store.saveFolder(
+            CollectionFolder(
+                id: "swiftdata-retained",
+                title: "Prompt Archive",
+                collectionID: "swiftdata-retained-id"
+            ),
+            parentID: rootID,
+            sortOrder: 31
+        )
+        let clip = try #require(try store.save(
+            payload: ClipPayload(kind: .text, displayText: "Legacy", extractedText: "Legacy"),
+            sourceApp: nil
+        ))
+        try store.addClips(ids: [clip.id], toCollectionID: "swiftdata-legacy-prompts-id")
+        try store.addClips(ids: [clip.id], toCollectionID: "swiftdata-retained-id")
+
+        let records = try context.fetch(FetchDescriptor<FolderRecord>())
+        let canonical = try #require(records.first {
+            $0.id == "workspace-default-prompts"
+        })
+        context.delete(canonical)
+        try context.save()
+        return clip.id
+    }
+
+    private func arrangeSwiftDataReservedPromptsNodeCollision(at url: URL) throws -> String {
+        let clipID = try arrangeSwiftDataLegacyPromptsFixture(at: url)
+        let container = try makeSwiftDataContainer(at: url)
+        let context = ModelContext(container)
+        let store = SwiftDataClipStore(
+            context: context,
+            encryptor: FolderTreeTestPayloadEncryptor()
+        )
+        try store.addClips(ids: [clipID], toCollectionID: "client")
+        let records = try context.fetch(FetchDescriptor<FolderRecord>())
+        let legacy = try #require(records.first { $0.id == "swiftdata-legacy-prompts" })
+        let collision = CollectionFolder(
+            id: "workspace-default-prompts",
+            title: "Client",
+            collectionID: "client"
+        )
+        context.insert(FolderRecord(
+            folder: collision,
+            parentID: legacy.parentID,
+            sortOrder: 32
+        ))
+        try context.save()
+        return clipID
+    }
+
+    private func arrangeSwiftDataReservedPromptsCollectionIDCollision(at url: URL) throws -> String {
+        let clipID = try arrangeSwiftDataLegacyPromptsFixture(at: url)
+        let container = try makeSwiftDataContainer(at: url)
+        let context = ModelContext(container)
+        let legacy = try #require(
+            try context.fetch(FetchDescriptor<FolderRecord>()).first {
+                $0.id == "swiftdata-legacy-prompts"
+            }
+        )
+        context.insert(FolderRecord(
+            folder: CollectionFolder(
+                id: "swiftdata-foreign-prompts-collection",
+                title: "Client",
+                collectionID: "prompts"
+            ),
+            parentID: legacy.parentID,
+            sortOrder: 32
+        ))
+        try context.save()
+        return clipID
+    }
+
     private func withSwiftDataStore(at url: URL, _ body: (SwiftDataClipStore) throws -> Void) throws {
         let container = try makeSwiftDataContainer(at: url)
-        let store = SwiftDataClipStore(context: ModelContext(container))
+        let store = SwiftDataClipStore(
+            context: ModelContext(container),
+            encryptor: FolderTreeTestPayloadEncryptor()
+        )
         try body(store)
     }
 
@@ -559,6 +1173,20 @@ struct FolderTreeTests {
         folders.flatMap { folder in
             [folder] + allFolders(in: folder.children)
         }
+    }
+
+    private func flattenForTesting(_ folders: [CollectionFolder]) -> [CollectionFolder] {
+        allFolders(in: folders)
+    }
+}
+
+private struct FolderTreeTestPayloadEncryptor: PayloadEncrypting {
+    func encrypt(_ data: Data) throws -> Data {
+        data
+    }
+
+    func decrypt(_ data: Data) throws -> Data {
+        data
     }
 }
 
