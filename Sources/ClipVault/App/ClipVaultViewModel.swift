@@ -42,6 +42,7 @@ final class ClipVaultViewModel {
     var aiResult: AIActionResult?
     var aiError: String?
     var isGenerating = false
+    var promptEnhancementState: PromptEnhancementState = .idle
     var question = ""
     var statusMenuFocusIndex = 0
     var cleanupFilter: CleanupFilter = .unpinned
@@ -60,6 +61,9 @@ final class ClipVaultViewModel {
     private let pasteboardWriter = ClipPayloadPasteboardWriter()
     private let searcher = ClipSearcher()
     private let aiProvider: any AIActionProviding = FoundationModelsAIActionProvider()
+    private let promptEnhancementRunner: PromptEnhancementBatchRunner
+    private var promptEnhancementTask: Task<Void, Never>?
+    private var promptEnhancementTaskID: UUID?
     private var store: (any ClipStoring)?
     private static var initialCaptureConsent: Bool {
         #if CLIPVAULT_E2E_PROBE
@@ -91,7 +95,12 @@ final class ClipVaultViewModel {
         return hasCaptureConsent ? "Paused" : "Consent required"
     }
 
-    init() {
+    init(
+        promptEnhancementRunner: PromptEnhancementBatchRunner = PromptEnhancementBatchRunner(
+            enhancer: FoundationModelsPromptEnhancer()
+        )
+    ) {
+        self.promptEnhancementRunner = promptEnhancementRunner
         let schema = Schema([ClipRecord.self, FolderRecord.self])
         do {
             let configuration = ModelConfiguration("ClipVault", schema: schema)
@@ -173,6 +182,20 @@ final class ClipVaultViewModel {
 
     var aiAvailability: AIAvailability {
         aiProvider.availability()
+    }
+
+    var promptEnhancerAvailability: AIAvailability {
+        promptEnhancementRunner.availability()
+    }
+
+    var canEnhancePrompts: Bool {
+        !isGenerating
+            && !promptEnhancementSources.isEmpty
+            && promptEnhancerAvailability.isAvailable
+    }
+
+    private var promptEnhancementSources: [Clip] {
+        selectedClips.isEmpty ? selectedClip.map { [$0] } ?? [] : selectedClips
     }
 
     @discardableResult
@@ -673,6 +696,10 @@ final class ClipVaultViewModel {
     }
 
     func runAIAction(_ kind: AIActionKind) {
+        guard promptEnhancementTask == nil, !isGenerating else {
+            return
+        }
+        promptEnhancementState = .idle
         let selection = selectedClips.isEmpty ? selectedClip.map { [$0] } ?? [] : selectedClips
         let trimmedQuestion = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !selection.isEmpty else {
@@ -707,6 +734,280 @@ final class ClipVaultViewModel {
                 }
             }
         }
+    }
+
+    func runPromptEnhancement() {
+        guard promptEnhancementTask == nil, !isGenerating else {
+            return
+        }
+
+        let sources = promptEnhancementSources
+        let sourceSelectedClipID = selectedClipID
+        let sourceSelectedClipIDs = selectedClipIDs
+        guard !sources.isEmpty else {
+            let reason = PromptEnhancementError.emptySelection.localizedDescription
+            promptEnhancementState = .failed(
+                sourceTitle: nil,
+                message: Self.promptEnhancementFailureMessage(sourceTitle: nil, reason: reason)
+            )
+            return
+        }
+        guard let store else {
+            promptEnhancementState = .failed(
+                sourceTitle: nil,
+                message: Self.promptEnhancementFailureMessage(
+                    sourceTitle: nil,
+                    reason: "Storage is unavailable."
+                )
+            )
+            return
+        }
+
+        let taskID = UUID()
+        let runner = promptEnhancementRunner
+        let sourceTitlesByID = Dictionary(
+            uniqueKeysWithValues: sources.map { ($0.id, $0.title) }
+        )
+        let safeSourceTitles = Set(sources.map(\.title))
+        promptEnhancementTaskID = taskID
+        isGenerating = true
+        aiResult = nil
+        aiError = nil
+        promptEnhancementState = .enhancing(
+            current: 1,
+            total: sources.count,
+            sourceTitle: sources[0].title
+        )
+
+        promptEnhancementTask = Task { [weak self] in
+            guard let self else {
+                return
+            }
+            defer {
+                if promptEnhancementTaskID == taskID {
+                    promptEnhancementTask = nil
+                    promptEnhancementTaskID = nil
+                    isGenerating = false
+                }
+            }
+
+            do {
+                let drafts = try await runner.run(sources: sources) { [weak self] progress in
+                    await MainActor.run {
+                        guard let self, self.promptEnhancementTaskID == taskID else {
+                            return
+                        }
+                        self.promptEnhancementState = .enhancing(
+                            current: progress.current,
+                            total: progress.total,
+                            sourceTitle: progress.sourceTitle
+                        )
+                    }
+                }
+
+                try Task.checkCancellation()
+                promptEnhancementState = .saving(total: drafts.count)
+                let savedPrompts = try store.saveGeneratedPrompts(drafts)
+
+                guard reload() else {
+                    promptEnhancementState = .failed(
+                        sourceTitle: nil,
+                        message: Self.promptEnhancementReloadFailureMessage(
+                            savedCount: savedPrompts.count
+                        )
+                    )
+                    return
+                }
+
+                restorePromptSourceSelection(
+                    selectedClipID: sourceSelectedClipID,
+                    selectedClipIDs: sourceSelectedClipIDs,
+                    sourceIDs: sources.map(\.id)
+                )
+                promptEnhancementState = .success(count: savedPrompts.count)
+            } catch is CancellationError {
+                promptEnhancementState = .cancelled
+            } catch {
+                let currentSourceTitle: String?
+                if case .enhancing(_, _, let sourceTitle) = promptEnhancementState,
+                   !sourceTitle.isEmpty {
+                    currentSourceTitle = sourceTitle
+                } else {
+                    currentSourceTitle = nil
+                }
+                let failure = Self.promptEnhancementFailure(
+                    error: error,
+                    currentSourceTitle: currentSourceTitle,
+                    sourceTitlesByID: sourceTitlesByID,
+                    safeSourceTitles: safeSourceTitles
+                )
+                Self.logFailure(operation: "prompt_enhancement", error: error)
+                promptEnhancementState = .failed(
+                    sourceTitle: failure.sourceTitle,
+                    message: Self.promptEnhancementFailureMessage(
+                        sourceTitle: failure.sourceTitle,
+                        reason: failure.reason
+                    )
+                )
+            }
+        }
+    }
+
+    func cancelPromptEnhancement() {
+        guard case .enhancing = promptEnhancementState else {
+            return
+        }
+        promptEnhancementTask?.cancel()
+    }
+
+    func openPrompts() {
+        guard case .success = promptEnhancementState,
+              collections.contains(where: { $0.id == ClipCollection.prompts.id }) else {
+            return
+        }
+        selectedCollectionID = ClipCollection.prompts.id
+    }
+
+    private func restorePromptSourceSelection(
+        selectedClipID sourceSelectedClipID: String?,
+        selectedClipIDs sourceSelectedClipIDs: Set<String>,
+        sourceIDs: [String]
+    ) {
+        let survivingIDs = Set(clips.map(\.id))
+        selectedClipIDs = sourceSelectedClipIDs.intersection(survivingIDs)
+        if let sourceSelectedClipID, survivingIDs.contains(sourceSelectedClipID) {
+            selectedClipID = sourceSelectedClipID
+        } else {
+            selectedClipID = sourceIDs.first(where: survivingIDs.contains)
+        }
+    }
+
+    private static func promptEnhancementFailure(
+        error: any Error,
+        currentSourceTitle: String?,
+        sourceTitlesByID: [String: String],
+        safeSourceTitles: Set<String>
+    ) -> (sourceTitle: String?, reason: String) {
+        if let enhancementError = error as? PromptEnhancementError {
+            switch enhancementError {
+            case .emptySelection:
+                return (nil, enhancementError.localizedDescription)
+            case .unavailable(let reason):
+                return (nil, reason)
+            case .emptySource(let sourceTitle):
+                return (
+                    safePromptSourceTitle(
+                        sourceTitle,
+                        currentSourceTitle: currentSourceTitle,
+                        safeSourceTitles: safeSourceTitles
+                    ),
+                    "This source has no text to enhance."
+                )
+            case .emptyOutput(let sourceTitle):
+                return (
+                    safePromptSourceTitle(
+                        sourceTitle,
+                        currentSourceTitle: currentSourceTitle,
+                        safeSourceTitles: safeSourceTitles
+                    ),
+                    "Apple Intelligence produced an empty result."
+                )
+            case .unchangedOutput(let sourceTitle):
+                return (
+                    safePromptSourceTitle(
+                        sourceTitle,
+                        currentSourceTitle: currentSourceTitle,
+                        safeSourceTitles: safeSourceTitles
+                    ),
+                    "This prompt is already well structured."
+                )
+            case .commentaryWrapper(let sourceTitle):
+                return (
+                    safePromptSourceTitle(
+                        sourceTitle,
+                        currentSourceTitle: currentSourceTitle,
+                        safeSourceTitles: safeSourceTitles
+                    ),
+                    "Apple Intelligence produced commentary instead of a prompt."
+                )
+            case .sensitiveOutput(let sourceTitle):
+                return (
+                    safePromptSourceTitle(
+                        sourceTitle,
+                        currentSourceTitle: currentSourceTitle,
+                        safeSourceTitles: safeSourceTitles
+                    ),
+                    "Apple Intelligence produced content ClipVault cannot save safely."
+                )
+            case .droppedValue(let sourceTitle):
+                return (
+                    safePromptSourceTitle(
+                        sourceTitle,
+                        currentSourceTitle: currentSourceTitle,
+                        safeSourceTitles: safeSourceTitles
+                    ),
+                    "Apple Intelligence did not preserve all required source values."
+                )
+            case .generationFailed(let sourceTitle, let reason):
+                return (
+                    safePromptSourceTitle(
+                        sourceTitle,
+                        currentSourceTitle: currentSourceTitle,
+                        safeSourceTitles: safeSourceTitles
+                    ),
+                    reason
+                )
+            }
+        }
+
+        if let storeError = error as? GeneratedPromptStoreError {
+            let sourceTitle: String?
+            switch storeError {
+            case .sourceMissing(let sourceID),
+                 .duplicateSource(let sourceID),
+                 .rejectedOutput(let sourceID),
+                 .duplicateOutput(let sourceID),
+                 .encryptionFailed(let sourceID):
+                sourceTitle = sourceTitlesByID[sourceID]
+            case .emptyBatch, .promptsUnavailable, .batchSaveFailed:
+                sourceTitle = nil
+            }
+            return (sourceTitle, storeError.localizedDescription)
+        }
+
+        return (
+            currentSourceTitle,
+            "Prompt enhancement could not be completed."
+        )
+    }
+
+    private static func safePromptSourceTitle(
+        _ candidate: String,
+        currentSourceTitle: String?,
+        safeSourceTitles: Set<String>
+    ) -> String? {
+        if let currentSourceTitle, safeSourceTitles.contains(currentSourceTitle) {
+            return currentSourceTitle
+        }
+        if safeSourceTitles.contains(candidate) {
+            return candidate
+        }
+        return nil
+    }
+
+    private static func promptEnhancementFailureMessage(
+        sourceTitle: String?,
+        reason: String
+    ) -> String {
+        if let sourceTitle {
+            return "Couldn’t enhance “\(sourceTitle).” \(reason) Nothing was saved."
+        }
+        return "\(reason) Nothing was saved."
+    }
+
+    private static func promptEnhancementReloadFailureMessage(savedCount: Int) -> String {
+        let noun = savedCount == 1 ? "prompt was" : "prompts were"
+        return "\(savedCount) enhanced \(noun) saved, but ClipVault couldn’t refresh the workspace."
     }
 
     private func ingest(payload: ClipPayload, sourceApp: String?) {
