@@ -826,15 +826,65 @@ struct PromptEnhancerTests {
         #expect(validated == output)
     }
 
+    @Test("validator recognizes local required-format obligation forms")
+    func validatorRejectsDroppedLocallyObligatedFormats() {
+        for format in ["JSON", "YAML", "CSV", "Markdown"] {
+            let sources = [
+                format + " only.",
+                "The output must be " + format + ".",
+                "Answer in " + format + ".",
+                "Return the result in " + format + "."
+            ]
+
+            for sourceText in sources {
+                let source = makeClip(preview: sourceText, extractedText: sourceText)
+                #expect(throws: PromptEnhancementError.droppedValue("Source")) {
+                    try PromptEnhancementValidator().validate(
+                        output: "Goal: Return structured data only.",
+                        source: source
+                    )
+                }
+            }
+        }
+    }
+
+    @Test("validator preserves local required-format obligations case-insensitively")
+    func validatorAllowsLocallyObligatedFormatCasingRewrite() throws {
+        for format in ["JSON", "YAML", "CSV", "Markdown"] {
+            let sources = [
+                format + " only.",
+                "The output must be " + format + ".",
+                "Answer in " + format + ".",
+                "Return the result in " + format + "."
+            ]
+
+            for sourceText in sources {
+                let source = makeClip(preview: sourceText, extractedText: sourceText)
+                let output = "Goal: Return " + format.lowercased() + " only."
+
+                let validated = try PromptEnhancementValidator().validate(
+                    output: output,
+                    source: source
+                )
+
+                #expect(validated == output)
+            }
+        }
+    }
+
     @Test("validator allows rewriting nonrequired format references")
     func validatorAllowsRewritingNonrequiredFormatReferences() throws {
-        let sourceText = "Compare JSON and YAML parser tradeoffs."
-        let source = makeClip(preview: sourceText, extractedText: sourceText)
-        let output = "Goal: Compare two structured-data parser approaches."
+        let cases = [
+            ("Compare JSON parsers.", "Goal: Compare structured-data parser approaches."),
+            ("Compare JSON and YAML parser tradeoffs.", "Goal: Compare two structured-data parser approaches.")
+        ]
 
-        let validated = try PromptEnhancementValidator().validate(output: output, source: source)
+        for item in cases {
+            let source = makeClip(preview: item.0, extractedText: item.0)
+            let validated = try PromptEnhancementValidator().validate(output: item.1, source: source)
 
-        #expect(validated == output)
+            #expect(validated == item.1)
+        }
     }
 
     @Test("validator rejects dropping curly-quoted and backtick literals")
@@ -868,6 +918,40 @@ struct PromptEnhancerTests {
             #expect(throws: PromptEnhancementError.droppedValue("Source")) {
                 try PromptEnhancementValidator().validate(output: item.output, source: source)
             }
+        }
+    }
+
+    @Test("validator binds kebab identifier context to the adjacent token")
+    func validatorAllowsRewritingDistantHyphenatedProse() throws {
+        let sourceText = "Set field request-id in an outcome-first response."
+        let source = makeClip(preview: sourceText, extractedText: sourceText)
+        let output = "Goal: Set request-id in a response led by the desired outcome."
+
+        let validated = try PromptEnhancementValidator().validate(output: output, source: source)
+
+        #expect(validated == output)
+        #expect(throws: PromptEnhancementError.droppedValue("Source")) {
+            try PromptEnhancementValidator().validate(
+                output: "Goal: Set the request identifier in a response led by the desired outcome.",
+                source: source
+            )
+        }
+    }
+
+    @Test("validator locally binds two kebab identifiers without freezing ordinary prose")
+    func validatorLocallyBindsTwoKebabIdentifiers() throws {
+        let sourceText = "Set field request-id and header cache-control in a user-friendly response."
+        let source = makeClip(preview: sourceText, extractedText: sourceText)
+        let output = "Goal: Set request-id and cache-control in an approachable response."
+
+        let validated = try PromptEnhancementValidator().validate(output: output, source: source)
+
+        #expect(validated == output)
+        #expect(throws: PromptEnhancementError.droppedValue("Source")) {
+            try PromptEnhancementValidator().validate(
+                output: "Goal: Set request-id in an approachable response.",
+                source: source
+            )
         }
     }
 
