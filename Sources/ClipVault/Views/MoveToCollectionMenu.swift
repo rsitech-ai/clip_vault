@@ -19,14 +19,14 @@ struct MoveToCollectionMenu: View {
         .disabled(model.moveDestinationFolders.isEmpty)
         .help(
             model.moveDestinationFolders.isEmpty
-                ? "Create a custom collection before moving clips."
-                : "Move only this clip to a custom collection."
+                ? "Create a manual collection before moving clips."
+                : "Move only this clip to a manual collection."
         )
         .accessibilityLabel(label)
         .accessibilityHint(
             model.moveDestinationFolders.isEmpty
-                ? "Create a custom collection before moving clips."
-                : "Choose a custom collection for this clip."
+                ? "Create a manual collection before moving clips."
+                : "Choose a manual collection for this clip."
         )
     }
 }
