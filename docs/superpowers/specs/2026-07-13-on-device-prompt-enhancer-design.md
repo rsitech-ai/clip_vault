@@ -2,7 +2,7 @@
 
 ## Status
 
-Approved in conversation on 2026-07-13. This document is pending the required written-spec review before implementation planning begins.
+Approved by the user after written-spec review on 2026-07-13. Implementation planning may proceed; production code still requires the implementation plan and its TDD gates.
 
 ## Goal
 
@@ -76,6 +76,8 @@ Prompt normalization trims leading and trailing whitespace, trims trailing white
 ### Dedicated on-device enhancer
 
 Introduce a small `PromptEnhancing` boundary with availability and single-source enhancement operations. `FoundationModelsPromptEnhancer` is the production implementation. It creates a fresh on-device language-model session for each source and does not route through `LocalClipAIActionProvider` or any cloud fallback.
+
+For each source, the enhancer uses trimmed `extractedText`, then trimmed `preview` as the only fallback. If both are empty, that source fails and the batch saves nothing.
 
 The enhancer returns a draft containing the source clip identifier and enhanced text. It does not persist clips or mutate workspace state.
 
