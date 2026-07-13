@@ -66,9 +66,9 @@ APP_BINARY_STRINGS="$INSPECT_ROOT/app-binary-strings.txt"
 /usr/bin/strings "$APP_BINARY" >"$APP_BINARY_STRINGS"
 for forbidden_marker in \
   "--verify-stored-clip" \
-  "--verify-generated-prompt-source" \
+  "--verify-generated-prompt-batch" \
   "CLIPVAULT_STORE_PROBE" \
-  "CLIPVAULT_GENERATED_PROMPT_PROBE" \
+  "CLIPVAULT_GENERATED_PROMPT_BATCH_PROBE" \
   "com.andrzej.ClipVault.e2e.capture"; do
   if /usr/bin/grep -Fq -- "$forbidden_marker" "$APP_BINARY_STRINGS"; then
     fail "payload executable contains internal store probe marker: $forbidden_marker"

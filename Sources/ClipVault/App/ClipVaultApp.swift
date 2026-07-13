@@ -114,16 +114,16 @@ struct ClipVaultApp: App {
             var exitCode = EXIT_SUCCESS
             switch request.mode {
             case .storedClip:
-                let matches = clips.filter { $0.preview == request.token }
+                let matches = clips.filter { $0.preview == request.tokens[0] }
                 let copyCount = matches.map(\.copyCount).max() ?? 0
                 print("CLIPVAULT_STORE_PROBE row_count=\(matches.count) copy_count=\(copyCount)")
-            case .generatedPromptSource:
-                let result = ClipVaultGeneratedPromptProbeResult.inspect(
-                    sourceToken: request.token,
+            case .generatedPromptBatch:
+                let result = ClipVaultGeneratedPromptBatchProbeResult.inspect(
+                    sourceTokens: request.tokens,
                     clips: clips
                 )
                 print(result.outputLine)
-                if !result.isExactSingleAssociation {
+                if !result.isExactBatch {
                     exitCode = EX_DATAERR
                 }
             }
