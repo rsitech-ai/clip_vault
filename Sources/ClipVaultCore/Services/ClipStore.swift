@@ -130,16 +130,22 @@ public enum GeneratedPromptStoreError: Error, LocalizedError, Equatable {
     case emptyBatch
     case promptsUnavailable
     case sourceMissing(String)
+    case duplicateSource(String)
     case rejectedOutput(String)
     case duplicateOutput(String)
+    case encryptionFailed(String)
+    case batchSaveFailed([String])
 
     public var errorDescription: String? {
         switch self {
         case .emptyBatch: "No enhanced prompts were produced."
         case .promptsUnavailable: "The Prompts collection is unavailable."
         case .sourceMissing: "A source clip is no longer available."
+        case .duplicateSource: "A source clip was included more than once."
         case .rejectedOutput: "An enhanced prompt could not be saved safely."
         case .duplicateOutput: "An identical enhanced prompt already exists."
+        case .encryptionFailed: "An enhanced prompt could not be secured for saving."
+        case .batchSaveFailed: "The enhanced prompts could not be saved."
         }
     }
 }
@@ -375,6 +381,7 @@ enum BuiltInCollectionAssignment {
 }
 
 private struct PreparedGeneratedPrompt {
+    var sourceClipID: String
     var clip: Clip
     var payload: ClipPayload
 }
@@ -387,6 +394,12 @@ private enum GeneratedPromptBatchPreparation {
         sensitiveRules: SensitiveRuleEngine,
         index: any SearchIndexing
     ) throws -> [PreparedGeneratedPrompt] {
+        var sourceIDs: Set<String> = []
+        for draft in drafts {
+            guard sourceIDs.insert(draft.sourceClipID).inserted else {
+                throw GeneratedPromptStoreError.duplicateSource(draft.sourceClipID)
+            }
+        }
         var batchFingerprints: Set<UInt64> = []
 
         return try drafts.map { draft in
@@ -419,7 +432,11 @@ private enum GeneratedPromptBatchPreparation {
                 fingerprint: fingerprint,
                 metadata: payload.metadata
             )
-            return PreparedGeneratedPrompt(clip: clip, payload: payload)
+            return PreparedGeneratedPrompt(
+                sourceClipID: draft.sourceClipID,
+                clip: clip,
+                payload: payload
+            )
         }
     }
 }
@@ -679,15 +696,19 @@ public final class SwiftDataClipStore: ClipStoring {
                 index: index
             )
             let encrypted = try prepared.map { preparedPrompt in
-                let encryptedPayload = try encryptor.encrypt(encoder.encode(preparedPrompt.payload))
-                let encryptedDetails = try encryptedDetailsPayload(EncryptedClipDetails(
-                    listPayload: preparedPrompt.payload,
-                    title: preparedPrompt.clip.title,
-                    userNote: preparedPrompt.clip.userNote,
-                    tags: preparedPrompt.clip.tags,
-                    sourceApp: preparedPrompt.clip.sourceApp
-                ))
-                return (preparedPrompt.clip, encryptedPayload, encryptedDetails)
+                do {
+                    let encryptedPayload = try encryptor.encrypt(encoder.encode(preparedPrompt.payload))
+                    let encryptedDetails = try encryptedDetailsPayload(EncryptedClipDetails(
+                        listPayload: preparedPrompt.payload,
+                        title: preparedPrompt.clip.title,
+                        userNote: preparedPrompt.clip.userNote,
+                        tags: preparedPrompt.clip.tags,
+                        sourceApp: preparedPrompt.clip.sourceApp
+                    ))
+                    return (preparedPrompt.clip, encryptedPayload, encryptedDetails)
+                } catch {
+                    throw GeneratedPromptStoreError.encryptionFailed(preparedPrompt.sourceClipID)
+                }
             }
 
             for (clip, encryptedPayload, encryptedDetails) in encrypted {
@@ -697,7 +718,11 @@ public final class SwiftDataClipStore: ClipStoring {
                     encryptedListPayload: encryptedDetails
                 ))
             }
-            try saveFolderContext(context)
+            do {
+                try saveFolderContext(context)
+            } catch {
+                throw GeneratedPromptStoreError.batchSaveFailed(prepared.map(\.sourceClipID))
+            }
             return prepared.map(\.clip)
         } catch {
             context.rollback()
