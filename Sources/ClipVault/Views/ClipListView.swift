@@ -7,6 +7,7 @@ struct ClipListView: View {
     @State private var showCleanup = false
     @State private var pendingDeleteClip: Clip?
     @State private var confirmClearUnpinned = false
+    @State private var selectionMode: ClipSelectionMode = .browsing
 
     var body: some View {
         VStack(spacing: 0) {
@@ -27,6 +28,7 @@ struct ClipListView: View {
                                 draggableClipRow(clip: result.clip) {
                                     ClipRowView(
                                         result: result,
+                                        showsSelectionControl: selectionMode.showsSelectionControls,
                                         isSelectedForAI: model.selectedClipIDs.contains(result.clip.id),
                                         toggleAISelection: {
                                             model.select(result.clip)
@@ -179,20 +181,34 @@ struct ClipListView: View {
                     .padding(.vertical, 4)
                     .clipVaultGlassCapsule(tint: .accentColor.opacity(0.10))
             }
-            Menu {
-                Button("Bulk Cleanup") {
-                    showCleanup = true
+            if selectionMode == .selecting {
+                Button(selectionMode.headerActionTitle) {
+                    selectionMode = .browsing
                 }
-                Button("Clear Unpinned Clips", role: .destructive) {
-                    confirmClearUnpinned = true
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .help("Finish selecting clips")
+                .accessibilityLabel("Done selecting clips")
+            } else {
+                Menu {
+                    Button(selectionMode.headerActionTitle) {
+                        selectionMode = .selecting
+                    }
+                    Divider()
+                    Button("Bulk Cleanup") {
+                        showCleanup = true
+                    }
+                    Button("Clear Unpinned Clips", role: .destructive) {
+                        confirmClearUnpinned = true
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
                 }
-            } label: {
-                Image(systemName: "ellipsis.circle")
+                .menuStyle(.button)
+                .fixedSize()
+                .help("Open clip list actions")
+                .accessibilityLabel("Open clip list actions")
             }
-            .menuStyle(.button)
-            .fixedSize()
-            .help("Open cleanup actions")
-            .accessibilityLabel("Clip cleanup actions")
         }
         .padding(14)
         .background(.regularMaterial)
@@ -216,21 +232,25 @@ struct ClipListView: View {
 
 struct ClipRowView: View {
     var result: SearchResult
+    var showsSelectionControl: Bool
     var isSelectedForAI: Bool
     var toggleAISelection: () -> Void
 
     var body: some View {
         HStack(spacing: 10) {
-            Button(action: toggleAISelection) {
-                Image(systemName: isSelectedForAI ? "checkmark.circle.fill" : "circle")
-                    .font(.callout.weight(.semibold))
-                    .foregroundStyle(isSelectedForAI ? Color.accentColor : Color.secondary)
-                    .frame(width: 20, height: 28)
-                    .contentShape(Rectangle())
+            if showsSelectionControl {
+                Button(action: toggleAISelection) {
+                    Image(systemName: isSelectedForAI ? "checkmark.circle.fill" : "circle")
+                        .font(.callout.weight(.semibold))
+                        .foregroundStyle(isSelectedForAI ? Color.accentColor : Color.secondary)
+                        .frame(width: 20, height: 28)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(isSelectedForAI ? "Remove clip from AI selection" : "Add clip to AI selection")
+                .accessibilityLabel(isSelectedForAI ? "Remove clip from AI selection" : "Add clip to AI selection")
+                .accessibilityValue(isSelectedForAI ? "Selected" : "Not selected")
             }
-            .buttonStyle(.plain)
-            .help(isSelectedForAI ? "Remove clip from AI selection" : "Add clip to AI selection")
-            .accessibilityLabel(isSelectedForAI ? "Remove clip from AI selection" : "Add clip to AI selection")
 
             thumbnail
                 .accessibilityHidden(true)

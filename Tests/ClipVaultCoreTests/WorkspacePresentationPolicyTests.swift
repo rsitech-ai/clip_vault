@@ -116,6 +116,22 @@ struct WorkspacePresentationPolicyTests {
         #expect(!AIWorkspaceDisclosurePolicy.shouldExpandForGeneration(isGenerating: false))
     }
 
+    @Test("normal browsing hides AI selection controls")
+    func normalBrowsingHidesAISelectionControls() {
+        let mode = ClipSelectionMode.browsing
+
+        #expect(!mode.showsSelectionControls)
+        #expect(mode.headerActionTitle == "Select Clips")
+    }
+
+    @Test("selection mode shows controls and offers Done")
+    func selectionModeShowsControlsAndOffersDone() {
+        let mode = ClipSelectionMode.selecting
+
+        #expect(mode.showsSelectionControls)
+        #expect(mode.headerActionTitle == "Done")
+    }
+
     @Test("compact AI layout never exceeds its available height")
     func compactAIHeightIsClamped() {
         let metrics = AIWorkspaceLayoutPolicy.metrics(availableHeight: 430)

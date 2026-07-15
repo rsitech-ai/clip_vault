@@ -30,7 +30,7 @@
 - Produces: `ClipSelectionMode` with `.browsing`, `.selecting`, `showsSelectionControls: Bool`, and `headerActionTitle: String`.
 - Consumes: existing `ClipVaultViewModel.selectedClipIDs` and `ClipVaultViewModel.select(_:)` without changing either interface.
 
-- [ ] **Step 1: Add the failing normal-browsing presentation test**
+- [x] **Step 1: Add the failing normal-browsing presentation test**
 
 Append this test to `WorkspacePresentationPolicyTests`:
 
@@ -44,7 +44,7 @@ func normalBrowsingHidesAISelectionControls() {
 }
 ```
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [x] **Step 2: Run the focused test and verify RED**
 
 Run:
 
@@ -54,7 +54,7 @@ swift test --filter WorkspacePresentationPolicyTests.normalBrowsingHidesAISelect
 
 Expected: compilation fails because `ClipSelectionMode` does not exist.
 
-- [ ] **Step 3: Implement only the browsing presentation**
+- [x] **Step 3: Implement only the browsing presentation**
 
 Add to `WorkspacePresentationPolicy.swift`:
 
@@ -68,11 +68,11 @@ public enum ClipSelectionMode: Equatable, Sendable {
 }
 ```
 
-- [ ] **Step 4: Run the focused test and verify GREEN**
+- [x] **Step 4: Run the focused test and verify GREEN**
 
 Run the command from Step 2. Expected: one selected test passes.
 
-- [ ] **Step 5: Add the failing active-selection presentation test**
+- [x] **Step 5: Add the failing active-selection presentation test**
 
 Append this second test:
 
@@ -86,7 +86,7 @@ func selectionModeShowsControlsAndOffersDone() {
 }
 ```
 
-- [ ] **Step 6: Run the focused suite and verify RED**
+- [x] **Step 6: Run the focused suite and verify RED**
 
 Run:
 
@@ -96,7 +96,7 @@ swift test --filter WorkspacePresentationPolicyTests
 
 Expected: compilation fails because `.selecting` does not exist.
 
-- [ ] **Step 7: Complete the two-state presentation policy**
+- [x] **Step 7: Complete the two-state presentation policy**
 
 Replace the temporary browsing-only enum with:
 
@@ -118,11 +118,11 @@ public enum ClipSelectionMode: Equatable, Sendable {
 }
 ```
 
-- [ ] **Step 8: Run the focused suite and verify GREEN**
+- [x] **Step 8: Run the focused suite and verify GREEN**
 
 Run `swift test --filter WorkspacePresentationPolicyTests`. Expected: every workspace-presentation test passes.
 
-- [ ] **Step 9: Wire the mode into `ClipListView`**
+- [x] **Step 9: Wire the mode into `ClipListView`**
 
 Add view-local state:
 
@@ -196,7 +196,7 @@ if selectionMode == .selecting {
 
 Do not mutate `model.selectedClipIDs` in either header action. Rename the browsing menu help and accessibility label to **Open clip list actions**.
 
-- [ ] **Step 10: Compile and run focused/full automated verification**
+- [x] **Step 10: Compile and run focused/full automated verification**
 
 Run:
 
@@ -209,7 +209,7 @@ git diff --check
 
 Expected: all commands exit zero, and the full suite retains existing Rust and Swift behavior.
 
-- [ ] **Step 11: Verify the signed running app**
+- [x] **Step 11: Verify the signed running app**
 
 Run `./script/build_and_run.sh --verify`, then exercise the exact staged app:
 
@@ -222,7 +222,7 @@ Run `./script/build_and_run.sh --verify`, then exercise the exact staged app:
 - single-click, double-click or Return copy, context-menu selection, search, and cleanup presentation remain unchanged;
 - unified logs show no new ClipVault error/fault, invalid-symbol, or repeated-glass-update signal.
 
-- [ ] **Step 12: Record evidence and commit only intentional files**
+- [x] **Step 12: Record evidence and commit only intentional files**
 
 Update this plan with exact focused/full/build/runtime results. Stage only:
 
@@ -236,6 +236,16 @@ git commit -m "feat: add on-demand clip selection mode"
 ```
 
 Do not stage existing untracked `audits/`, `docs/monetization/`, or `docs/plans/` content.
+
+## Execution Result — 2026-07-15
+
+- TDD RED was exact: the first test failed because `ClipSelectionMode` did not exist; the second failed because `.selecting` did not exist. Each minimal implementation made its corresponding test pass before the next slice.
+- The focused workspace presentation suite passed 10 tests. `swift build -Xswiftc -warnings-as-errors`, `git diff --check`, and the full `./script/test.sh` gate passed. The full gate executed 159 Swift tests in 17 suites plus 4 Rust tests.
+- `./script/build_and_run.sh --verify` built, signed, staged, and launched `dist/ClipVault.app`; `codesign --verify --deep --strict --verbose=2` validated the exact app and bundled Rust library.
+- Live UI proof passed in the exact staged app: ordinary rows exposed no circle controls; the overflow menu contained **Select Clips**, **Bulk Cleanup**, and **Clear Unpinned Clips**; selection mode exposed accessible circle/checkmark controls and **Done**; two selections produced the `2 selected` header and AI context; **Done** hid every circle without clearing the selection; reopening selection mode restored both checked controls; and the row context menu retained **Remove from AI Selection**.
+- The temporary two-clip QA selection was cleared and the app was returned to normal browsing. Existing double-click/Return copy paths were left structurally unchanged and were not invoked during this live pass because they mutate the user's real pasteboard and capture history.
+- Targeted current-process logs contained no `operation_failed`, invalid SF Symbol, negative-layout, repeated-glass-update, fatal-error, or assertion-failure signal. The pre-existing platform Core Spotlight `-1000` donation failures and ANE allocation messages remained outside this presentation slice.
+- Computer-use screenshot inspection occurred while clipboard capture was active and produced one additional image clip in the user's history. It was not deleted because deletion is destructive and outside this task's authority.
 
 ## Rollback
 
