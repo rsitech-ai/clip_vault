@@ -71,6 +71,22 @@ public enum AIWorkspaceDisclosurePolicy {
     }
 }
 
+public enum ClipSelectionMode: Equatable, Sendable {
+    case browsing
+    case selecting
+
+    public var showsSelectionControls: Bool {
+        self == .selecting
+    }
+
+    public var headerActionTitle: String {
+        switch self {
+        case .browsing: "Select Clips"
+        case .selecting: "Done"
+        }
+    }
+}
+
 public enum WorkspaceManualDestinationPolicy {
     public static func collectionID(
         for folder: CollectionFolder,

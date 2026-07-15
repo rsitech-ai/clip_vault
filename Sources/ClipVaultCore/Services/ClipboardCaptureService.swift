@@ -30,7 +30,7 @@ public final class ClipboardCaptureService {
         self.lastChangeCount = pasteboard.changeCount
     }
 
-    public func start(interval: TimeInterval = 0.8) {
+    public func start(interval: TimeInterval = 0.25) {
         guard !isRunning else {
             return
         }

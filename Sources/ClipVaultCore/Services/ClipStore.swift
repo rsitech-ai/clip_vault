@@ -631,8 +631,10 @@ public final class SwiftDataClipStore: ClipStoring {
 
         if let existing {
             var details = try details(from: existing)
+            let capturedAt = Date()
             existing.copyCount = (existing.copyCount ?? 1) + 1
-            existing.updatedAt = Date()
+            existing.createdAt = capturedAt
+            existing.updatedAt = capturedAt
             let data = try encoder.encode(payload)
             existing.encryptedPayload = try encryptor.encrypt(data)
             details.listPayload = listPayload(for: payload)
@@ -1330,8 +1332,10 @@ public final class InMemoryClipStore: ClipStoring {
         }
         let fingerprint = index.fingerprint(payload.searchableText)
         if let existingIndex = clips.firstIndex(where: { $0.fingerprint == fingerprint }) {
+            let capturedAt = Date()
             clips[existingIndex].copyCount += 1
-            clips[existingIndex].updatedAt = Date()
+            clips[existingIndex].createdAt = capturedAt
+            clips[existingIndex].updatedAt = capturedAt
             clips[existingIndex].preview = payload.displayText
             clips[existingIndex].extractedText = payload.extractedText
             clips[existingIndex].previewData = payload.previewData
