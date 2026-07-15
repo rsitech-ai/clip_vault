@@ -5,6 +5,35 @@ import Testing
 @Suite("Clipboard capture service")
 struct ClipboardCaptureServiceTests {
     @MainActor
+    @Test("default monitoring captures full copied text promptly")
+    func defaultMonitoringCapturesExactTextPromptly() async throws {
+        let pasteboard = NSPasteboard(
+            name: NSPasteboard.Name("ClipVaultDefaultMonitoringTest-\(UUID().uuidString)")
+        )
+        let service = ClipboardCaptureService(pasteboard: pasteboard)
+        let expected = """
+        First line copied from an external Copy button.
+        Second line preserves emoji 🧪 and non-ASCII text: zażółć gęślą jaźń.
+        Third line must not be truncated when the payload is captured.
+        """
+        var capturedPayload: ClipPayload?
+        service.onClipCaptured = { payload, _ in
+            capturedPayload = payload
+        }
+        service.start()
+        defer { service.stop() }
+
+        pasteboard.clearContents()
+        pasteboard.setString(expected, forType: .string)
+        for _ in 0..<13 where capturedPayload == nil {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+
+        #expect(capturedPayload?.displayText == expected)
+        #expect(capturedPayload?.extractedText == expected)
+    }
+
+    @MainActor
     @Test("starting capture ignores clipboard content copied while capture was stopped")
     func startRebaselinesPasteboard() async throws {
         let pasteboard = NSPasteboard(name: NSPasteboard.Name("ClipVaultStartBaselineTest"))

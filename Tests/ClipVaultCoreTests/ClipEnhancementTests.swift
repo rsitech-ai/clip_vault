@@ -16,6 +16,42 @@ struct ClipEnhancementTests {
         #expect(clips.first?.copyCount == 2)
     }
 
+    @Test("recopying an existing payload makes it the most recent clip")
+    func duplicateSaveRefreshesCaptureRecency() async throws {
+        let store = InMemoryClipStore()
+        let firstPayload = ClipPayload(
+            kind: .text,
+            displayText: "recopied payload",
+            extractedText: "recopied payload",
+            metadata: ["revision": "1"]
+        )
+        let first = try #require(try store.save(payload: firstPayload, sourceApp: "First App"))
+        try await Task.sleep(for: .milliseconds(10))
+        _ = try store.save(
+            payload: ClipPayload(kind: .text, displayText: "newer payload", extractedText: "newer payload"),
+            sourceApp: "Second App"
+        )
+        try await Task.sleep(for: .milliseconds(10))
+
+        let recopied = try #require(try store.save(
+            payload: ClipPayload(
+                kind: .text,
+                displayText: "recopied payload",
+                extractedText: "recopied payload",
+                metadata: ["revision": "2"]
+            ),
+            sourceApp: "Third App"
+        ))
+
+        let clips = try store.allClips()
+        let storedPayload = try #require(try store.payload(for: first.id))
+        #expect(clips.count == 2)
+        #expect(recopied.id == first.id)
+        #expect(recopied.copyCount == 2)
+        #expect(clips.first?.id == first.id)
+        #expect(storedPayload.metadata == ["revision": "2"])
+    }
+
     @Test("title overrides and tags update clips")
     func titleAndTagsUpdate() throws {
         let store = InMemoryClipStore()
