@@ -9,12 +9,17 @@ struct PasteboardWriterTests {
     func writesText() throws {
         let pasteboard = NSPasteboard(name: NSPasteboard.Name("ClipVaultTextWriterTest"))
         let writer = ClipPayloadPasteboardWriter(pasteboard: pasteboard)
+        let fullText = """
+        let answer = 42
+        // Preserve every line, emoji 📋, and non-ASCII text: zażółć gęślą jaźń.
+        // This content is intentionally longer than a list preview.
+        """
 
         try writer.write(
-            ClipPayload(kind: .code, displayText: "let answer = 42", extractedText: "let answer = 42")
+            ClipPayload(kind: .code, displayText: fullText, extractedText: fullText)
         )
 
-        #expect(pasteboard.string(forType: .string) == "let answer = 42")
+        #expect(pasteboard.string(forType: .string) == fullText)
     }
 
     @MainActor
