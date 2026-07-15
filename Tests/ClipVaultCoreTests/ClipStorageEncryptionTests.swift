@@ -84,7 +84,7 @@ struct ClipStorageEncryptionTests {
     }
 
     @Test("duplicate payload refresh preserves encrypted user details")
-    func duplicateRefreshPreservesEncryptedDetails() throws {
+    func duplicateRefreshPreservesEncryptedDetails() async throws {
         let directory = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let (_, context, store) = try makeStore(at: directory.appendingPathComponent("ClipVault.sqlite"))
@@ -100,6 +100,16 @@ struct ClipStorageEncryptionTests {
         try store.updateTitle(id: clip.id, title: title)
         try store.updateNote(id: clip.id, note: note)
         try store.updateTags(id: clip.id, tags: [tag])
+        try await Task.sleep(for: .milliseconds(10))
+        _ = try store.save(
+            payload: ClipPayload(
+                kind: .text,
+                displayText: "newer-intervening-payload-1A9CB6A7",
+                extractedText: "newer-intervening-payload-1A9CB6A7"
+            ),
+            sourceApp: "intervening-source"
+        )
+        try await Task.sleep(for: .milliseconds(10))
 
         let duplicate = try #require(try store.save(
             payload: ClipPayload(
@@ -111,14 +121,20 @@ struct ClipStorageEncryptionTests {
             sourceApp: "ignored-new-source"
         ))
         let record = try #require(try context.fetch(FetchDescriptor<ClipRecord>()).first)
+        let allClips = try store.allClips()
+        let storedPayload = try #require(try store.payload(for: clip.id))
 
+        #expect(duplicate.id == clip.id)
         #expect(duplicate.copyCount == 2)
+        #expect(allClips.first?.id == clip.id)
         #expect(duplicate.preview == "refreshed-preview-19E0825A")
         #expect(duplicate.title == title)
         #expect(duplicate.userNote == note)
         #expect(duplicate.tags == [tag])
         #expect(duplicate.sourceApp == source)
         #expect(duplicate.metadata == ["revision": "2"])
+        #expect(storedPayload.displayText == "refreshed-preview-19E0825A")
+        #expect(storedPayload.metadata == ["revision": "2"])
         #expect(record.title.isEmpty)
         #expect(record.preview.isEmpty)
         #expect(record.userNote == nil)
