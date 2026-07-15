@@ -84,6 +84,7 @@ struct ClipListView: View {
                         model.copyToClipboard(selectedClip)
                         return .handled
                     }
+                    .modifier(SelectedClipCopyKeyModifier(model: model))
                     .onChange(of: model.selectedClipID) { _, selectedClipID in
                         guard let selectedClipID else { return }
                         proxy.scrollTo(selectedClipID, anchor: .center)
@@ -227,6 +228,21 @@ struct ClipListView: View {
             return "\(count) \(count == 1 ? "clip" : "clips")"
         }
         return "\(count) \(count == 1 ? "match" : "matches")"
+    }
+}
+
+private struct SelectedClipCopyKeyModifier: ViewModifier {
+    @Bindable var model: ClipVaultViewModel
+
+    func body(content: Content) -> some View {
+        content.onKeyPress(keys: [KeyEquivalent("c")], phases: .down) { keyPress in
+            guard keyPress.modifiers.contains(.command),
+                  let selectedClip = model.selectedClip else {
+                return .ignored
+            }
+            model.copyToClipboard(selectedClip)
+            return .handled
+        }
     }
 }
 
