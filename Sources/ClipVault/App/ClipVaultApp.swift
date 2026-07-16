@@ -84,7 +84,10 @@ struct ClipVaultApp: App {
                 }
             }
         } label: {
-            Label("ClipVault", systemImage: model.isCapturing ? "doc.on.clipboard.fill" : "doc.on.clipboard")
+            Label(
+                MenuBarPresentationPolicy.title,
+                systemImage: model.isCapturing ? "doc.on.clipboard.fill" : "doc.on.clipboard"
+            )
         }
         .menuBarExtraStyle(.window)
 

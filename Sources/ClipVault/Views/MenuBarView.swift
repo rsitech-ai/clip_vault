@@ -26,7 +26,17 @@ struct MenuBarView: View {
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                TextField("Search clips...", text: $model.searchText)
+                HStack {
+                    Text(MenuBarPresentationPolicy.title)
+                        .font(.headline)
+                    Spacer()
+                    Text("\(menuResults.count)")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel("\(menuResults.count) visible clips")
+                }
+
+                TextField("Search all clips...", text: $model.searchText)
                     .textFieldStyle(.roundedBorder)
                     .onChange(of: model.searchText) {
                         model.statusMenuFocusIndex = 0
@@ -75,6 +85,7 @@ struct MenuBarView: View {
                     .frame(maxHeight: 470)
                     .scrollIndicators(.visible)
                     .onAppear {
+                        model.refreshSearchRankingIfNeeded()
                         clampMenuFocus()
                     }
                     .onChange(of: menuResultIDs) {
@@ -159,7 +170,7 @@ struct MenuBarView: View {
     }
 
     private var menuResults: [SearchResult] {
-        Array(model.visibleResults.prefix(menuResultLimit))
+        Array(model.menuBarResults.prefix(menuResultLimit))
     }
 
     private var menuClips: [Clip] {
