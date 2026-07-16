@@ -3,6 +3,19 @@ import Testing
 
 @Suite("Workspace presentation policy")
 struct WorkspacePresentationPolicyTests {
+    @Test("menu bar stays on All Clips across workspace collection selections")
+    func menuBarScopeStaysAllClipsAcrossWorkspaceSelections() {
+        for workspaceCollectionID in ["all", "code", "images", "custom-project"] {
+            let query = MenuBarPresentationPolicy.searchQuery(
+                text: "needle",
+                workspaceCollectionID: workspaceCollectionID
+            )
+
+            #expect(MenuBarPresentationPolicy.title == "All Clips")
+            #expect(query == SearchQuery(text: "needle", collectionID: nil))
+        }
+    }
+
     @Test("first reload snapshot exposes reconciled Prompts membership")
     func firstReloadSnapshotExposesReconciledPromptsMembership() throws {
         let legacyCollectionID = "legacy-reload-prompts"

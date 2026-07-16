@@ -21,18 +21,30 @@ final class ClipVaultViewModel {
     let container: ModelContainer
     let storageStartupError: String?
 
-    var clips: [Clip] = []
+    var clips: [Clip] = [] {
+        didSet {
+            refreshAllSearchResults()
+        }
+    }
     var collections: [ClipCollection] = ClipCollection.defaults
     var folders: [CollectionFolder] = CollectionFolder.defaults
     var selectedCollectionID = "all" {
         didSet {
+            if !refreshSearchRankingIfNeeded() {
+                refreshWorkspaceSearchResults()
+            }
             selectFirstVisibleResultIfNeeded()
         }
     }
-    var selectedClipID: String?
+    var selectedClipID: String? {
+        didSet {
+            refreshSearchRankingIfNeeded()
+        }
+    }
     var selectedClipIDs: Set<String> = []
     var searchText = "" {
         didSet {
+            refreshAllSearchResults()
             statusMenuFocusIndex = 0
             selectFirstVisibleResultIfNeeded()
         }
@@ -61,7 +73,7 @@ final class ClipVaultViewModel {
     private let captureService = ClipboardCaptureService()
     #endif
     private let pasteboardWriter = ClipPayloadPasteboardWriter()
-    private let searcher = ClipSearcher()
+    private var searchProjection = ClipSearchProjection()
     private let aiProvider: any AIActionProviding = FoundationModelsAIActionProvider()
     private let promptEnhancementRunner: PromptEnhancementBatchRunner
     private var promptEnhancementTask: Task<Void, Never>?
@@ -175,11 +187,11 @@ final class ClipVaultViewModel {
     }
 
     var visibleResults: [SearchResult] {
-        let collection = selectedCollectionID == "all" ? nil : selectedCollectionID
-        return searcher.search(
-            clips,
-            query: SearchQuery(text: searchText, collectionID: collection)
-        )
+        searchProjection.workspaceResults
+    }
+
+    var menuBarResults: [SearchResult] {
+        searchProjection.menuBarResults
     }
 
     var aiAvailability: AIAvailability {
@@ -230,14 +242,6 @@ final class ClipVaultViewModel {
 
     var visibleClips: [Clip] {
         visibleResults.map(\.clip)
-    }
-
-    var focusedMenuClip: Clip? {
-        guard !visibleClips.isEmpty else {
-            return nil
-        }
-        let index = min(max(statusMenuFocusIndex, 0), visibleClips.count - 1)
-        return visibleClips[index]
     }
 
     func toggleCapture() {
@@ -505,37 +509,6 @@ final class ClipVaultViewModel {
 
         selectedClipID = id
         copyToClipboard(clip)
-    }
-
-    func moveMenuFocus(_ delta: Int) {
-        guard !visibleClips.isEmpty else {
-            statusMenuFocusIndex = 0
-            return
-        }
-        statusMenuFocusIndex = min(max(statusMenuFocusIndex + delta, 0), visibleClips.count - 1)
-        selectedClipID = visibleClips[statusMenuFocusIndex].id
-    }
-
-    func copyFocusedMenuClip() {
-        guard let focusedMenuClip else {
-            return
-        }
-        selectAndCopy(focusedMenuClip)
-    }
-
-    func deleteFocusedMenuClip() {
-        guard let focusedMenuClip else {
-            return
-        }
-        delete(focusedMenuClip)
-        statusMenuFocusIndex = min(statusMenuFocusIndex, max(visibleClips.count - 1, 0))
-    }
-
-    func togglePinnedFocusedMenuClip() {
-        guard let focusedMenuClip else {
-            return
-        }
-        togglePinned(focusedMenuClip)
     }
 
     func createCollection(title: String, parentFolderID: String?) {
@@ -921,6 +894,32 @@ final class ClipVaultViewModel {
         }
 
         selectedClipID = visibleResults.first?.clip.id
+    }
+
+    private func refreshAllSearchResults() {
+        searchProjection.refreshAll(
+            clips: clips,
+            searchText: searchText,
+            workspaceCollectionID: selectedCollectionID
+        )
+    }
+
+    @discardableResult
+    func refreshSearchRankingIfNeeded(now: Date = Date()) -> Bool {
+        searchProjection.refreshIfExpired(
+            clips: clips,
+            searchText: searchText,
+            workspaceCollectionID: selectedCollectionID,
+            now: now
+        )
+    }
+
+    private func refreshWorkspaceSearchResults() {
+        searchProjection.refreshWorkspace(
+            clips: clips,
+            searchText: searchText,
+            workspaceCollectionID: selectedCollectionID
+        )
     }
 
     private func insert(_ folder: CollectionFolder, under parentFolderID: String?) {

@@ -82,7 +82,11 @@ public struct SearchResult: Identifiable, Hashable, Sendable {
     }
 }
 
-public struct ClipSearcher: Sendable {
+public protocol ClipSearching: Sendable {
+    func search(_ clips: [Clip], query: SearchQuery) -> [SearchResult]
+}
+
+public struct ClipSearcher: ClipSearching, Sendable {
     private let index: any SearchIndexing
 
     public init(index: any SearchIndexing = RustSearchIndexCore()) {
@@ -114,5 +118,79 @@ public struct ClipSearcher: Sendable {
                 }
                 return lhs.score > rhs.score
             }
+    }
+}
+
+public struct ClipSearchProjection {
+    private static let rankingRefreshInterval: TimeInterval = 300
+
+    public private(set) var workspaceResults: [SearchResult] = []
+    public private(set) var menuBarResults: [SearchResult] = []
+
+    private let searcher: any ClipSearching
+    private var rankingExpiresAt = Date.distantPast
+
+    public init(searcher: any ClipSearching = ClipSearcher()) {
+        self.searcher = searcher
+    }
+
+    public mutating func refreshAll(
+        clips: [Clip],
+        searchText: String,
+        workspaceCollectionID: String,
+        now: Date = Date()
+    ) {
+        menuBarResults = searcher.search(
+            clips,
+            query: MenuBarPresentationPolicy.searchQuery(
+                text: searchText,
+                workspaceCollectionID: workspaceCollectionID
+            )
+        )
+
+        guard workspaceCollectionID != "all" else {
+            workspaceResults = menuBarResults
+            rankingExpiresAt = now.addingTimeInterval(Self.rankingRefreshInterval)
+            return
+        }
+
+        refreshWorkspace(
+            clips: clips,
+            searchText: searchText,
+            workspaceCollectionID: workspaceCollectionID
+        )
+        rankingExpiresAt = now.addingTimeInterval(Self.rankingRefreshInterval)
+    }
+
+    @discardableResult
+    public mutating func refreshIfExpired(
+        clips: [Clip],
+        searchText: String,
+        workspaceCollectionID: String,
+        now: Date = Date()
+    ) -> Bool {
+        guard now >= rankingExpiresAt else {
+            return false
+        }
+
+        refreshAll(
+            clips: clips,
+            searchText: searchText,
+            workspaceCollectionID: workspaceCollectionID,
+            now: now
+        )
+        return true
+    }
+
+    public mutating func refreshWorkspace(
+        clips: [Clip],
+        searchText: String,
+        workspaceCollectionID: String
+    ) {
+        let collectionID = workspaceCollectionID == "all" ? nil : workspaceCollectionID
+        workspaceResults = searcher.search(
+            clips,
+            query: SearchQuery(text: searchText, collectionID: collectionID)
+        )
     }
 }
