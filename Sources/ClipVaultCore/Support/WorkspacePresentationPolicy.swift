@@ -14,6 +14,17 @@ public struct WorkspaceReloadSnapshot: Sendable {
     }
 }
 
+public enum MenuBarPresentationPolicy {
+    public static let title = "All Clips"
+
+    public static func searchQuery(
+        text: String,
+        workspaceCollectionID _: String
+    ) -> SearchQuery {
+        SearchQuery(text: text, collectionID: nil)
+    }
+}
+
 public enum WorkspaceWidthClass: Equatable, Sendable {
     case compact
     case regular
