@@ -20,7 +20,7 @@ source "$ROOT_DIR/script/lib/signing_identities.sh"
 cd "$ROOT_DIR"
 
 if [[ ! -d "$APP_BUNDLE" ]]; then
-  ./script/build_and_run.sh --verify
+  ./script/build_and_run.sh --stage
 fi
 
 echo "== Bundle =="
