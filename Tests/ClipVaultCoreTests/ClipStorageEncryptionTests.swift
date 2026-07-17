@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import SwiftData
 import Testing
@@ -5,6 +6,36 @@ import Testing
 
 @Suite("Clip storage encryption")
 struct ClipStorageEncryptionTests {
+    @Test("keychain service follows the app bundle and preserves the production fallback")
+    func keychainServiceUsesBundleIdentity() {
+        #expect(
+            KeychainKeyProvider.defaultService(bundleIdentifier: "com.andrzej.ClipVault.e2e.audit")
+                == "com.andrzej.ClipVault.e2e.audit"
+        )
+        #expect(
+            KeychainKeyProvider.defaultService(bundleIdentifier: nil)
+                == "com.andrzej.ClipVault"
+        )
+    }
+
+    @Test("local encryptor loads its key once across repeated operations")
+    func localEncryptorCachesItsKey() throws {
+        let counter = LockedKeyLoadCounter()
+        let key = SymmetricKey(size: .bits256)
+        let encryptor = LocalPayloadEncryptor(keyLoader: {
+            counter.increment()
+            return key
+        })
+
+        try encryptor.prepare()
+        let first = try encryptor.encrypt(Data("first".utf8))
+        let second = try encryptor.encrypt(Data("second".utf8))
+
+        #expect(try encryptor.decrypt(first) == Data("first".utf8))
+        #expect(try encryptor.decrypt(second) == Data("second".utf8))
+        #expect(counter.value == 1)
+    }
+
     @Test("production record initializer uses plaintext placeholders")
     func productionRecordInitializerUsesPlaintextPlaceholders() {
         let record = ClipRecord(
@@ -346,6 +377,23 @@ struct ClipStorageEncryptionTests {
         record.userNote = clip.userNote
         record.tagsRaw = clip.tags.joined(separator: ",")
         return record
+    }
+}
+
+private final class LockedKeyLoadCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    var value: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return count
+    }
+
+    func increment() {
+        lock.lock()
+        count += 1
+        lock.unlock()
     }
 }
 

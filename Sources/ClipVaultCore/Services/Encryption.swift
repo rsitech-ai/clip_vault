@@ -21,15 +21,25 @@ public enum EncryptionError: Error, LocalizedError {
     }
 }
 
-public struct LocalPayloadEncryptor: PayloadEncrypting {
-    private let keyProvider: KeychainKeyProvider
+public final class LocalPayloadEncryptor: PayloadEncrypting, @unchecked Sendable {
+    private let keyLoader: @Sendable () throws -> SymmetricKey
+    private let keyLock = NSLock()
+    private var cachedKey: SymmetricKey?
 
-    public init(keyProvider: KeychainKeyProvider = KeychainKeyProvider()) {
-        self.keyProvider = keyProvider
+    public convenience init(keyProvider: KeychainKeyProvider = KeychainKeyProvider()) {
+        self.init(keyLoader: { try keyProvider.key() })
+    }
+
+    init(keyLoader: @escaping @Sendable () throws -> SymmetricKey) {
+        self.keyLoader = keyLoader
+    }
+
+    public func prepare() throws {
+        _ = try key()
     }
 
     public func encrypt(_ data: Data) throws -> Data {
-        let sealed = try AES.GCM.seal(data, using: keyProvider.key())
+        let sealed = try AES.GCM.seal(data, using: key())
         guard let combined = sealed.combined else {
             throw EncryptionError.sealedBoxFailure
         }
@@ -38,15 +48,32 @@ public struct LocalPayloadEncryptor: PayloadEncrypting {
 
     public func decrypt(_ data: Data) throws -> Data {
         let box = try AES.GCM.SealedBox(combined: data)
-        return try AES.GCM.open(box, using: keyProvider.key())
+        return try AES.GCM.open(box, using: key())
+    }
+
+    private func key() throws -> SymmetricKey {
+        keyLock.lock()
+        defer { keyLock.unlock() }
+        if let cachedKey {
+            return cachedKey
+        }
+        let key = try keyLoader()
+        cachedKey = key
+        return key
     }
 }
 
 public struct KeychainKeyProvider: Sendable {
-    private let service = "com.andrzej.ClipVault"
+    private let service: String
     private let account = "payload-encryption-key"
 
-    public init() {}
+    public init() {
+        service = Self.defaultService(bundleIdentifier: Bundle.main.bundleIdentifier)
+    }
+
+    static func defaultService(bundleIdentifier: String?) -> String {
+        bundleIdentifier ?? "com.andrzej.ClipVault"
+    }
 
     public func key() throws -> SymmetricKey {
         if let existing = try readKeyData() {
