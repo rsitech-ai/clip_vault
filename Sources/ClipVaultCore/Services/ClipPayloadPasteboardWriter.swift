@@ -7,7 +7,7 @@ public enum PasteboardWriterError: Error, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .missingImageData:
-            "This image clip does not have image data to copy."
+            "This image clip does not have valid image data to copy."
         }
     }
 }
@@ -21,11 +21,16 @@ public final class ClipPayloadPasteboardWriter {
     }
 
     public func write(_ payload: ClipPayload) throws {
+        if payload.kind == .image {
+            try writeImage(payload)
+            return
+        }
+
         pasteboard.clearContents()
 
         switch payload.kind {
         case .image:
-            try writeImage(payload)
+            preconditionFailure("Image payloads are handled before clearing the pasteboard")
         case .file:
             if let urls = fileURLs(from: payload), !urls.isEmpty {
                 pasteboard.writeObjects(urls as [NSURL])
@@ -46,21 +51,19 @@ public final class ClipPayloadPasteboardWriter {
     }
 
     private func writeImage(_ payload: ClipPayload) throws {
-        guard let data = payload.previewData else {
+        guard let data = payload.previewData, let image = NSImage(data: data) else {
             throw PasteboardWriterError.missingImageData
         }
 
-        if let image = NSImage(data: data) {
-            pasteboard.writeObjects([image])
-        }
+        pasteboard.clearContents()
+        pasteboard.writeObjects([image])
 
         let preferredType = payload.metadata["previewType"].map(NSPasteboard.PasteboardType.init(_:))
         if let preferredType {
             pasteboard.setData(data, forType: preferredType)
-        } else if let image = NSImage(data: data), let tiff = image.tiffRepresentation {
+        } else if let tiff = image.tiffRepresentation {
             pasteboard.setData(tiff, forType: .tiff)
         }
-
     }
 
     private func fileURLs(from payload: ClipPayload) -> [URL]? {

@@ -138,7 +138,19 @@ final class ClipVaultViewModel {
 
         Self.logger.info("Bootstrapping ClipVault view model")
         let context = ModelContext(container)
-        store = SwiftDataClipStore(context: context)
+        let encryptor = LocalPayloadEncryptor()
+        do {
+            try await Task.detached(priority: .userInitiated) {
+                try encryptor.prepare()
+            }.value
+        } catch {
+            Self.logFailure(operation: "prepare_encryption", error: error)
+            stopCapture()
+            captureStatus = error.localizedDescription
+            updateDockTile()
+            return
+        }
+        store = SwiftDataClipStore(context: context, encryptor: encryptor)
         captureService.onClipCaptured = { [weak self] payload, sourceApp in
             self?.ingest(payload: payload, sourceApp: sourceApp)
         }

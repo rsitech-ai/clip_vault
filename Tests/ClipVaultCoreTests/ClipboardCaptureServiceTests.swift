@@ -83,6 +83,82 @@ struct ClipboardCaptureServiceTests {
     }
 
     @MainActor
+    @Test("captures are delivered in clipboard change order when payload work completes out of order")
+    func deliversCapturesInClipboardOrder() async throws {
+        let pasteboard = NSPasteboard(
+            name: NSPasteboard.Name("ClipVaultCaptureOrderingTest-\(UUID().uuidString)")
+        )
+        let gate = OrderedPayloadBuilderGate()
+        let service = ClipboardCaptureService(pasteboard: pasteboard) { snapshot in
+            await gate.build(snapshot)
+        }
+        var capturedTexts: [String] = []
+        service.onClipCaptured = { payload, _ in
+            capturedTexts.append(payload.displayText)
+        }
+        service.start(interval: 60)
+        defer { service.stop() }
+
+        pasteboard.clearContents()
+        pasteboard.setString("first", forType: .string)
+        service.poll()
+        await gate.waitUntilStarted("first")
+
+        pasteboard.clearContents()
+        pasteboard.setString("second", forType: .string)
+        service.poll()
+        await gate.waitUntilStarted("second")
+
+        await gate.finish("second")
+        await Task.yield()
+        await gate.finish("first")
+        for _ in 0..<20 where capturedTexts.count < 2 {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        #expect(capturedTexts == ["first", "second"])
+    }
+
+    @MainActor
+    @Test("an ignored payload does not block a later valid capture")
+    func ignoredPayloadDoesNotBlockLaterCapture() async throws {
+        let pasteboard = NSPasteboard(
+            name: NSPasteboard.Name("ClipVaultIgnoredCaptureOrderingTest-\(UUID().uuidString)")
+        )
+        let gate = OrderedPayloadBuilderGate()
+        let service = ClipboardCaptureService(pasteboard: pasteboard) { snapshot in
+            await gate.build(snapshot)
+        }
+        var capturedTexts: [String] = []
+        service.onClipCaptured = { payload, _ in
+            capturedTexts.append(payload.displayText)
+        }
+        service.start(interval: 60)
+        defer { service.stop() }
+
+        pasteboard.clearContents()
+        pasteboard.setString("ignored", forType: .string)
+        service.poll()
+        await gate.waitUntilStarted("ignored")
+
+        pasteboard.clearContents()
+        pasteboard.setString("kept", forType: .string)
+        service.poll()
+        await gate.waitUntilStarted("kept")
+
+        await gate.finish("kept")
+        await Task.yield()
+        #expect(capturedTexts.isEmpty)
+
+        await gate.finishWithoutPayload("ignored")
+        for _ in 0..<20 where capturedTexts.isEmpty {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        #expect(capturedTexts == ["kept"])
+    }
+
+    @MainActor
     @Test("parses URL strings as URL payloads")
     func parsesURLStrings() throws {
         let pasteboard = NSPasteboard(name: NSPasteboard.Name("ClipVaultURLCaptureTest"))
@@ -151,5 +227,39 @@ private actor PayloadBuilderGate {
     func finish(with payload: ClipPayload?) {
         buildContinuation?.resume(returning: payload)
         buildContinuation = nil
+    }
+}
+
+private actor OrderedPayloadBuilderGate {
+    private var started: Set<String> = []
+    private var startWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
+    private var buildContinuations: [String: CheckedContinuation<ClipPayload?, Never>] = [:]
+
+    func build(_ snapshot: PasteboardSnapshot) async -> ClipPayload? {
+        let text = snapshot.string ?? ""
+        started.insert(text)
+        for waiter in startWaiters.removeValue(forKey: text) ?? [] {
+            waiter.resume()
+        }
+        return await withCheckedContinuation { continuation in
+            buildContinuations[text] = continuation
+        }
+    }
+
+    func waitUntilStarted(_ text: String) async {
+        guard !started.contains(text) else { return }
+        await withCheckedContinuation { continuation in
+            startWaiters[text, default: []].append(continuation)
+        }
+    }
+
+    func finish(_ text: String) {
+        buildContinuations.removeValue(forKey: text)?.resume(
+            returning: ClipPayload(kind: .text, displayText: text, extractedText: text)
+        )
+    }
+
+    func finishWithoutPayload(_ text: String) {
+        buildContinuations.removeValue(forKey: text)?.resume(returning: nil)
     }
 }
