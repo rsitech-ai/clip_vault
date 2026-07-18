@@ -122,9 +122,16 @@ final class ClipVaultViewModel {
         do {
             let configuration = ModelConfiguration("ClipVault", schema: schema)
             let persistentStoreExists = FileManager.default.fileExists(atPath: configuration.url.path)
-            container = try ModelContainer(for: schema, configurations: [configuration])
+            let openedContainer = try ModelContainer(for: schema, configurations: [configuration])
+            let storedClipCount = persistentStoreExists
+                ? try ModelContext(openedContainer).fetchCount(FetchDescriptor<ClipRecord>())
+                : 0
+            container = openedContainer
             storageStartupError = nil
-            migrateLegacyKey = persistentStoreExists
+            migrateLegacyKey = LegacyKeyMigrationPolicy.shouldMigrate(
+                persistentStoreExisted: persistentStoreExists,
+                storedClipCount: storedClipCount
+            )
         } catch {
             storageStartupError = "Persistent storage unavailable: \(error.localizedDescription)"
             let fallback = ModelConfiguration("ClipVaultFallback", schema: schema, isStoredInMemoryOnly: true)
