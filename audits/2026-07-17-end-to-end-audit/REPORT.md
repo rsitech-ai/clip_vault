@@ -54,7 +54,7 @@ The release flow now stages a signed app without launching it. Local readiness c
 | Low | E2E reliability | The signed smoke treated “process alive” as capture-ready and could write its token during encryption preparation, after which capture intentionally rebased the pasteboard. | The smoke now retries the private test-pasteboard write until capture is observable, records the initial copy count, proves a further deduplicating copy increments it, and verifies that exact count after restart. |
 | High | Startup concurrency | The workspace window and menu-bar surface could call `bootstrap()` concurrently. Both calls could suspend during detached Keychain preparation, create separate encryptors, and race to insert the same key; the losing call could report a duplicate-item failure and stop capture after the successful call. | `LocalPayloadEncryptionBootstrap` now coordinates one actor-isolated preparation task and returns the same prepared encryptor to concurrent callers. A regression test proves one factory invocation, one key load, and shared object identity; a second test proves failed preparation is cleared and can be retried. |
 | Medium | Capture readiness | After encryption bootstrap failed, accepting consent or resuming capture could display “Watching clipboard” even though no store or capture callback had been installed. | `startCapture()` now fails closed unless storage is ready, clears stale readiness state, and returns success. Consent and resume paths report the storage failure instead of claiming capture is active; source-policy coverage locks the guard and both call sites. |
-| Medium | Alternate-bundle data compatibility | A non-production or manually supplied bundle ID could reopen a pre-change SwiftData store encrypted with the former hard-coded Keychain service, then generate a different scoped key and fail to decrypt its rows. Unconditionally probing that legacy service also delayed fresh alternate-bundle startup. | Legacy lookup is now enabled only when the SwiftData configuration already existed before startup. Existing alternate bundles copy an accessible legacy key into their scoped service before generation and fail closed without writing a replacement when migration errors; fresh bundles skip the legacy service and create an isolated key. The disposable default E2E identity is also versioned to `com.andrzej.ClipVault.e2e.v2`. Regression tests cover migration, inaccessible-source failure, and fresh-bundle isolation; a signed fresh-identity smoke proves capture and restart. |
+| Medium | Alternate-bundle data compatibility | A non-production or manually supplied bundle ID could reopen a pre-change SwiftData store encrypted with the former hard-coded Keychain service, then generate a different scoped key and fail to decrypt its rows. Unconditionally probing that legacy service delayed fresh alternate-bundle startup, while the standalone store probe could race normal bootstrap and create the wrong scoped key first. | Legacy lookup is enabled only when the SwiftData configuration already existed and opened successfully. The app and probe use the same migration decision, and duplicate Keychain inserts converge on the winning scoped key. Existing alternate bundles migrate an accessible legacy key and fail closed without a replacement on migration errors; fresh bundles skip legacy lookup. The default E2E identity is versioned to `com.andrzej.ClipVault.e2e.v2`. Regression tests cover migration, failure, fresh isolation, and concurrent creation; a signed fresh-identity smoke proves capture and restart. |
 
 All nine findings are fixed in the audit branch. No reportable unresolved code finding remained after the final review.
 
@@ -62,7 +62,7 @@ All nine findings are fixed in the audit branch. No reportable unresolved code f
 
 | Check | Result |
 | --- | --- |
-| `./script/test.sh` | Passed: 176 Swift tests in 17 suites, 4 Rust tests, and every repository shell/policy test |
+| `./script/test.sh` | Passed: 177 Swift tests in 17 suites, 4 Rust tests, and every repository shell/policy test |
 | `swift build -c release -Xswiftc -warnings-as-errors` | Passed: production compile/link with warnings treated as errors |
 | `cargo fmt --check` | Passed |
 | `cargo clippy --all-targets --all-features -- -D warnings` | Passed |
@@ -110,12 +110,12 @@ The macOS 27 beta environment produced framework noise outside the app subsystem
 - Sandbox: enabled
 - User-selected files: read-only
 - Architecture: arm64
-- Binary/dSYM UUID: `2C57FE9A-C151-37ED-8AAB-EB8B0950D52C`
-- Package SHA-256: `9461e77d99158cc2716176c05aa0a72ee0a018dd46b3b6c25bd5a45100956039`
-- dSYM DWARF SHA-256: `501d045a72edfe0bee2178f90c39006f5433036846bb995821ae2b8bcf83a26d`
+- Binary/dSYM UUID: `E3854CAC-CD37-33F8-8804-41DC8AB68658`
+- Package SHA-256: `74f427d51f9dc4757a6729512367babd1d29b54ef8b8320796673bdf209cde39`
+- dSYM DWARF SHA-256: `aa61b6b11deb847946783c29275bd02a41345a83907500a73b7274c6aa7f9071`
 - Embedded provisioning profile: absent; App Store Connect provisioning/server validation remains unverified
 
-Four `write: Permission denied` lines appeared before `productbuild` during package creation, but packaging exited successfully and every independent payload, signature, entitlement, manifest, architecture, and UUID validator passed. An isolated `dsymutil` rerun did not reproduce the warning. This is retained as a tooling/environment limitation rather than hidden.
+An earlier package attempt selected Anaconda's cctools-port `install_name_tool` ahead of Apple's system binary and emitted misleading signature/write diagnostics. The final package was rebuilt with an Apple-system-first `PATH`; strict payload, signature, entitlement, manifest, architecture, and UUID validation then passed cleanly.
 
 ## Cleanup And Preserved State
 
