@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-E2E_BUNDLE_ID="${E2E_BUNDLE_ID-com.andrzej.ClipVault.e2e}"
+E2E_BUNDLE_ID="${E2E_BUNDLE_ID-com.andrzej.ClipVault.e2e.v2}"
 
 if [[ -z "$E2E_BUNDLE_ID" || "$E2E_BUNDLE_ID" == "com.andrzej.ClipVault" ]]; then
   echo "E2E_BUNDLE_ID must be a non-production bundle identifier." >&2
