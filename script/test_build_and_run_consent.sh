@@ -37,7 +37,9 @@ ACCEPT_CAPTURE_BODY="$(sed -n '/func acceptCaptureConsent()/,/^    }/p' "$VIEW_M
 
 rg -Fq 'private let encryptionBootstrap: LocalPayloadEncryptionBootstrap' "$VIEW_MODEL"
 rg -Fq 'let persistentStoreExists = FileManager.default.fileExists(atPath: configuration.url.path)' "$VIEW_MODEL"
-rg -Fq 'migrateLegacyKey = persistentStoreExists' "$VIEW_MODEL"
+rg -Fq 'try ModelContext(openedContainer).fetchCount(FetchDescriptor<ClipRecord>())' "$VIEW_MODEL"
+rg -Fq 'persistentStoreExisted: persistentStoreExists' "$VIEW_MODEL"
+rg -Fq 'storedClipCount: storedClipCount' "$VIEW_MODEL"
 rg -Fq 'shouldMigrateLegacyKey = migrateLegacyKey' "$VIEW_MODEL"
 [[ "$(rg -c 'preparedEncryptor\(\)' "$VIEW_MODEL")" == "1" ]]
 
