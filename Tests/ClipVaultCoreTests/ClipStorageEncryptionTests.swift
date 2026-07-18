@@ -1,10 +1,146 @@
+import CryptoKit
 import Foundation
+import Security
 import SwiftData
 import Testing
 @testable import ClipVaultCore
 
 @Suite("Clip storage encryption")
 struct ClipStorageEncryptionTests {
+    @Test("keychain service follows the app bundle and preserves the production fallback")
+    func keychainServiceUsesBundleIdentity() {
+        #expect(
+            KeychainKeyProvider.defaultService(bundleIdentifier: "com.andrzej.ClipVault.e2e.audit")
+                == "com.andrzej.ClipVault.e2e.audit"
+        )
+        #expect(
+            KeychainKeyProvider.defaultService(bundleIdentifier: nil)
+                == "com.andrzej.ClipVault"
+        )
+    }
+
+    @Test("custom bundle migrates an accessible legacy key into its scoped service")
+    func customBundleMigratesAccessibleLegacyKey() throws {
+        let legacyService = "com.andrzej.ClipVault"
+        let scopedService = "com.andrzej.ClipVault.audit"
+        let legacyKey = Data(repeating: 7, count: 32)
+        var storedKeys = [legacyService: legacyKey]
+        var generationCount = 0
+        let provider = KeychainKeyProvider(bundleIdentifier: scopedService)
+
+        let resolved = try provider.resolveKeyData(
+            read: { storedKeys[$0] },
+            write: { storedKeys[$0] = $1 },
+            generate: {
+                generationCount += 1
+                return Data(repeating: 9, count: 32)
+            }
+        )
+
+        #expect(resolved == legacyKey)
+        #expect(storedKeys[scopedService] == legacyKey)
+        #expect(generationCount == 0)
+    }
+
+    @Test("custom bundle fails closed when the legacy service is inaccessible")
+    func customBundleFailsClosedForInaccessibleLegacyKey() throws {
+        let legacyService = "com.andrzej.ClipVault"
+        let scopedService = "com.andrzej.ClipVault.audit"
+        var storedKeys: [String: Data] = [:]
+        var generationCount = 0
+        let provider = KeychainKeyProvider(bundleIdentifier: scopedService)
+
+        #expect(throws: EncryptionError.self) {
+            try provider.resolveKeyData(
+                read: { service in
+                    if service == legacyService {
+                        throw EncryptionError.keychainFailure(errSecUserCanceled)
+                    }
+                    return storedKeys[service]
+                },
+                write: { storedKeys[$0] = $1 },
+                generate: {
+                    generationCount += 1
+                    return Data(repeating: 11, count: 32)
+                }
+            )
+        }
+
+        #expect(generationCount == 0)
+        #expect(storedKeys[scopedService] == nil)
+    }
+
+    @Test("local encryptor loads its key once across repeated operations")
+    func localEncryptorCachesItsKey() throws {
+        let counter = LockedKeyLoadCounter()
+        let key = SymmetricKey(size: .bits256)
+        let encryptor = LocalPayloadEncryptor(keyLoader: {
+            counter.increment()
+            return key
+        })
+
+        try encryptor.prepare()
+        let first = try encryptor.encrypt(Data("first".utf8))
+        let second = try encryptor.encrypt(Data("second".utf8))
+
+        #expect(try encryptor.decrypt(first) == Data("first".utf8))
+        #expect(try encryptor.decrypt(second) == Data("second".utf8))
+        #expect(counter.value == 1)
+    }
+
+    @Test("concurrent encryption bootstrap calls share one prepared encryptor")
+    func concurrentEncryptionBootstrapSharesPreparedEncryptor() async throws {
+        let factoryCounter = LockedKeyLoadCounter()
+        let keyLoadCounter = LockedKeyLoadCounter()
+        let key = SymmetricKey(size: .bits256)
+        let bootstrap = LocalPayloadEncryptionBootstrap(encryptorFactory: {
+            factoryCounter.increment()
+            return LocalPayloadEncryptor(keyLoader: {
+                keyLoadCounter.increment()
+                return key
+            })
+        })
+
+        async let first = bootstrap.preparedEncryptor()
+        async let second = bootstrap.preparedEncryptor()
+        let (firstEncryptor, secondEncryptor) = try await (first, second)
+
+        #expect(firstEncryptor === secondEncryptor)
+        #expect(factoryCounter.value == 1)
+        #expect(keyLoadCounter.value == 1)
+    }
+
+    @Test("encryption bootstrap retries after a preparation failure")
+    func encryptionBootstrapRetriesAfterFailure() async throws {
+        let factoryCounter = LockedKeyLoadCounter()
+        let keyLoadCounter = LockedKeyLoadCounter()
+        let key = SymmetricKey(size: .bits256)
+        let bootstrap = LocalPayloadEncryptionBootstrap(encryptorFactory: {
+            factoryCounter.increment()
+            return LocalPayloadEncryptor(keyLoader: {
+                keyLoadCounter.increment()
+                if keyLoadCounter.value == 1 {
+                    throw EncryptionError.keychainFailure(-1)
+                }
+                return key
+            })
+        })
+
+        do {
+            _ = try await bootstrap.preparedEncryptor()
+            Issue.record("Expected the first encryption preparation to fail")
+        } catch {
+            #expect(error is EncryptionError)
+        }
+
+        let encryptor = try await bootstrap.preparedEncryptor()
+        let ciphertext = try encryptor.encrypt(Data("retry".utf8))
+
+        #expect(try encryptor.decrypt(ciphertext) == Data("retry".utf8))
+        #expect(factoryCounter.value == 2)
+        #expect(keyLoadCounter.value == 2)
+    }
+
     @Test("production record initializer uses plaintext placeholders")
     func productionRecordInitializerUsesPlaintextPlaceholders() {
         let record = ClipRecord(
@@ -346,6 +482,23 @@ struct ClipStorageEncryptionTests {
         record.userNote = clip.userNote
         record.tagsRaw = clip.tags.joined(separator: ",")
         return record
+    }
+}
+
+private final class LockedKeyLoadCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    var value: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return count
+    }
+
+    func increment() {
+        lock.lock()
+        count += 1
+        lock.unlock()
     }
 }
 

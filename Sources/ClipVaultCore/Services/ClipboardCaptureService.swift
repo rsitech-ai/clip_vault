@@ -15,6 +15,9 @@ public final class ClipboardCaptureService {
     private var timer: Timer?
     private var lastChangeCount: Int
     private var lifecycleGeneration: UInt = 0
+    private var nextCaptureSequence: UInt = 0
+    private var nextDeliverySequence: UInt = 0
+    private var completedCaptures: [UInt: CompletedCapture] = [:]
 
     public convenience init(pasteboard: NSPasteboard = .general) {
         self.init(pasteboard: pasteboard) { snapshot in
@@ -37,6 +40,9 @@ public final class ClipboardCaptureService {
 
         lastChangeCount = pasteboard.changeCount
         lifecycleGeneration &+= 1
+        nextCaptureSequence = 0
+        nextDeliverySequence = 0
+        completedCaptures.removeAll()
         isRunning = true
         timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             Task { @MainActor in
@@ -50,6 +56,7 @@ public final class ClipboardCaptureService {
         timer = nil
         isRunning = false
         lifecycleGeneration &+= 1
+        completedCaptures.removeAll()
     }
 
     public func consumeCurrentPasteboardChange() {
@@ -65,17 +72,29 @@ public final class ClipboardCaptureService {
         let snapshot = Self.snapshot(from: pasteboard)
         let sourceApp = NSWorkspace.shared.frontmostApplication?.localizedName
         let generation = lifecycleGeneration
+        let sequence = nextCaptureSequence
+        nextCaptureSequence &+= 1
         let payloadBuilder = payloadBuilder
         Task { @MainActor [weak self, snapshot, sourceApp] in
             let payload = await payloadBuilder(snapshot)
 
             guard let self,
                   self.isRunning,
-                  self.lifecycleGeneration == generation,
-                  let payload else {
+                  self.lifecycleGeneration == generation else {
                 return
             }
-            self.onClipCaptured?(payload, sourceApp)
+            self.completeCapture(sequence: sequence, payload: payload, sourceApp: sourceApp)
+        }
+    }
+
+    private func completeCapture(sequence: UInt, payload: ClipPayload?, sourceApp: String?) {
+        completedCaptures[sequence] = CompletedCapture(payload: payload, sourceApp: sourceApp)
+
+        while let completed = completedCaptures.removeValue(forKey: nextDeliverySequence) {
+            nextDeliverySequence &+= 1
+            if let payload = completed.payload {
+                onClipCaptured?(payload, completed.sourceApp)
+            }
         }
     }
 
@@ -245,6 +264,11 @@ public final class ClipboardCaptureService {
             return ""
         }
     }
+}
+
+private struct CompletedCapture {
+    var payload: ClipPayload?
+    var sourceApp: String?
 }
 
 struct PasteboardSnapshot: Sendable {

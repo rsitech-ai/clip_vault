@@ -46,4 +46,50 @@ struct PasteboardWriterTests {
 
         #expect(pasteboard.data(forType: .tiff) != nil)
     }
+
+    @MainActor
+    @Test("failed image writes preserve the existing clipboard contents")
+    func failedImageWritesPreserveExistingContents() throws {
+        let pasteboard = NSPasteboard(
+            name: NSPasteboard.Name("ClipVaultFailedImageWriterTest-\(UUID().uuidString)")
+        )
+        let writer = ClipPayloadPasteboardWriter(pasteboard: pasteboard)
+        let existingText = "keep this clipboard value"
+        pasteboard.clearContents()
+        pasteboard.setString(existingText, forType: .string)
+
+        #expect(throws: PasteboardWriterError.self) {
+            try writer.write(
+                ClipPayload(kind: .image, displayText: "Image", extractedText: "Image")
+            )
+        }
+
+        #expect(pasteboard.string(forType: .string) == existingText)
+    }
+
+    @MainActor
+    @Test("malformed image writes preserve the existing clipboard contents")
+    func malformedImageWritesPreserveExistingContents() throws {
+        let pasteboard = NSPasteboard(
+            name: NSPasteboard.Name("ClipVaultMalformedImageWriterTest-\(UUID().uuidString)")
+        )
+        let writer = ClipPayloadPasteboardWriter(pasteboard: pasteboard)
+        let existingText = "keep this clipboard value"
+        pasteboard.clearContents()
+        pasteboard.setString(existingText, forType: .string)
+
+        #expect(throws: PasteboardWriterError.self) {
+            try writer.write(
+                ClipPayload(
+                    kind: .image,
+                    displayText: "Image",
+                    extractedText: "Image",
+                    metadata: ["previewType": NSPasteboard.PasteboardType.tiff.rawValue],
+                    previewData: Data("not an image".utf8)
+                )
+            )
+        }
+
+        #expect(pasteboard.string(forType: .string) == existingText)
+    }
 }
