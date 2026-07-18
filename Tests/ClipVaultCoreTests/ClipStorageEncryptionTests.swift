@@ -26,7 +26,10 @@ struct ClipStorageEncryptionTests {
         let legacyKey = Data(repeating: 7, count: 32)
         var storedKeys = [legacyService: legacyKey]
         var generationCount = 0
-        let provider = KeychainKeyProvider(bundleIdentifier: scopedService)
+        let provider = KeychainKeyProvider(
+            bundleIdentifier: scopedService,
+            migrateLegacyKey: true
+        )
 
         let resolved = try provider.resolveKeyData(
             read: { storedKeys[$0] },
@@ -48,7 +51,10 @@ struct ClipStorageEncryptionTests {
         let scopedService = "com.andrzej.ClipVault.audit"
         var storedKeys: [String: Data] = [:]
         var generationCount = 0
-        let provider = KeychainKeyProvider(bundleIdentifier: scopedService)
+        let provider = KeychainKeyProvider(
+            bundleIdentifier: scopedService,
+            migrateLegacyKey: true
+        )
 
         #expect(throws: EncryptionError.self) {
             try provider.resolveKeyData(
@@ -68,6 +74,31 @@ struct ClipStorageEncryptionTests {
 
         #expect(generationCount == 0)
         #expect(storedKeys[scopedService] == nil)
+    }
+
+    @Test("fresh custom bundle does not query the legacy service")
+    func freshCustomBundleSkipsLegacyService() throws {
+        let scopedService = "com.andrzej.ClipVault.fresh"
+        let isolatedKey = Data(repeating: 13, count: 32)
+        var readServices: [String] = []
+        var storedKeys: [String: Data] = [:]
+        let provider = KeychainKeyProvider(
+            bundleIdentifier: scopedService,
+            migrateLegacyKey: false
+        )
+
+        let resolved = try provider.resolveKeyData(
+            read: { service in
+                readServices.append(service)
+                return storedKeys[service]
+            },
+            write: { storedKeys[$0] = $1 },
+            generate: { isolatedKey }
+        )
+
+        #expect(resolved == isolatedKey)
+        #expect(readServices == [scopedService])
+        #expect(storedKeys[scopedService] == isolatedKey)
     }
 
     @Test("local encryptor loads its key once across repeated operations")
