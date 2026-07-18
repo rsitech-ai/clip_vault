@@ -36,7 +36,10 @@ success_output="$("$HELPER" "ClipVault private E2E pasteboard shell test" 2>&1)"
 [[ "$(rg -c 'com\.andrzej\.ClipVault\.e2e\.capture' "$HELPER")" == "1" ]]
 [[ "$(rg -c 'com\.andrzej\.ClipVault\.e2e\.capture' "$VIEW_MODEL")" == "1" ]]
 [[ "$(rg -c 'com\.andrzej\.ClipVault\.e2e\.capture' "$PACKAGE_VALIDATOR")" == "1" ]]
+rg -Fq 'E2E_BUNDLE_ID="${E2E_BUNDLE_ID-com.andrzej.ClipVault.e2e.v2}"' "$E2E_SMOKE"
 [[ "$(rg -c 'write_e2e_pasteboard\.swift \"\$TOKEN\"' "$E2E_SMOKE")" == "2" ]]
+rg -Fq 'INITIAL_COPY_COUNT="$PROBE_COPY_COUNT"' "$E2E_SMOKE"
+rg -Fq 'wait_for_store_probe 1 "$((INITIAL_COPY_COUNT + 1))"' "$E2E_SMOKE"
 ! rg -q 'pbcopy' "$E2E_SMOKE"
 rg -Fq -- '"--verify-generated-prompt-batch"' "$PACKAGE_VALIDATOR"
 rg -Fq -- '"CLIPVAULT_GENERATED_PROMPT_BATCH_PROBE"' "$PACKAGE_VALIDATOR"

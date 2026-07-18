@@ -24,6 +24,20 @@ STOP_CAPTURE_BODY="$(sed -n '/private func stopCapture()/,/^    }/p' "$VIEW_MODE
 [[ "$STOP_CAPTURE_BODY" == *'removeObject(forKey: ClipVaultSettingsKey.captureReadyProcessID)'* ]]
 [[ "$(rg -c 'captureService\.stop\(\)' "$VIEW_MODEL")" == "1" ]]
 
+START_CAPTURE_BODY="$(sed -n '/private func startCapture()/,/^    }/p' "$VIEW_MODEL")"
+[[ "$START_CAPTURE_BODY" == *'guard store != nil else'* ]]
+[[ "$START_CAPTURE_BODY" == *'isCapturing = false'* ]]
+[[ "$START_CAPTURE_BODY" == *'return false'* ]]
+[[ "$START_CAPTURE_BODY" == *'return true'* ]]
+
+TOGGLE_CAPTURE_BODY="$(sed -n '/func toggleCapture()/,/^    }/p' "$VIEW_MODEL")"
+ACCEPT_CAPTURE_BODY="$(sed -n '/func acceptCaptureConsent()/,/^    }/p' "$VIEW_MODEL")"
+[[ "$TOGGLE_CAPTURE_BODY" == *'if startCapture()'* ]]
+[[ "$ACCEPT_CAPTURE_BODY" == *'if startCapture()'* ]]
+
+rg -Fq 'private let encryptionBootstrap = LocalPayloadEncryptionBootstrap()' "$VIEW_MODEL"
+[[ "$(rg -c 'preparedEncryptor\(\)' "$VIEW_MODEL")" == "1" ]]
+
 DISCLOSURE_HOST_COUNT="$(rg -l 'captureConsentDisclosure\(model: model\)' "$ROOT_DIR/Sources/ClipVault/Views" | wc -l | tr -d ' ')"
 [[ "$DISCLOSURE_HOST_COUNT" == "1" ]]
 rg -q 'captureConsentDisclosure\(model: model\)' "$ROOT_DIR/Sources/ClipVault/Views/ContentView.swift"

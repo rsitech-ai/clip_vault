@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-E2E_BUNDLE_ID="${E2E_BUNDLE_ID-com.andrzej.ClipVault.e2e}"
+E2E_BUNDLE_ID="${E2E_BUNDLE_ID-com.andrzej.ClipVault.e2e.v2}"
 
 if [[ -z "$E2E_BUNDLE_ID" || "$E2E_BUNDLE_ID" == "com.andrzej.ClipVault" ]]; then
   echo "E2E_BUNDLE_ID must be a non-production bundle identifier." >&2
@@ -77,28 +77,65 @@ wait_for_store_probe() {
   done
 }
 
-./script/write_e2e_pasteboard.swift "$TOKEN"
-wait_for_store_probe 1 1
+wait_for_initial_capture() {
+  local timeout_seconds="${1:-60}"
+  local start
+  start="$(date +%s)"
+
+  while true; do
+    ./script/write_e2e_pasteboard.swift "$TOKEN"
+    sleep 0.5
+
+    local output
+    if output="$("$APP_EXECUTABLE" --verify-stored-clip "$TOKEN")"; then
+      if [[ "$output" =~ CLIPVAULT_STORE_PROBE[[:space:]]row_count=([0-9]+)[[:space:]]copy_count=([0-9]+) ]]; then
+        local row_count="${BASH_REMATCH[1]}"
+        local copy_count="${BASH_REMATCH[2]}"
+        if [[ "$row_count" == "1" ]] && (( copy_count >= 1 )); then
+          PROBE_ROW_COUNT="$row_count"
+          PROBE_COPY_COUNT="$copy_count"
+          return 0
+        fi
+      else
+        echo "Unexpected store probe output: $output" >&2
+        return 1
+      fi
+    else
+      echo "Signed app store probe failed." >&2
+      return 1
+    fi
+
+    if (( $(date +%s) - start >= timeout_seconds )); then
+      echo "Timed out waiting for clipboard capture readiness." >&2
+      echo "Last probe output: $output" >&2
+      return 1
+    fi
+  done
+}
+
+wait_for_initial_capture
+INITIAL_COPY_COUNT="$PROBE_COPY_COUNT"
 
 ./script/write_e2e_pasteboard.swift "$TOKEN"
-wait_for_store_probe 1 2
+wait_for_store_probe 1 "$((INITIAL_COPY_COUNT + 1))"
 
 if [[ "$PROBE_ROW_COUNT" != "1" ]]; then
   echo "Expected one deduplicated stored clip for E2E token, found $PROBE_ROW_COUNT." >&2
   exit 1
 fi
 
-if (( PROBE_COPY_COUNT < 2 )); then
-  echo "Expected duplicate copy count >= 2, found $PROBE_COPY_COUNT." >&2
+if (( PROBE_COPY_COUNT < INITIAL_COPY_COUNT + 1 )); then
+  echo "Expected duplicate copy count to increase from $INITIAL_COPY_COUNT, found $PROBE_COPY_COUNT." >&2
   exit 1
 fi
+FINAL_COPY_COUNT="$PROBE_COPY_COUNT"
 
 terminate_e2e_app
 sleep 1
 APP_BUNDLE_ID="$E2E_BUNDLE_ID" DIST_DIR="$E2E_DIST_DIR" ENABLE_STORE_PROBE=true \
   ./script/build_and_run.sh --verify >/dev/null
 
-wait_for_store_probe 1 2
+wait_for_store_probe 1 "$FINAL_COPY_COUNT"
 if [[ "$PROBE_ROW_COUNT" != "1" ]]; then
   echo "Stored E2E clip did not survive restart." >&2
   exit 1
