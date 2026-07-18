@@ -7,6 +7,22 @@ import Testing
 
 @Suite("Clip storage encryption")
 struct ClipStorageEncryptionTests {
+    @Test("legacy migration requires an existing store with encrypted clips")
+    func legacyMigrationRequiresStoredClips() {
+        #expect(!LegacyKeyMigrationPolicy.shouldMigrate(
+            persistentStoreExisted: false,
+            storedClipCount: 0
+        ))
+        #expect(!LegacyKeyMigrationPolicy.shouldMigrate(
+            persistentStoreExisted: true,
+            storedClipCount: 0
+        ))
+        #expect(LegacyKeyMigrationPolicy.shouldMigrate(
+            persistentStoreExisted: true,
+            storedClipCount: 1
+        ))
+    }
+
     @Test("keychain service follows the app bundle and preserves the production fallback")
     func keychainServiceUsesBundleIdentity() {
         #expect(

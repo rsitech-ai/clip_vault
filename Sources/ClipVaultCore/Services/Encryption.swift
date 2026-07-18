@@ -21,6 +21,12 @@ public enum EncryptionError: Error, LocalizedError {
     }
 }
 
+public enum LegacyKeyMigrationPolicy {
+    public static func shouldMigrate(persistentStoreExisted: Bool, storedClipCount: Int) -> Bool {
+        persistentStoreExisted && storedClipCount > 0
+    }
+}
+
 public final class LocalPayloadEncryptor: PayloadEncrypting, @unchecked Sendable {
     private let keyLoader: @Sendable () throws -> SymmetricKey
     private let keyLock = NSLock()
