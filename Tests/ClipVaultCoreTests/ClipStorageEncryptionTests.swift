@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import Security
 import SwiftData
 import Testing
 @testable import ClipVaultCore
@@ -16,6 +17,57 @@ struct ClipStorageEncryptionTests {
             KeychainKeyProvider.defaultService(bundleIdentifier: nil)
                 == "com.andrzej.ClipVault"
         )
+    }
+
+    @Test("custom bundle migrates an accessible legacy key into its scoped service")
+    func customBundleMigratesAccessibleLegacyKey() throws {
+        let legacyService = "com.andrzej.ClipVault"
+        let scopedService = "com.andrzej.ClipVault.audit"
+        let legacyKey = Data(repeating: 7, count: 32)
+        var storedKeys = [legacyService: legacyKey]
+        var generationCount = 0
+        let provider = KeychainKeyProvider(bundleIdentifier: scopedService)
+
+        let resolved = try provider.resolveKeyData(
+            read: { storedKeys[$0] },
+            write: { storedKeys[$0] = $1 },
+            generate: {
+                generationCount += 1
+                return Data(repeating: 9, count: 32)
+            }
+        )
+
+        #expect(resolved == legacyKey)
+        #expect(storedKeys[scopedService] == legacyKey)
+        #expect(generationCount == 0)
+    }
+
+    @Test("custom bundle fails closed when the legacy service is inaccessible")
+    func customBundleFailsClosedForInaccessibleLegacyKey() throws {
+        let legacyService = "com.andrzej.ClipVault"
+        let scopedService = "com.andrzej.ClipVault.audit"
+        var storedKeys: [String: Data] = [:]
+        var generationCount = 0
+        let provider = KeychainKeyProvider(bundleIdentifier: scopedService)
+
+        #expect(throws: EncryptionError.self) {
+            try provider.resolveKeyData(
+                read: { service in
+                    if service == legacyService {
+                        throw EncryptionError.keychainFailure(errSecUserCanceled)
+                    }
+                    return storedKeys[service]
+                },
+                write: { storedKeys[$0] = $1 },
+                generate: {
+                    generationCount += 1
+                    return Data(repeating: 11, count: 32)
+                }
+            )
+        }
+
+        #expect(generationCount == 0)
+        #expect(storedKeys[scopedService] == nil)
     }
 
     @Test("local encryptor loads its key once across repeated operations")
