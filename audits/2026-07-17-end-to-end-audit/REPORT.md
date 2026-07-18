@@ -110,9 +110,9 @@ The macOS 27 beta environment produced framework noise outside the app subsystem
 - Sandbox: enabled
 - User-selected files: read-only
 - Architecture: arm64
-- Binary/dSYM UUID: `FA57148E-1AAF-3AB7-9F57-DC9FF75D8B54`
-- Package SHA-256: `3fbf57f246c81c4a79ed85521f821a73d493699a0da0b506d98ff2ee06ce402b`
-- dSYM DWARF SHA-256: `f6caed21d28f3b5e97c01113c23611a3b3d0253d11a6392ad671ddc36d280496`
+- Binary/dSYM UUID: `2C57FE9A-C151-37ED-8AAB-EB8B0950D52C`
+- Package SHA-256: `9461e77d99158cc2716176c05aa0a72ee0a018dd46b3b6c25bd5a45100956039`
+- dSYM DWARF SHA-256: `501d045a72edfe0bee2178f90c39006f5433036846bb995821ae2b8bcf83a26d`
 - Embedded provisioning profile: absent; App Store Connect provisioning/server validation remains unverified
 
 Four `write: Permission denied` lines appeared before `productbuild` during package creation, but packaging exited successfully and every independent payload, signature, entitlement, manifest, architecture, and UUID validator passed. An isolated `dsymutil` rerun did not reproduce the warning. This is retained as a tooling/environment limitation rather than hidden.
