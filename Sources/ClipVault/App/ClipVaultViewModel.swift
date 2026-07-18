@@ -76,6 +76,7 @@ final class ClipVaultViewModel {
     private var searchProjection = ClipSearchProjection()
     private let aiProvider: any AIActionProviding = FoundationModelsAIActionProvider()
     private let promptEnhancementRunner: PromptEnhancementBatchRunner
+    private let encryptionBootstrap = LocalPayloadEncryptionBootstrap()
     private var promptEnhancementTask: Task<Void, Never>?
     private var promptEnhancementTaskID: UUID?
     private var store: (any ClipStoring)?
@@ -138,16 +139,17 @@ final class ClipVaultViewModel {
 
         Self.logger.info("Bootstrapping ClipVault view model")
         let context = ModelContext(container)
-        let encryptor = LocalPayloadEncryptor()
+        let encryptor: LocalPayloadEncryptor
         do {
-            try await Task.detached(priority: .userInitiated) {
-                try encryptor.prepare()
-            }.value
+            encryptor = try await encryptionBootstrap.preparedEncryptor()
         } catch {
             Self.logFailure(operation: "prepare_encryption", error: error)
             stopCapture()
             captureStatus = error.localizedDescription
             updateDockTile()
+            return
+        }
+        guard store == nil else {
             return
         }
         store = SwiftDataClipStore(context: context, encryptor: encryptor)
@@ -159,7 +161,7 @@ final class ClipVaultViewModel {
             self?.updateDockTile()
         }
         if captureConsentPolicy.isCapturing {
-            startCapture()
+            _ = startCapture()
         } else {
             stopCapture()
         }
@@ -264,8 +266,11 @@ final class ClipVaultViewModel {
         } else {
             captureConsentPolicy.requestResume()
             if captureConsentPolicy.isCapturing {
-                startCapture()
-                captureStatus = "Watching clipboard"
+                if startCapture() {
+                    captureStatus = "Watching clipboard"
+                } else {
+                    captureStatus = "Storage is not ready. Try again."
+                }
             } else {
                 captureStatus = "Capture paused — consent required"
             }
@@ -276,8 +281,11 @@ final class ClipVaultViewModel {
     func acceptCaptureConsent() {
         captureConsentPolicy.accept()
         UserDefaults.standard.set(true, forKey: ClipVaultSettingsKey.clipboardCaptureConsentGranted)
-        startCapture()
-        captureStatus = "Watching clipboard"
+        if startCapture() {
+            captureStatus = "Watching clipboard"
+        } else {
+            captureStatus = "Storage is not ready. Try again."
+        }
         updateDockTile()
     }
 
@@ -296,13 +304,20 @@ final class ClipVaultViewModel {
         updateDockTile()
     }
 
-    private func startCapture() {
+    private func startCapture() -> Bool {
+        guard store != nil else {
+            isCapturing = false
+            UserDefaults.standard.removeObject(forKey: ClipVaultSettingsKey.captureReadyProcessID)
+            return false
+        }
+
         captureService.start()
         isCapturing = true
         UserDefaults.standard.set(
             Int(ProcessInfo.processInfo.processIdentifier),
             forKey: ClipVaultSettingsKey.captureReadyProcessID
         )
+        return true
     }
 
     private func stopCapture() {

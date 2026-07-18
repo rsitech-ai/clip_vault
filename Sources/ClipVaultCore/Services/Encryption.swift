@@ -63,6 +63,43 @@ public final class LocalPayloadEncryptor: PayloadEncrypting, @unchecked Sendable
     }
 }
 
+public actor LocalPayloadEncryptionBootstrap {
+    private let encryptorFactory: @Sendable () -> LocalPayloadEncryptor
+    private var preparation: (id: UUID, task: Task<LocalPayloadEncryptor, Error>)?
+
+    public init() {
+        encryptorFactory = { LocalPayloadEncryptor() }
+    }
+
+    init(encryptorFactory: @escaping @Sendable () -> LocalPayloadEncryptor) {
+        self.encryptorFactory = encryptorFactory
+    }
+
+    public func preparedEncryptor() async throws -> LocalPayloadEncryptor {
+        if let preparation {
+            return try await preparation.task.value
+        }
+
+        let preparationID = UUID()
+        let encryptorFactory = self.encryptorFactory
+        let task = Task.detached(priority: .userInitiated) {
+            let encryptor = encryptorFactory()
+            try encryptor.prepare()
+            return encryptor
+        }
+        preparation = (preparationID, task)
+
+        do {
+            return try await task.value
+        } catch {
+            if preparation?.id == preparationID {
+                preparation = nil
+            }
+            throw error
+        }
+    }
+}
+
 public struct KeychainKeyProvider: Sendable {
     private let service: String
     private let account = "payload-encryption-key"

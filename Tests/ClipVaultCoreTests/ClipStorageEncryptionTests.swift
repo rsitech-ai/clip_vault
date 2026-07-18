@@ -36,6 +36,59 @@ struct ClipStorageEncryptionTests {
         #expect(counter.value == 1)
     }
 
+    @Test("concurrent encryption bootstrap calls share one prepared encryptor")
+    func concurrentEncryptionBootstrapSharesPreparedEncryptor() async throws {
+        let factoryCounter = LockedKeyLoadCounter()
+        let keyLoadCounter = LockedKeyLoadCounter()
+        let key = SymmetricKey(size: .bits256)
+        let bootstrap = LocalPayloadEncryptionBootstrap(encryptorFactory: {
+            factoryCounter.increment()
+            return LocalPayloadEncryptor(keyLoader: {
+                keyLoadCounter.increment()
+                return key
+            })
+        })
+
+        async let first = bootstrap.preparedEncryptor()
+        async let second = bootstrap.preparedEncryptor()
+        let (firstEncryptor, secondEncryptor) = try await (first, second)
+
+        #expect(firstEncryptor === secondEncryptor)
+        #expect(factoryCounter.value == 1)
+        #expect(keyLoadCounter.value == 1)
+    }
+
+    @Test("encryption bootstrap retries after a preparation failure")
+    func encryptionBootstrapRetriesAfterFailure() async throws {
+        let factoryCounter = LockedKeyLoadCounter()
+        let keyLoadCounter = LockedKeyLoadCounter()
+        let key = SymmetricKey(size: .bits256)
+        let bootstrap = LocalPayloadEncryptionBootstrap(encryptorFactory: {
+            factoryCounter.increment()
+            return LocalPayloadEncryptor(keyLoader: {
+                keyLoadCounter.increment()
+                if keyLoadCounter.value == 1 {
+                    throw EncryptionError.keychainFailure(-1)
+                }
+                return key
+            })
+        })
+
+        do {
+            _ = try await bootstrap.preparedEncryptor()
+            Issue.record("Expected the first encryption preparation to fail")
+        } catch {
+            #expect(error is EncryptionError)
+        }
+
+        let encryptor = try await bootstrap.preparedEncryptor()
+        let ciphertext = try encryptor.encrypt(Data("retry".utf8))
+
+        #expect(try encryptor.decrypt(ciphertext) == Data("retry".utf8))
+        #expect(factoryCounter.value == 2)
+        #expect(keyLoadCounter.value == 2)
+    }
+
     @Test("production record initializer uses plaintext placeholders")
     func productionRecordInitializerUsesPlaintextPlaceholders() {
         let record = ClipRecord(
