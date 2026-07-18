@@ -36,7 +36,8 @@ ACCEPT_CAPTURE_BODY="$(sed -n '/func acceptCaptureConsent()/,/^    }/p' "$VIEW_M
 [[ "$ACCEPT_CAPTURE_BODY" == *'if startCapture()'* ]]
 
 rg -Fq 'private let encryptionBootstrap: LocalPayloadEncryptionBootstrap' "$VIEW_MODEL"
-rg -Fq 'FileManager.default.fileExists(atPath: configuration.url.path)' "$VIEW_MODEL"
+rg -Fq 'let persistentStoreExists = FileManager.default.fileExists(atPath: configuration.url.path)' "$VIEW_MODEL"
+rg -Fq 'shouldMigrateLegacyKey = persistentStoreExists' "$VIEW_MODEL"
 rg -Fq 'migrateLegacyKey: shouldMigrateLegacyKey' "$VIEW_MODEL"
 [[ "$(rg -c 'preparedEncryptor\(\)' "$VIEW_MODEL")" == "1" ]]
 
