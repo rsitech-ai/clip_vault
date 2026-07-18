@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HELPER="$ROOT_DIR/script/write_e2e_pasteboard.swift"
 VIEW_MODEL="$ROOT_DIR/Sources/ClipVault/App/ClipVaultViewModel.swift"
+APP_ENTRY="$ROOT_DIR/Sources/ClipVault/App/ClipVaultApp.swift"
 E2E_SMOKE="$ROOT_DIR/script/e2e_smoke.sh"
 PACKAGE_VALIDATOR="$ROOT_DIR/script/validate_app_store_package.sh"
 
@@ -37,6 +38,7 @@ success_output="$("$HELPER" "ClipVault private E2E pasteboard shell test" 2>&1)"
 [[ "$(rg -c 'com\.andrzej\.ClipVault\.e2e\.capture' "$VIEW_MODEL")" == "1" ]]
 [[ "$(rg -c 'com\.andrzej\.ClipVault\.e2e\.capture' "$PACKAGE_VALIDATOR")" == "1" ]]
 rg -Fq 'E2E_BUNDLE_ID="${E2E_BUNDLE_ID-com.andrzej.ClipVault.e2e.v2}"' "$E2E_SMOKE"
+rg -Fq 'KeychainKeyProvider(migrateLegacyKey: model.shouldMigrateLegacyKey)' "$APP_ENTRY"
 [[ "$(rg -c 'write_e2e_pasteboard\.swift \"\$TOKEN\"' "$E2E_SMOKE")" == "2" ]]
 rg -Fq 'INITIAL_COPY_COUNT="$PROBE_COPY_COUNT"' "$E2E_SMOKE"
 rg -Fq 'wait_for_store_probe 1 "$((INITIAL_COPY_COUNT + 1))"' "$E2E_SMOKE"

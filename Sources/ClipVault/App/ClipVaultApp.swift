@@ -112,7 +112,13 @@ struct ClipVaultApp: App {
         }
 
         do {
-            let store = SwiftDataClipStore(context: ModelContext(model.container))
+            let encryptor = LocalPayloadEncryptor(
+                keyProvider: KeychainKeyProvider(migrateLegacyKey: model.shouldMigrateLegacyKey)
+            )
+            let store = SwiftDataClipStore(
+                context: ModelContext(model.container),
+                encryptor: encryptor
+            )
             let clips = try store.allClips()
             var exitCode = EXIT_SUCCESS
             switch request.mode {

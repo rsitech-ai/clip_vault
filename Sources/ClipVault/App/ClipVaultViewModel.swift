@@ -20,6 +20,7 @@ final class ClipVaultViewModel {
 
     let container: ModelContainer
     let storageStartupError: String?
+    let shouldMigrateLegacyKey: Bool
 
     var clips: [Clip] = [] {
         didSet {
@@ -117,13 +118,13 @@ final class ClipVaultViewModel {
     ) {
         self.promptEnhancementRunner = promptEnhancementRunner
         let schema = Schema([ClipRecord.self, FolderRecord.self])
-        var shouldMigrateLegacyKey = false
+        var migrateLegacyKey = false
         do {
             let configuration = ModelConfiguration("ClipVault", schema: schema)
             let persistentStoreExists = FileManager.default.fileExists(atPath: configuration.url.path)
             container = try ModelContainer(for: schema, configurations: [configuration])
             storageStartupError = nil
-            shouldMigrateLegacyKey = persistentStoreExists
+            migrateLegacyKey = persistentStoreExists
         } catch {
             storageStartupError = "Persistent storage unavailable: \(error.localizedDescription)"
             let fallback = ModelConfiguration("ClipVaultFallback", schema: schema, isStoredInMemoryOnly: true)
@@ -133,8 +134,9 @@ final class ClipVaultViewModel {
                 fatalError("Could not create ClipVault fallback model container: \(error)")
             }
         }
+        shouldMigrateLegacyKey = migrateLegacyKey
         encryptionBootstrap = LocalPayloadEncryptionBootstrap(
-            migrateLegacyKey: shouldMigrateLegacyKey
+            migrateLegacyKey: migrateLegacyKey
         )
     }
 
