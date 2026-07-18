@@ -133,6 +133,8 @@ open_app() {
 }
 
 case "$MODE" in
+  --stage|stage)
+    ;;
   run)
     open_app
     ;;
@@ -163,7 +165,7 @@ case "$MODE" in
     exit 1
     ;;
   *)
-    echo "usage: $0 [run|--debug|--logs|--telemetry|--verify]" >&2
+    echo "usage: $0 [run|--stage|--debug|--logs|--telemetry|--verify]" >&2
     exit 2
     ;;
 esac
