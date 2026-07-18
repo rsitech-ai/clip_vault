@@ -52,14 +52,16 @@ The release flow now stages a signed app without launching it. Local readiness c
 | Medium | Responsiveness | Each encryption/decryption operation could synchronously query Keychain from the main actor, producing Security Performance Diagnostics faults. | `LocalPayloadEncryptor` safely caches one key under a lock; startup prepares it in a detached user-initiated task and fails closed if preparation fails. Runtime fault filters are clean after the change. |
 | Medium | Release tooling | `app_store_check.sh` used launch verification to create a missing staged bundle, which could run a second production ClipVault process against the same clipboard/store. | A non-launching `--stage` mode was added and is policy-tested. Final process IDs were identical before and after the readiness check. |
 | Low | E2E reliability | The signed smoke treated “process alive” as capture-ready and could write its token during encryption preparation, after which capture intentionally rebased the pasteboard. | The smoke now retries the private test-pasteboard write until capture is observable, records the initial copy count, proves a further deduplicating copy increments it, and verifies that exact count after restart. |
+| High | Startup concurrency | The workspace window and menu-bar surface could call `bootstrap()` concurrently. Both calls could suspend during detached Keychain preparation, create separate encryptors, and race to insert the same key; the losing call could report a duplicate-item failure and stop capture after the successful call. | `LocalPayloadEncryptionBootstrap` now coordinates one actor-isolated preparation task and returns the same prepared encryptor to concurrent callers. A regression test proves one factory invocation, one key load, and shared object identity; a second test proves failed preparation is cleared and can be retried. |
+| Medium | Capture readiness | After encryption bootstrap failed, accepting consent or resuming capture could display “Watching clipboard” even though no store or capture callback had been installed. | `startCapture()` now fails closed unless storage is ready, clears stale readiness state, and returns success. Consent and resume paths report the storage failure instead of claiming capture is active; source-policy coverage locks the guard and both call sites. |
 
-All six findings are fixed in the audit branch. No reportable unresolved code finding remained after the final review.
+All eight findings are fixed in the audit branch. No reportable unresolved code finding remained after the final review.
 
 ## Verification Evidence
 
 | Check | Result |
 | --- | --- |
-| `./script/test.sh` | Passed: 171 Swift tests in 17 suites, 4 Rust tests, and every repository shell/policy test |
+| `./script/test.sh` | Passed: 173 Swift tests in 17 suites, 4 Rust tests, and every repository shell/policy test |
 | `swift build -c release -Xswiftc -warnings-as-errors` | Passed: production compile/link with warnings treated as errors |
 | `cargo fmt --check` | Passed |
 | `cargo clippy --all-targets --all-features -- -D warnings` | Passed |
@@ -107,9 +109,9 @@ The macOS 27 beta environment produced framework noise outside the app subsystem
 - Sandbox: enabled
 - User-selected files: read-only
 - Architecture: arm64
-- Binary/dSYM UUID: `E838879C-3EA7-35B8-96D4-E30E004CD071`
-- Package SHA-256: `6a6f97b0a09024f883c7266b76717c391d314551a14125a404533826b72a86b5`
-- dSYM DWARF SHA-256: `42f041b348b5107709a00e2d565fee75959509e185eb08b84dc43c00374dbb5c`
+- Binary/dSYM UUID: `C856B2D2-263C-36AC-BC5D-5A2E37D523B0`
+- Package SHA-256: `f4679b3633f9f39b20cea85485dd8a1b6f9867aea098b530a0bed43367b38d8d`
+- dSYM DWARF SHA-256: `3de2623d504699fce074ecbd94df3f4127d414b0a085d10a12e3642281286fe2`
 - Embedded provisioning profile: absent; App Store Connect provisioning/server validation remains unverified
 
 Four `write: Permission denied` lines appeared before `productbuild` during package creation, but packaging exited successfully and every independent payload, signature, entitlement, manifest, architecture, and UUID validator passed. An isolated `dsymutil` rerun did not reproduce the warning. This is retained as a tooling/environment limitation rather than hidden.
