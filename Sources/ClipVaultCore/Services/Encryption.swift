@@ -67,8 +67,12 @@ public actor LocalPayloadEncryptionBootstrap {
     private let encryptorFactory: @Sendable () -> LocalPayloadEncryptor
     private var preparation: (id: UUID, task: Task<LocalPayloadEncryptor, Error>)?
 
-    public init() {
-        encryptorFactory = { LocalPayloadEncryptor() }
+    public init(migrateLegacyKey: Bool = false) {
+        encryptorFactory = {
+            LocalPayloadEncryptor(
+                keyProvider: KeychainKeyProvider(migrateLegacyKey: migrateLegacyKey)
+            )
+        }
     }
 
     init(encryptorFactory: @escaping @Sendable () -> LocalPayloadEncryptor) {
@@ -107,13 +111,18 @@ public struct KeychainKeyProvider: Sendable {
     private let legacyService: String?
     private let account = "payload-encryption-key"
 
-    public init() {
-        self.init(bundleIdentifier: Bundle.main.bundleIdentifier)
+    public init(migrateLegacyKey: Bool = false) {
+        self.init(
+            bundleIdentifier: Bundle.main.bundleIdentifier,
+            migrateLegacyKey: migrateLegacyKey
+        )
     }
 
-    init(bundleIdentifier: String?) {
+    init(bundleIdentifier: String?, migrateLegacyKey: Bool = false) {
         service = Self.defaultService(bundleIdentifier: bundleIdentifier)
-        legacyService = service == Self.productionService ? nil : Self.productionService
+        legacyService = migrateLegacyKey && service != Self.productionService
+            ? Self.productionService
+            : nil
     }
 
     static func defaultService(bundleIdentifier: String?) -> String {

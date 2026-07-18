@@ -76,7 +76,7 @@ final class ClipVaultViewModel {
     private var searchProjection = ClipSearchProjection()
     private let aiProvider: any AIActionProviding = FoundationModelsAIActionProvider()
     private let promptEnhancementRunner: PromptEnhancementBatchRunner
-    private let encryptionBootstrap = LocalPayloadEncryptionBootstrap()
+    private let encryptionBootstrap: LocalPayloadEncryptionBootstrap
     private var promptEnhancementTask: Task<Void, Never>?
     private var promptEnhancementTaskID: UUID?
     private var store: (any ClipStoring)?
@@ -117,8 +117,10 @@ final class ClipVaultViewModel {
     ) {
         self.promptEnhancementRunner = promptEnhancementRunner
         let schema = Schema([ClipRecord.self, FolderRecord.self])
+        var shouldMigrateLegacyKey = false
         do {
             let configuration = ModelConfiguration("ClipVault", schema: schema)
+            shouldMigrateLegacyKey = FileManager.default.fileExists(atPath: configuration.url.path)
             container = try ModelContainer(for: schema, configurations: [configuration])
             storageStartupError = nil
         } catch {
@@ -130,6 +132,9 @@ final class ClipVaultViewModel {
                 fatalError("Could not create ClipVault fallback model container: \(error)")
             }
         }
+        encryptionBootstrap = LocalPayloadEncryptionBootstrap(
+            migrateLegacyKey: shouldMigrateLegacyKey
+        )
     }
 
     func bootstrap() async {
