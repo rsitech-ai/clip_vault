@@ -101,6 +101,33 @@ struct ClipStorageEncryptionTests {
         #expect(storedKeys[scopedService] == isolatedKey)
     }
 
+    @Test("concurrent scoped-key creation adopts the winning key")
+    func concurrentScopedKeyCreationAdoptsWinner() throws {
+        let scopedService = "com.andrzej.ClipVault.concurrent"
+        let generatedKey = Data(repeating: 17, count: 32)
+        let winningKey = Data(repeating: 19, count: 32)
+        var readCount = 0
+        let provider = KeychainKeyProvider(
+            bundleIdentifier: scopedService,
+            migrateLegacyKey: false
+        )
+
+        let resolved = try provider.resolveKeyData(
+            read: { service in
+                #expect(service == scopedService)
+                readCount += 1
+                return readCount == 1 ? nil : winningKey
+            },
+            write: { _, _ in
+                throw EncryptionError.keychainFailure(errSecDuplicateItem)
+            },
+            generate: { generatedKey }
+        )
+
+        #expect(resolved == winningKey)
+        #expect(readCount == 2)
+    }
+
     @Test("local encryptor loads its key once across repeated operations")
     func localEncryptorCachesItsKey() throws {
         let counter = LockedKeyLoadCounter()

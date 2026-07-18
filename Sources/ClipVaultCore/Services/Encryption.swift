@@ -149,14 +149,28 @@ public struct KeychainKeyProvider: Sendable {
 
         if let legacyService {
             if let legacy = try read(legacyService) {
-                try write(service, legacy)
-                return legacy
+                return try persistKeyData(legacy, read: read, write: write)
             }
         }
 
         let data = try generate()
-        try write(service, data)
-        return data
+        return try persistKeyData(data, read: read, write: write)
+    }
+
+    private func persistKeyData(
+        _ data: Data,
+        read: (String) throws -> Data?,
+        write: (String, Data) throws -> Void
+    ) throws -> Data {
+        do {
+            try write(service, data)
+            return data
+        } catch EncryptionError.keychainFailure(let status) where status == errSecDuplicateItem {
+            guard let winner = try read(service) else {
+                throw EncryptionError.keychainFailure(status)
+            }
+            return winner
+        }
     }
 
     private static func generateKeyData() throws -> Data {
