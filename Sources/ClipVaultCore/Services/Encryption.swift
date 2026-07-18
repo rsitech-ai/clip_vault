@@ -101,34 +101,65 @@ public actor LocalPayloadEncryptionBootstrap {
 }
 
 public struct KeychainKeyProvider: Sendable {
+    private static let productionService = "com.andrzej.ClipVault"
+
     private let service: String
+    private let legacyService: String?
     private let account = "payload-encryption-key"
 
     public init() {
-        service = Self.defaultService(bundleIdentifier: Bundle.main.bundleIdentifier)
+        self.init(bundleIdentifier: Bundle.main.bundleIdentifier)
+    }
+
+    init(bundleIdentifier: String?) {
+        service = Self.defaultService(bundleIdentifier: bundleIdentifier)
+        legacyService = service == Self.productionService ? nil : Self.productionService
     }
 
     static func defaultService(bundleIdentifier: String?) -> String {
-        bundleIdentifier ?? "com.andrzej.ClipVault"
+        bundleIdentifier ?? productionService
     }
 
     public func key() throws -> SymmetricKey {
-        if let existing = try readKeyData() {
-            return SymmetricKey(data: existing)
+        let data = try resolveKeyData(
+            read: { try readKeyData(service: $0) },
+            write: { try writeKeyData($1, service: $0) },
+            generate: Self.generateKeyData
+        )
+        return SymmetricKey(data: data)
+    }
+
+    func resolveKeyData(
+        read: (String) throws -> Data?,
+        write: (String, Data) throws -> Void,
+        generate: () throws -> Data
+    ) throws -> Data {
+        if let existing = try read(service) {
+            return existing
         }
 
+        if let legacyService {
+            if let legacy = try read(legacyService) {
+                try write(service, legacy)
+                return legacy
+            }
+        }
+
+        let data = try generate()
+        try write(service, data)
+        return data
+    }
+
+    private static func generateKeyData() throws -> Data {
         var bytes = [UInt8](repeating: 0, count: 32)
         let status = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
         guard status == errSecSuccess else {
             throw EncryptionError.keychainFailure(status)
         }
-
-        let data = Data(bytes)
-        try writeKeyData(data)
-        return SymmetricKey(data: data)
+        return Data(bytes)
     }
 
-    private func readKeyData() throws -> Data? {
+    private func readKeyData(service: String) throws -> Data? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -148,7 +179,7 @@ public struct KeychainKeyProvider: Sendable {
         return item as? Data
     }
 
-    private func writeKeyData(_ data: Data) throws {
+    private func writeKeyData(_ data: Data, service: String) throws {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
