@@ -54,7 +54,7 @@ The release flow now stages a signed app without launching it. Local readiness c
 | Low | E2E reliability | The signed smoke treated “process alive” as capture-ready and could write its token during encryption preparation, after which capture intentionally rebased the pasteboard. | The smoke now retries the private test-pasteboard write until capture is observable, records the initial copy count, proves a further deduplicating copy increments it, and verifies that exact count after restart. |
 | High | Startup concurrency | The workspace window and menu-bar surface could call `bootstrap()` concurrently. Both calls could suspend during detached Keychain preparation, create separate encryptors, and race to insert the same key; the losing call could report a duplicate-item failure and stop capture after the successful call. | `LocalPayloadEncryptionBootstrap` now coordinates one actor-isolated preparation task and returns the same prepared encryptor to concurrent callers. A regression test proves one factory invocation, one key load, and shared object identity; a second test proves failed preparation is cleared and can be retried. |
 | Medium | Capture readiness | After encryption bootstrap failed, accepting consent or resuming capture could display “Watching clipboard” even though no store or capture callback had been installed. | `startCapture()` now fails closed unless storage is ready, clears stale readiness state, and returns success. Consent and resume paths report the storage failure instead of claiming capture is active; source-policy coverage locks the guard and both call sites. |
-| Medium | E2E data compatibility | The default non-production bundle could reopen a pre-change SwiftData store encrypted with the former production-scoped Keychain service, making every store probe fail after Keychain isolation was corrected. | The disposable default E2E identity is versioned to `com.andrzej.ClipVault.e2e.v2`, giving the new encryption namespace a clean store without reading or deleting production data. A shell-policy assertion prevents accidental reuse of the incompatible pre-change identity; explicitly supplied bundle IDs remain supported. |
+| Medium | Alternate-bundle data compatibility | A non-production or manually supplied bundle ID could reopen a pre-change SwiftData store encrypted with the former hard-coded Keychain service, then generate a different scoped key and fail to decrypt its rows. | Alternate bundles now copy an accessible legacy key into their scoped service before generating a new key and fail closed without writing a replacement when that migration source errors. The disposable default E2E identity is also versioned to `com.andrzej.ClipVault.e2e.v2`. Regression tests cover migration and inaccessible-source failure, and shell policy locks the versioned E2E identity. |
 
 All nine findings are fixed in the audit branch. No reportable unresolved code finding remained after the final review.
 
@@ -62,7 +62,7 @@ All nine findings are fixed in the audit branch. No reportable unresolved code f
 
 | Check | Result |
 | --- | --- |
-| `./script/test.sh` | Passed: 173 Swift tests in 17 suites, 4 Rust tests, and every repository shell/policy test |
+| `./script/test.sh` | Passed: 175 Swift tests in 17 suites, 4 Rust tests, and every repository shell/policy test |
 | `swift build -c release -Xswiftc -warnings-as-errors` | Passed: production compile/link with warnings treated as errors |
 | `cargo fmt --check` | Passed |
 | `cargo clippy --all-targets --all-features -- -D warnings` | Passed |
@@ -110,9 +110,9 @@ The macOS 27 beta environment produced framework noise outside the app subsystem
 - Sandbox: enabled
 - User-selected files: read-only
 - Architecture: arm64
-- Binary/dSYM UUID: `C856B2D2-263C-36AC-BC5D-5A2E37D523B0`
-- Package SHA-256: `f4679b3633f9f39b20cea85485dd8a1b6f9867aea098b530a0bed43367b38d8d`
-- dSYM DWARF SHA-256: `3de2623d504699fce074ecbd94df3f4127d414b0a085d10a12e3642281286fe2`
+- Binary/dSYM UUID: `46D57C61-03DD-33E6-857A-984D416C1F8E`
+- Package SHA-256: `f23b8afd1b978d86fd3ed6de0892e6ea34ec3e61a882f06f4641bbb8578ceba9`
+- dSYM DWARF SHA-256: `a920d5b95ca26fea859444898273889945ea598c97213884b07236b4f5cd30af`
 - Embedded provisioning profile: absent; App Store Connect provisioning/server validation remains unverified
 
 Four `write: Permission denied` lines appeared before `productbuild` during package creation, but packaging exited successfully and every independent payload, signature, entitlement, manifest, architecture, and UUID validator passed. An isolated `dsymutil` rerun did not reproduce the warning. This is retained as a tooling/environment limitation rather than hidden.
