@@ -21,6 +21,12 @@ public enum EncryptionError: Error, LocalizedError {
     }
 }
 
+public enum LegacyKeyMigrationPolicy {
+    public static func shouldMigrate(persistentStoreExisted: Bool, storedClipCount: Int) -> Bool {
+        persistentStoreExisted && storedClipCount > 0
+    }
+}
+
 public final class LocalPayloadEncryptor: PayloadEncrypting, @unchecked Sendable {
     private let keyLoader: @Sendable () throws -> SymmetricKey
     private let keyLock = NSLock()
@@ -67,8 +73,12 @@ public actor LocalPayloadEncryptionBootstrap {
     private let encryptorFactory: @Sendable () -> LocalPayloadEncryptor
     private var preparation: (id: UUID, task: Task<LocalPayloadEncryptor, Error>)?
 
-    public init() {
-        encryptorFactory = { LocalPayloadEncryptor() }
+    public init(migrateLegacyKey: Bool = false) {
+        encryptorFactory = {
+            LocalPayloadEncryptor(
+                keyProvider: KeychainKeyProvider(migrateLegacyKey: migrateLegacyKey)
+            )
+        }
     }
 
     init(encryptorFactory: @escaping @Sendable () -> LocalPayloadEncryptor) {
@@ -107,13 +117,18 @@ public struct KeychainKeyProvider: Sendable {
     private let legacyService: String?
     private let account = "payload-encryption-key"
 
-    public init() {
-        self.init(bundleIdentifier: Bundle.main.bundleIdentifier)
+    public init(migrateLegacyKey: Bool = false) {
+        self.init(
+            bundleIdentifier: Bundle.main.bundleIdentifier,
+            migrateLegacyKey: migrateLegacyKey
+        )
     }
 
-    init(bundleIdentifier: String?) {
+    init(bundleIdentifier: String?, migrateLegacyKey: Bool = false) {
         service = Self.defaultService(bundleIdentifier: bundleIdentifier)
-        legacyService = service == Self.productionService ? nil : Self.productionService
+        legacyService = migrateLegacyKey && service != Self.productionService
+            ? Self.productionService
+            : nil
     }
 
     static func defaultService(bundleIdentifier: String?) -> String {
@@ -140,14 +155,28 @@ public struct KeychainKeyProvider: Sendable {
 
         if let legacyService {
             if let legacy = try read(legacyService) {
-                try write(service, legacy)
-                return legacy
+                return try persistKeyData(legacy, read: read, write: write)
             }
         }
 
         let data = try generate()
-        try write(service, data)
-        return data
+        return try persistKeyData(data, read: read, write: write)
+    }
+
+    private func persistKeyData(
+        _ data: Data,
+        read: (String) throws -> Data?,
+        write: (String, Data) throws -> Void
+    ) throws -> Data {
+        do {
+            try write(service, data)
+            return data
+        } catch EncryptionError.keychainFailure(let status) where status == errSecDuplicateItem {
+            guard let winner = try read(service) else {
+                throw EncryptionError.keychainFailure(status)
+            }
+            return winner
+        }
     }
 
     private static func generateKeyData() throws -> Data {

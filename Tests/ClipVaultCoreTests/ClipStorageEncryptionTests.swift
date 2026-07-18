@@ -7,6 +7,22 @@ import Testing
 
 @Suite("Clip storage encryption")
 struct ClipStorageEncryptionTests {
+    @Test("legacy migration requires an existing store with encrypted clips")
+    func legacyMigrationRequiresStoredClips() {
+        #expect(!LegacyKeyMigrationPolicy.shouldMigrate(
+            persistentStoreExisted: false,
+            storedClipCount: 0
+        ))
+        #expect(!LegacyKeyMigrationPolicy.shouldMigrate(
+            persistentStoreExisted: true,
+            storedClipCount: 0
+        ))
+        #expect(LegacyKeyMigrationPolicy.shouldMigrate(
+            persistentStoreExisted: true,
+            storedClipCount: 1
+        ))
+    }
+
     @Test("keychain service follows the app bundle and preserves the production fallback")
     func keychainServiceUsesBundleIdentity() {
         #expect(
@@ -26,7 +42,10 @@ struct ClipStorageEncryptionTests {
         let legacyKey = Data(repeating: 7, count: 32)
         var storedKeys = [legacyService: legacyKey]
         var generationCount = 0
-        let provider = KeychainKeyProvider(bundleIdentifier: scopedService)
+        let provider = KeychainKeyProvider(
+            bundleIdentifier: scopedService,
+            migrateLegacyKey: true
+        )
 
         let resolved = try provider.resolveKeyData(
             read: { storedKeys[$0] },
@@ -48,7 +67,10 @@ struct ClipStorageEncryptionTests {
         let scopedService = "com.andrzej.ClipVault.audit"
         var storedKeys: [String: Data] = [:]
         var generationCount = 0
-        let provider = KeychainKeyProvider(bundleIdentifier: scopedService)
+        let provider = KeychainKeyProvider(
+            bundleIdentifier: scopedService,
+            migrateLegacyKey: true
+        )
 
         #expect(throws: EncryptionError.self) {
             try provider.resolveKeyData(
@@ -68,6 +90,58 @@ struct ClipStorageEncryptionTests {
 
         #expect(generationCount == 0)
         #expect(storedKeys[scopedService] == nil)
+    }
+
+    @Test("fresh custom bundle does not query the legacy service")
+    func freshCustomBundleSkipsLegacyService() throws {
+        let scopedService = "com.andrzej.ClipVault.fresh"
+        let isolatedKey = Data(repeating: 13, count: 32)
+        var readServices: [String] = []
+        var storedKeys: [String: Data] = [:]
+        let provider = KeychainKeyProvider(
+            bundleIdentifier: scopedService,
+            migrateLegacyKey: false
+        )
+
+        let resolved = try provider.resolveKeyData(
+            read: { service in
+                readServices.append(service)
+                return storedKeys[service]
+            },
+            write: { storedKeys[$0] = $1 },
+            generate: { isolatedKey }
+        )
+
+        #expect(resolved == isolatedKey)
+        #expect(readServices == [scopedService])
+        #expect(storedKeys[scopedService] == isolatedKey)
+    }
+
+    @Test("concurrent scoped-key creation adopts the winning key")
+    func concurrentScopedKeyCreationAdoptsWinner() throws {
+        let scopedService = "com.andrzej.ClipVault.concurrent"
+        let generatedKey = Data(repeating: 17, count: 32)
+        let winningKey = Data(repeating: 19, count: 32)
+        var readCount = 0
+        let provider = KeychainKeyProvider(
+            bundleIdentifier: scopedService,
+            migrateLegacyKey: false
+        )
+
+        let resolved = try provider.resolveKeyData(
+            read: { service in
+                #expect(service == scopedService)
+                readCount += 1
+                return readCount == 1 ? nil : winningKey
+            },
+            write: { _, _ in
+                throw EncryptionError.keychainFailure(errSecDuplicateItem)
+            },
+            generate: { generatedKey }
+        )
+
+        #expect(resolved == winningKey)
+        #expect(readCount == 2)
     }
 
     @Test("local encryptor loads its key once across repeated operations")
