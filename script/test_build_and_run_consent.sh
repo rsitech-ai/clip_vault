@@ -35,7 +35,9 @@ ACCEPT_CAPTURE_BODY="$(sed -n '/func acceptCaptureConsent()/,/^    }/p' "$VIEW_M
 [[ "$TOGGLE_CAPTURE_BODY" == *'if startCapture()'* ]]
 [[ "$ACCEPT_CAPTURE_BODY" == *'if startCapture()'* ]]
 
-rg -Fq 'private let encryptionBootstrap = LocalPayloadEncryptionBootstrap()' "$VIEW_MODEL"
+rg -Fq 'private let encryptionBootstrap: LocalPayloadEncryptionBootstrap' "$VIEW_MODEL"
+rg -Fq 'FileManager.default.fileExists(atPath: configuration.url.path)' "$VIEW_MODEL"
+rg -Fq 'migrateLegacyKey: shouldMigrateLegacyKey' "$VIEW_MODEL"
 [[ "$(rg -c 'preparedEncryptor\(\)' "$VIEW_MODEL")" == "1" ]]
 
 DISCLOSURE_HOST_COUNT="$(rg -l 'captureConsentDisclosure\(model: model\)' "$ROOT_DIR/Sources/ClipVault/Views" | wc -l | tr -d ' ')"
