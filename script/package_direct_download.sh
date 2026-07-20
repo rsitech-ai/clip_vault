@@ -66,7 +66,7 @@ preflight() {
 case "$MODE" in
   --preflight)
     preflight
-    exit 0
+    exit $?
     ;;
   package)
     ;;
@@ -77,7 +77,7 @@ case "$MODE" in
 esac
 
 cd "$ROOT_DIR"
-preflight
+preflight || exit $?
 
 cargo build --manifest-path rust/SearchIndexCore/Cargo.toml --release
 swift build -c release -Xswiftc -warnings-as-errors

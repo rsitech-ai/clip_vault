@@ -1,6 +1,8 @@
 .build/
 .swiftpm/
 .superpowers/
+.codex/
+.cursor/
 .worktrees/
 dist/
 rust/**/target/
@@ -18,8 +20,8 @@ AuthKey_*.p8
 *.mobileprovision
 *.xcarchive/
 *.xcresult/
-audits/**/*.trace/
-audits/**/screenshots/
-audits/**/*.png
-audits/**/*.jpg
-audits/**/*.jpeg
+audits/
+reflections/
+docs/superpowers/
+docs/reflections/
+docs/monetization/

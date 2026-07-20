@@ -25,7 +25,7 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -39,6 +39,7 @@ jobs:
         run: |
           required_files=(
             LICENSE
+            NOTICE
             README.md
             CHANGELOG.md
             CODE_OF_CONDUCT.md
@@ -54,7 +55,23 @@ jobs:
               exit 1
             }
           done
-          if git grep -nE '/Users/s1kor|mrsikorarafal@gmail\.com|2NY8A789TN' -- . ':(exclude).github/workflows/ci.yml'; then
+          forbidden_paths=(
+            .codex
+            .cursor
+            audits
+            reflections
+            docs/superpowers
+            docs/reflections
+            docs/monetization
+          )
+          for forbidden_path in "${forbidden_paths[@]}"; do
+            if git ls-files --error-unmatch "$forbidden_path" >/dev/null 2>&1 || \
+               git ls-files | grep -E "^${forbidden_path}(/|$)" >/dev/null; then
+              echo "Tracked non-public path present: $forbidden_path" >&2
+              exit 1
+            fi
+          done
+          if git grep -nE '/Users/s1kor|mrsikorarafal@gmail\.com|2NY8A789TN|63699R7MNH' -- . ':(exclude).github/workflows/ci.yml'; then
             echo "Tracked files contain private release-environment identifiers." >&2
             exit 1
           fi
