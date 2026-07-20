@@ -13,11 +13,18 @@ struct ClipVaultApp: App {
     @State private var model: ClipVaultViewModel
 
     init() {
+        #if CLIPVAULT_E2E_PROBE
+        let storeProbeRequest = ClipVaultStoreProbeRequest.parse(arguments: CommandLine.arguments)
+        if storeProbeRequest?.mode == .resetE2EStore {
+            Self.resetE2EStoreAndExit()
+        }
+        #endif
+
         let model = ClipVaultViewModel()
         _model = State(initialValue: model)
 
         #if CLIPVAULT_E2E_PROBE
-        if let request = ClipVaultStoreProbeRequest.parse(arguments: CommandLine.arguments) {
+        if let request = storeProbeRequest {
             Self.runStoreProbe(request, model: model)
         }
         #endif
@@ -101,6 +108,22 @@ struct ClipVaultApp: App {
     }
 
     #if CLIPVAULT_E2E_PROBE
+    private static func resetE2EStoreAndExit() -> Never {
+        do {
+            try ClipVaultStoreProbeRequest.resetE2EStoreFiles()
+            if let bundleIdentifier = Bundle.main.bundleIdentifier {
+                UserDefaults.standard.removePersistentDomain(forName: bundleIdentifier)
+            }
+            print("CLIPVAULT_E2E_STORE_RESET")
+            fflush(stdout)
+            Darwin.exit(EXIT_SUCCESS)
+        } catch {
+            let message = "CLIPVAULT_E2E_STORE_RESET_ERROR \(error.localizedDescription)\n"
+            FileHandle.standardError.write(Data(message.utf8))
+            Darwin.exit(EX_IOERR)
+        }
+    }
+
     private static func runStoreProbe(
         _ request: ClipVaultStoreProbeRequest,
         model: ClipVaultViewModel
@@ -135,6 +158,8 @@ struct ClipVaultApp: App {
                 if !result.isExactBatch {
                     exitCode = EX_DATAERR
                 }
+            case .resetE2EStore:
+                preconditionFailure("E2E store reset must exit before model initialization.")
             }
             fflush(stdout)
             Darwin.exit(exitCode)

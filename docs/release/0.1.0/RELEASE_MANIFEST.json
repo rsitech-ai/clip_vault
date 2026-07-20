@@ -6,29 +6,36 @@
   "build": "1",
   "minimum_macos": "15.0",
   "architectures": ["arm64"],
-  "toolchain": {
-    "xcode": "26.5",
-    "xcode_build": "17F42",
-    "sdk": "macOS 26.5",
-    "swift": "6.3.2"
+  "candidate": {
+    "baseline_commit": "50e0e4d52168530204b828289c5196d77d08c8d0",
+    "branch": "chore/oss-release-readiness",
+    "final_commit": "recorded_by_git_after_integration"
   },
-  "package": {
-    "path_uncommitted": "dist/AppStore/ClipVault-0.1.0-1.pkg",
-    "size_bytes": 2734791,
-    "source_commit": "d11b7f96467d65cabb37e63a66545b9780595aac",
-    "sha256": "264b949215d02a07cc35211eff956873b9f120e85ff35a4834a3440ebede5d0d",
-    "binary_uuid": "D257D9A6-523D-313C-9370-3192F0B5FEED",
-    "dsym_dwarf_sha256": "2babfa67605c326e3c6d43adbf90cc24b87ce06d72fa4a13ae704b8094ad3a06",
-    "application_signer": "Apple Distribution: Rafal Sikora (2NY8A789TN)",
-    "installer_signer": "3rd Party Mac Developer Installer: Rafal Sikora (2NY8A789TN)",
-    "team_id": "2NY8A789TN",
-    "local_validation": "PASS",
-    "app_store_connect_validation": "BLOCKED"
+  "toolchain": {
+    "host_macos": "27.0 (26A5378j)",
+    "xcode": "26.6",
+    "xcode_build": "17F113",
+    "swift": "6.3.3",
+    "rust": "1.91.0",
+    "cargo": "1.91.0"
   },
   "tests": {
-    "swift": {"passed": 74, "failed": 0, "suites": 15},
-    "rust": {"passed": 3, "failed": 0},
-    "signed_e2e_runs_after_final_feature_fixes": 1
+    "shell_groups": {"passed": 9, "failed": 0},
+    "swift": {"passed": 178, "failed": 0, "suites": 17},
+    "rust": {"passed": 4, "failed": 0},
+    "e2e": "PASS",
+    "native_ui_smoke": "PASS_ISOLATED_BUNDLE"
+  },
+  "local_bundle": {
+    "signature": "adhoc",
+    "plist": "PASS",
+    "privacy_manifest": "PASS",
+    "sandbox_entitlements": "PASS",
+    "nested_rust_library": "PASS",
+    "distribution_identity": "MISSING",
+    "installer_identity": "MISSING",
+    "expected_team_id": "MISSING",
+    "app_store_check_exit": 3
   },
   "screenshots": [
     {
@@ -42,12 +49,9 @@
       "sha256": "8670578053aad7f0e5cdf81af212b67dd4eaff3208581c67be30c05e9385b5ef"
     }
   ],
-  "pull_request": {
-    "url": "https://github.com/s1korrrr/clip_vault/pull/9",
-    "draft": true,
-    "mergeable": true,
-    "ci": "BLOCKED_ACCOUNT_BILLING_OR_SPENDING_LIMIT"
-  },
-  "verdict": "NOT READY",
-  "generated_date": "2026-07-11"
+  "formal_security_scan": "WAIVED_BY_OWNER_NOT_RUN",
+  "source_publication": "HOLD_OWNER_AND_EXTERNAL_GATES",
+  "direct_download": "BLOCKED_EXTERNAL_SIGNING_NOTARIZATION",
+  "app_store": "BLOCKED_EXTERNAL_IDENTITIES_ACCOUNT_AND_DECLARATIONS",
+  "generated_date": "2026-07-20"
 }

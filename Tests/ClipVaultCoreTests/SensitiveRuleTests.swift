@@ -6,10 +6,13 @@ struct SensitiveRuleTests {
     @Test("rejects private keys and common API tokens before storage")
     func rejectsSecrets() {
         let classifier = SensitiveRuleEngine.default
+        let syntheticOpenAIToken = ["sk", "proj", "1234567890abcdef1234567890abcdef"].joined(separator: "-")
+        let syntheticGitHubToken = ["github", "pat", "11ABCDEFG0123456789012345678901234567890"]
+            .joined(separator: "_")
 
         #expect(classifier.classify("-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----").isExcluded)
-        #expect(classifier.classify("OPENAI_API_KEY=sk-proj-1234567890abcdef1234567890abcdef").isExcluded)
-        #expect(classifier.classify("github_pat_11ABCDEFG0123456789012345678901234567890").isExcluded)
+        #expect(classifier.classify("OPENAI_API_KEY=\(syntheticOpenAIToken)").isExcluded)
+        #expect(classifier.classify(syntheticGitHubToken).isExcluded)
     }
 
     @Test("keeps useful developer snippets that only look technical")

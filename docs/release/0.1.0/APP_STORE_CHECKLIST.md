@@ -5,7 +5,7 @@
 - [x] Version/build are 0.1.0 (1), bundle ID `com.andrzej.ClipVault`, category plist value Productivity.
 - [x] 1024-class app icon is embedded and package validator passes.
 - [x] Privacy manifest is embedded and valid.
-- [x] App Sandbox and effective distribution entitlements are validated.
+- [x] App Sandbox source entitlements and the ad-hoc local bundle are validated.
 - [x] Draft description, subtitle, keywords, and review notes exist.
 - [x] No active cloud AI, account, IAP, subscription, login, or backend is represented.
 - [x] Two sanitized actual-product Mac screenshots are staged at an accepted 1280x800 size in `AppStore/Screenshots/`.
@@ -20,4 +20,4 @@
 - [ ] Validate/upload with App Store Connect credentials and inspect processing warnings.
 - [ ] Install the distribution candidate in a clean macOS user/machine and smoke test.
 
-No Submit for Review, pricing/storefront change, legal acceptance, tag, merge, or public release is authorized.
+No Submit for Review, pricing/storefront change, legal acceptance, tag, repository-visibility change, or public release is authorized by this checklist.

@@ -1,5 +1,7 @@
 # ClipVault App Store Release Hardening Implementation Plan
 
+> Historical implementation plan. Its worktree names, local artifact paths, and intermediate counts are retained for traceability, not as current release evidence.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Produce a freshly verified Mac App Store submission candidate for ClipVault, fixing every safe repository-local release defect and documenting every external blocker precisely.

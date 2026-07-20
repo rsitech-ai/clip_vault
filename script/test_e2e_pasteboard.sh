@@ -6,9 +6,11 @@ HELPER="$ROOT_DIR/script/write_e2e_pasteboard.swift"
 VIEW_MODEL="$ROOT_DIR/Sources/ClipVault/App/ClipVaultViewModel.swift"
 APP_ENTRY="$ROOT_DIR/Sources/ClipVault/App/ClipVaultApp.swift"
 E2E_SMOKE="$ROOT_DIR/script/e2e_smoke.sh"
+RUN_WITH_TIMEOUT="$ROOT_DIR/script/run_with_timeout.sh"
 PACKAGE_VALIDATOR="$ROOT_DIR/script/validate_app_store_package.sh"
 
 [[ -x "$HELPER" ]]
+[[ -x "$RUN_WITH_TIMEOUT" ]]
 
 set +e
 missing_output="$("$HELPER" 2>&1)"
@@ -37,11 +39,18 @@ success_output="$("$HELPER" "ClipVault private E2E pasteboard shell test" 2>&1)"
 [[ "$(rg -c 'com\.andrzej\.ClipVault\.e2e\.capture' "$HELPER")" == "1" ]]
 [[ "$(rg -c 'com\.andrzej\.ClipVault\.e2e\.capture' "$VIEW_MODEL")" == "1" ]]
 [[ "$(rg -c 'com\.andrzej\.ClipVault\.e2e\.capture' "$PACKAGE_VALIDATOR")" == "1" ]]
-rg -Fq 'E2E_BUNDLE_ID="${E2E_BUNDLE_ID-com.andrzej.ClipVault.e2e.v2}"' "$E2E_SMOKE"
+rg -Fq 'E2E_RUN_ID="${E2E_RUN_ID-$(date +%Y%m%d%H%M%S).$$}"' "$E2E_SMOKE"
+rg -Fq 'E2E_BUNDLE_ID="${E2E_BUNDLE_ID-com.andrzej.ClipVault.e2e.$E2E_RUN_ID}"' "$E2E_SMOKE"
+rg -Fq 'security delete-generic-password' "$E2E_SMOKE"
 rg -Fq 'KeychainKeyProvider(migrateLegacyKey: model.shouldMigrateLegacyKey)' "$APP_ENTRY"
-[[ "$(rg -c 'write_e2e_pasteboard\.swift \"\$TOKEN\"' "$E2E_SMOKE")" == "2" ]]
+[[ "$(rg -c 'write_e2e_pasteboard\.swift \"\$TOKEN\"' "$E2E_SMOKE")" == "1" ]]
 rg -Fq 'INITIAL_COPY_COUNT="$PROBE_COPY_COUNT"' "$E2E_SMOKE"
-rg -Fq 'wait_for_store_probe 1 "$((INITIAL_COPY_COUNT + 1))"' "$E2E_SMOKE"
+rg -Fq 'capture_until_store_probe 1 "$((INITIAL_COPY_COUNT + 1))"' "$E2E_SMOKE"
+rg -Fq 'launch_e2e_app' "$E2E_SMOKE"
+[[ "$(rg -c 'run_store_probe "\$TOKEN"' "$E2E_SMOKE")" == "2" ]]
+rg -Fq 'STORE_PROBE_TIMEOUT_SECONDS="${STORE_PROBE_TIMEOUT_SECONDS-30}"' "$E2E_SMOKE"
+rg -Fq 'ClipVaultStoreProbeRequest.e2eStoreURL' "$VIEW_MODEL"
+rg -Fq '"$APP_EXECUTABLE" --reset-e2e-store' "$E2E_SMOKE"
 ! rg -q 'pbcopy' "$E2E_SMOKE"
 rg -Fq -- '"--verify-generated-prompt-batch"' "$PACKAGE_VALIDATOR"
 rg -Fq -- '"CLIPVAULT_GENERATED_PROMPT_BATCH_PROBE"' "$PACKAGE_VALIDATOR"

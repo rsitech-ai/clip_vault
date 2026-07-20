@@ -1,17 +1,20 @@
-# Release Blockers
+# ClipVault 0.1.0 Blockers
 
-| Blocker | Why external | Owner | Exact resolution |
-| --- | --- | --- | --- |
-| App Store Connect record, credentials, role, upload validation | Account-only state/secret | Apple account owner | Confirm app record and provide scoped API key; run validate-only/upload and inspect warnings |
-| GitHub Actions billing/spending limit | Both push and PR jobs were rejected before runner assignment with GitHub's billing annotation | GitHub account owner | Resolve failed payment or raise the Actions spending limit, then rerun PR #9 checks |
-| Provisioning confirmation | No embedded profile and server validation unavailable | Apple account owner | Confirm bundle provisioning/profile policy and pass ASC validation |
-| Public support/privacy URLs | Public hosting/contact decision | Product owner | Publish HTTPS pages and enter URLs |
-| Privacy labels, age rating, accessibility declaration | Truthful owner declarations in ASC | Product/legal owner | Complete questionnaires from `PRIVACY_DATA_MAP.md` and actual behavior |
-| Export compliance | AES-GCM use requires owner/legal response | Legal/account owner | Answer ASC encryption questions; do not add plist exemption without confirmation |
-| DSA trader, content rights | Legal/business declarations | Legal/account owner | Complete in ASC |
-| Price, territories, release mode | Business decisions | Product owner | Select values in ASC |
-| macOS 15 and clean-user proof | Runtime/environment unavailable | QA | Install and smoke the signed candidate on clean macOS 15+ environment |
-| macOS 27 compatibility | Toolchain/runtime unavailable | QA | Test separately when Xcode/macOS 27 is available |
-| Newest accepted production toolchain | Apple lists Xcode 26.6 as the latest stable Xcode; this host has only 26.5 | Engineering/QA | Install Xcode 26.6 and regenerate/revalidate the candidate before submission |
+Date: 2026-07-20
 
-These external blockers plus the formal security-scan, newest-toolchain, and remaining manual-QA gaps prevent readiness. Screenshot assets are now locally complete.
+| Blocker | Owner | Exact resolution |
+| --- | --- | --- |
+| No project license or approved copyright holder | Project owner | Select a license and copyright holder; add `LICENSE` and matching Cargo metadata. |
+| Personal author email in all 122 historical commits | Project owner | Explicitly approve publishing it, authorize a history rewrite to an approved no-reply address, or authorize a curated/orphan public-source history. |
+| Public repository owner/name and visibility undecided | Project owner | Approve the final namespace and a separate visibility change. Current push authorization does not itself authorize making the repository public or transferring it. |
+| Support and privacy-policy URLs not approved | Product owner | Approve canonical HTTPS routes before App Store metadata or public docs claim them. |
+| Confidential conduct route missing | Project owner | Approve a private conduct contact distinct from vulnerability reporting. |
+| Private vulnerability reporting unavailable | Repository owner | Enable GitHub private vulnerability reporting before public launch, or approve another private security route. |
+| Hosted CI not proven on exact candidate | GitHub account owner | Resolve Actions billing/spending state and rerun the final commit successfully. |
+| Default-branch rules and required checks missing | Repository owner | Configure branch/ruleset protection after the required workflow is able to run. |
+| No public tag or release authorization | Project owner | Approve annotated tag and GitHub release only after all source-publication gates pass. |
+| No distribution identities or expected Team ID | Apple account owner | Install scoped application/installer distribution identities and provide the expected Team ID, then rerun package checks. |
+| Developer ID/notarization proof absent | Apple account owner | Sign, notarize, staple, assess with Gatekeeper, and smoke a clean account/machine before direct download. |
+| App Store Connect record/validation and declarations absent | Apple/product/legal owners | Complete record, credentials, support/privacy URLs, privacy labels, age/accessibility, export, DSA, rights, price, territories, server validation, and upload. |
+
+The formal Codex Security scan was waived for this pass. That waiver removes the workflow from this task; it is not evidence that a formal scan ran.

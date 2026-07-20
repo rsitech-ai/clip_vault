@@ -578,10 +578,11 @@ struct PromptEnhancerTests {
     @Test("validator rejects sensitive generated output")
     func validatorRejectsSensitiveOutput() {
         let source = makeClip(preview: "Write setup instructions.", extractedText: "Write setup instructions.")
+        let syntheticOpenAIToken = ["sk", "proj", "1234567890abcdef1234567890abcdef"].joined(separator: "-")
 
         #expect(throws: PromptEnhancementError.sensitiveOutput("Source")) {
             try PromptEnhancementValidator().validate(
-                output: "Goal: Configure the service.\nOPENAI_API_KEY=sk-proj-1234567890abcdef1234567890abcdef",
+                output: "Goal: Configure the service.\nOPENAI_API_KEY=\(syntheticOpenAIToken)",
                 source: source
             )
         }

@@ -1,0 +1,45 @@
+name: Feature request
+description: Propose a focused improvement to a repeated ClipVault workflow.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: job
+    attributes:
+      label: User job
+      description: What repeated task is difficult today, and who experiences it?
+    validations:
+      required: true
+
+  - type: textarea
+    id: current
+    attributes:
+      label: Current workaround
+      description: Explain how you handle the task now.
+    validations:
+      required: true
+
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: Describe the result, not a required implementation.
+    validations:
+      required: true
+
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Privacy, compatibility, or migration impact
+      description: Note any clipboard, Keychain, file-access, Apple Intelligence, macOS-version, or data-migration implications.
+
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope check
+      options:
+        - label: I searched existing issues for the same request.
+          required: true
+        - label: This request does not require sending private clipboard data to a third party by default.
+          required: true

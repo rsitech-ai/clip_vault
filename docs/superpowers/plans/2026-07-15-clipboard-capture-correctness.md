@@ -68,7 +68,7 @@
 - The production-default monitoring test failed before implementation with no payload after approximately 695 ms. With the 250 ms default, exact multiline Unicode capture passed in approximately 287 ms focused and 359 ms in the full parallel suite.
 - Exact long multiline Unicode write-back passed on an isolated named pasteboard. The list-local ⌘C modifier compiled with warnings as errors and returns `.ignored` for non-Command key presses or no selection.
 - `./script/test.sh` passed 161 Swift tests in 17 suites plus 4 Rust tests and all shell validation gates. `git diff --check` passed.
-- `./script/build_and_run.sh --verify` produced and launched `/Users/s1kor/dev/andrzej/ClipVault/dist/ClipVault.app`; `codesign --verify --deep --strict --verbose=2` passed, the exact executable was running as PID 80721, and targeted current-process logs had no error, fault, assertion, or fatal signal.
+- `./script/build_and_run.sh --verify` produced and launched `<repository-root>/dist/ClipVault.app`; `codesign --verify --deep --strict --verbose=2` passed, the exact executable was running as PID 80721, and targeted current-process logs had no error, fault, assertion, or fatal signal.
 - No QA content was placed on `NSPasteboard.general`; automated clipboard checks used unique named pasteboards, so the user's real clipboard and ClipVault history were not mutated by verification.
 - The focused implementation and evidence were committed locally and the feature branch was preserved without push, merge, or cleanup.
 

@@ -1,11 +1,13 @@
 # SwiftUI Polish Audit Report: ClipVault
 
+> Historical audit snapshot. Machine-local `/tmp` evidence paths below are not distributed artifacts and are not current release proof.
+
 ## Scope
 
 - Date: 2026-06-29
 - Auditor: Codex
 - Platform: macOS
-- Project: `/Users/s1kor/dev/andrzej/ClipVault`
+- Project: `<repository-root>`
 - Scheme/target: SwiftPM executable product `ClipVault`
 - Devices/simulators: local macOS desktop app bundle at `dist/ClipVault.app`
 - Configuration: Debug app bundle launch plus Release SwiftPM build

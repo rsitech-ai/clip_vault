@@ -1,14 +1,34 @@
-# Security Status
+# ClipVault 0.1.0 Security Status
 
-Verdict: **NOT YET VERIFIED** for the formal native scan gate. Manual/source-focused review, dependency checks, and a fresh independent full-branch-plus-working-tree security review found no actionable finding, but the required native standard and final diff scans are not complete.
+Date: 2026-07-20
 
-- Secrets/credentials: source and configuration inspected; no committed key, profile, ASC credential, or production secret found.
-- Storage: versioned AES-GCM detail envelope, Keychain-held key, plaintext placeholders, legacy migration, future-version fail-closed behavior, and corrupt legacy recovery are regression-tested.
-- Capture: explicit consent is required; stopping/revoking invalidates in-flight payload work; startup rebaselines the pasteboard.
-- Logging: failure details are private OSLog values; raw clipboard content, keys, notes, OCR, and file paths are not intentionally logged.
-- Sandbox: enabled; only user-selected read-only file access is added. Distribution entitlements include expected team/application identifiers.
-- Supply chain: no external Swift dependency; Rust crate has no third-party dependency; format, Clippy, and RustSec audit pass.
-- Native/FFI: the Rust dylib is arm64, nested-signed, hardened, and loaded only from the app Frameworks directory.
-- Independent final review: production probe/pasteboard isolation, drag payload validation, move-store revalidation, consent lifecycle, unsafe FFI contracts, packaging rejection rules, and secret patterns were reviewed with no actionable finding.
+Verdict: **ordinary review passed with documented residuals; formal security scan not run by owner request.**
 
-Residual risks: upgraded historical databases may contain plaintext remnants in SQLite freelist/WAL/backups from pre-hardening builds; `/usr/sbin/screencapture` is an external command surface; App Store server-side provisioning validation is unavailable. Owners: engineering for future migration/command replacement; Apple account owner for server validation.
+## Verified in this pass
+
+- No confirmed live credential, private key, certificate, provisioning profile, signing identity, Team ID, or personal filesystem path remains in the current tracked candidate.
+- Gitleaks passed against the current tree. Synthetic OpenAI- and GitHub-shaped test tokens are assembled at runtime from fragments.
+- The repository has no external Swift dependency and the Rust crate has no third-party dependency.
+- RustSec advisory audit and cargo-deny advisories, bans, and source policies passed.
+- GitHub Actions uses read-only permissions, a full-SHA checkout pin, `persist-credentials: false`, `pull_request` rather than `pull_request_target`, and workflow concurrency cancellation.
+- Release-package validation rejects binaries containing the E2E compile marker.
+- E2E bundle IDs are validated under `com.andrzej.ClipVault.e2e.*`; every run receives an independent bundle, Keychain, defaults, and sandbox-store namespace. Reset and cleanup operate only inside that namespace.
+- The bounded subprocess helper terminates descendants as well as the direct process and has a regression test proving the descendant is gone.
+- Clipboard capture requires explicit consent in production; stopping or revoking capture invalidates in-flight work.
+- Clip payloads/details use AES-GCM with a Keychain-backed key; sensitive-value filtering happens before persistence and is documented as best effort.
+
+## Publication blockers
+
+- No approved license exists, so dependency/license policy and public redistribution cannot pass.
+- Historical author metadata exposes a personal email in all 122 commits. Current-file sanitization does not change Git history.
+- A confidential vulnerability-reporting channel is not enabled, and a separate confidential conduct route is not approved.
+- Hosted CI has not executed successfully on the exact candidate.
+
+## Residual risks
+
+- Plaintext, unkeyed deduplication fingerprints can permit guessing of common clipboard values if an attacker already obtains the sandbox database. The privacy policy discloses plaintext fingerprints.
+- Keychain accessibility is `AfterFirstUnlockThisDeviceOnly`; a stricter accessibility class would affect background/relaunch behavior and needs an explicit migration design.
+- Upgraded historical databases/backups may retain pre-hardening plaintext remnants.
+- `/usr/sbin/screencapture` is a fixed system binary but remains an external command surface.
+
+No formal Codex Security finding, badge, or scan completion is claimed by this document.

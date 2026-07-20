@@ -120,7 +120,15 @@ final class ClipVaultViewModel {
         let schema = Schema([ClipRecord.self, FolderRecord.self])
         var migrateLegacyKey = false
         do {
+            #if CLIPVAULT_E2E_PROBE
+            let configuration = ModelConfiguration(
+                "ClipVault",
+                schema: schema,
+                url: ClipVaultStoreProbeRequest.e2eStoreURL
+            )
+            #else
             let configuration = ModelConfiguration("ClipVault", schema: schema)
+            #endif
             let persistentStoreExists = FileManager.default.fileExists(atPath: configuration.url.path)
             let openedContainer = try ModelContainer(for: schema, configurations: [configuration])
             let storedClipCount = persistentStoreExists
