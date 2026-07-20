@@ -2,6 +2,7 @@
 name = "search_index_core"
 version = "0.1.0"
 description = "Private Rust search and normalization core embedded in ClipVault"
+repository = "https://github.com/rsitech-ai/clip_vault"
 readme = "../../README.md"
 publish = false
 edition = "2024"

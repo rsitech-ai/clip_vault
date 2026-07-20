@@ -11,6 +11,12 @@
     "branch": "chore/oss-release-readiness",
     "final_commit": "recorded_by_git_after_integration"
   },
+  "repository": {
+    "owner": "rsitech-ai",
+    "name": "clip_vault",
+    "url": "https://github.com/rsitech-ai/clip_vault",
+    "visibility": "PRIVATE"
+  },
   "toolchain": {
     "host_macos": "27.0 (26A5378j)",
     "xcode": "26.6",
@@ -20,7 +26,7 @@
     "cargo": "1.91.0"
   },
   "tests": {
-    "shell_groups": {"passed": 9, "failed": 0},
+    "shell_groups": {"passed": 10, "failed": 0},
     "swift": {"passed": 178, "failed": 0, "suites": 17},
     "rust": {"passed": 4, "failed": 0},
     "e2e": "PASS",
@@ -51,7 +57,13 @@
   ],
   "formal_security_scan": "WAIVED_BY_OWNER_NOT_RUN",
   "source_publication": "HOLD_OWNER_AND_EXTERNAL_GATES",
-  "direct_download": "BLOCKED_EXTERNAL_SIGNING_NOTARIZATION",
+  "direct_download": {
+    "status": "BLOCKED_EXTERNAL_SIGNING_NOTARIZATION",
+    "packaging_automation": "PASS_LOCAL_TESTS",
+    "preflight_exit": 2,
+    "developer_id_application_identity": "MISSING",
+    "notarization_profile": "NOT_EVALUATED_AFTER_IDENTITY_GATE"
+  },
   "app_store": "BLOCKED_EXTERNAL_IDENTITIES_ACCOUNT_AND_DECLARATIONS",
   "generated_date": "2026-07-20"
 }

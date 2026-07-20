@@ -9,8 +9,8 @@ Date: 2026-07-20 (Europe/Warsaw)
 ## Scope and authority
 
 - Reviewed repository contents, current Git state/history metadata, local build/runtime behavior, documentation, packaging, and read-only GitHub state.
-- Modified only the isolated release-hardening worktree.
-- Did not change repository visibility, transfer/rename the repository, rewrite history, select a license, create a tag/release, submit to Apple, or publish externally.
+- Modified source only in the isolated release-hardening worktree and performed explicitly authorized recoverable workspace cleanup.
+- Transferred the still-private repository to the approved `rsitech-ai` organization and updated canonical metadata. Did not make it public, rewrite history, select a license, create a tag/release, submit to Apple, or publish a binary.
 
 ## Product and UX
 
@@ -20,7 +20,7 @@ Date: 2026-07-20 (Europe/Warsaw)
 
 ## Reliability and testability
 
-- Full harness: 9 shell groups, 4 Rust tests, and 178 Swift tests passed.
+- Full harness: 10 shell groups, 4 Rust tests, and 178 Swift tests passed.
 - Release-mode Rust/Swift compilation passed.
 - The E2E harness initially exposed two defects: an unbounded store-probe subprocess and false launch verification through the `/tmp` symlink. Regression tests now cover descendant termination and canonical distribution paths.
 - E2E state now uses a per-run bundle/Keychain/defaults/store namespace and app-owned store cleanup.
@@ -44,15 +44,17 @@ Date: 2026-07-20 (Europe/Warsaw)
 
 - Local app bundle, Info.plist, privacy manifest, sandbox entitlements, ad-hoc signature, nested dylib, and load path validate.
 - `app_store_check.sh` exits 3 only for missing distribution application/installer identities and expected Team ID.
-- Direct-download signing/notarization, App Store Connect validation, hosted exact-head CI, branch rules, visibility, tag, and release remain unproven or unauthorized.
+- Added a fail-closed direct-download packaging command covering Developer ID signing, hardened-runtime checks, notarization acceptance, stapling, Gatekeeper, final ZIP creation, and checksum generation.
+- The packaging logic tests pass, but real preflight exits 2 because no Developer ID Application identity is installed. Direct-download runtime proof, App Store Connect validation, hosted exact-head CI, branch rules, visibility, tag, and release remain unproven or unauthorized.
 
 ## Required owner decisions
 
 1. License and copyright holder.
 2. Publish historical personal author email, rewrite history, or create an orphan/squashed public-source history.
-3. Final public repository owner/name and visibility.
-4. Canonical support/privacy URLs, confidential conduct route, and private vulnerability-reporting route.
-5. Authorization for public tag/release after hosted CI and repository settings pass.
+3. Confidential conduct route and private vulnerability-reporting route.
+4. Authorization for public visibility and tag/release after hosted CI and repository settings pass.
+
+The repository namespace and support/privacy URLs are now approved as `rsitech-ai/clip_vault`. Obsolete merged worktrees and untracked historical audit artifacts were removed from the workspace; the dirty July 15 release lane was preserved as verified recovery archives before cleanup.
 
 ## Reproducible evidence
 

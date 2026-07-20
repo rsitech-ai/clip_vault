@@ -27,6 +27,29 @@ In addition to the source gate, a downloadable app requires:
 
 An ad-hoc or Apple Development signature is not a distributable release signature.
 
+Verify credentials before doing build work:
+
+```bash
+DEVELOPER_ID_APPLICATION_IDENTITY="Developer ID Application: Your Name (TEAMID1234)" \
+NOTARY_KEYCHAIN_PROFILE="clipvault-notary" \
+./script/package_direct_download.sh --preflight
+```
+
+After the source gate closes, create the notarized release artifacts with the same
+environment variables and no argument:
+
+```bash
+DEVELOPER_ID_APPLICATION_IDENTITY="Developer ID Application: Your Name (TEAMID1234)" \
+NOTARY_KEYCHAIN_PROFILE="clipvault-notary" \
+./script/package_direct_download.sh
+```
+
+The command fails closed unless the identity is installed and the notary profile
+authenticates. It signs the nested Rust library and app with hardened runtime,
+submits the ZIP for notarization, requires an `Accepted` result, staples and
+validates the ticket, runs Gatekeeper assessment, and writes the final ZIP plus
+its SHA-256 file under `dist/DirectDownload/`.
+
 ## 3. Mac App Store release
 
 In addition to the applicable source/runtime gates, the App Store lane requires:
@@ -47,6 +70,7 @@ cargo audit --file rust/SearchIndexCore/Cargo.lock
 swift build -c release -Xswiftc -warnings-as-errors
 ./script/build_and_run.sh --verify
 ./script/e2e_smoke.sh
+./script/package_direct_download.sh --preflight
 ./script/app_store_check.sh
 git diff --check
 ```
