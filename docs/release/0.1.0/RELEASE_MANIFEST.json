@@ -7,7 +7,7 @@
   "minimum_macos": "15.0",
   "architectures": ["arm64"],
   "candidate": {
-    "baseline_commit": "50e0e4d52168530204b828289c5196d77d08c8d0",
+    "baseline_commit": "5cace92adaf5b51e45b45a300a9b29c2a3fbb9ca",
     "branch": "chore/oss-release-readiness",
     "final_commit": "recorded_by_git_after_integration"
   },
@@ -24,7 +24,7 @@
     "website": "https://rsitech.ai",
     "contact": "info@rsitech.ai",
     "history_email": "24563931+s1korrrr@users.noreply.github.com",
-    "history_rewrite": "AUTHORIZED_PENDING_VERIFICATION"
+    "history_rewrite": "PASS_ALL_RETAINED_COMMITS_TREE_PARITY_VERIFIED"
   },
   "toolchain": {
     "host_macos": "27.0 (26A5378j)",

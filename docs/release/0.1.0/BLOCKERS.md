@@ -4,8 +4,7 @@ Date: 2026-07-20
 
 | Blocker | Owner | Exact resolution |
 | --- | --- | --- |
-| Authorized history rewrite not yet verified | Repository owner | Rewrite every retained commit to the approved GitHub no-reply address, force-update the private refs, and prove no personal author email remains. |
-| Repository visibility remains private | Repository owner | Make `rsitech-ai/clip_vault` public only after history privacy, confidential reporting, and exact-head verification gates close. |
+| Repository visibility remains private | Repository owner | Make `rsitech-ai/clip_vault` public only after confidential reporting and exact-head verification gates close. |
 | Private vulnerability reporting unavailable | Repository owner | Enable GitHub private vulnerability reporting before public launch; `info@rsitech.ai` is the approved fallback. |
 | Hosted CI not proven on exact candidate | GitHub account owner | Resolve Actions billing/spending state and rerun the final commit successfully. |
 | Default-branch rules and required checks missing | Repository owner | Configure branch/ruleset protection after the required workflow is able to run. |
