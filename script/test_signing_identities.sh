@@ -6,8 +6,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=lib/signing_identities.sh
 source "$ROOT_DIR/script/lib/signing_identities.sh"
 
-APPLICATION_IDENTITY='Apple Distribution: Rafal Sikora (2NY8A789TN)'
-INSTALLER_IDENTITY='3rd Party Mac Developer Installer: Rafal Sikora (2NY8A789TN)'
+APPLICATION_IDENTITY='Apple Distribution: Example Developer (ABCDEFGHIJ)'
+INSTALLER_IDENTITY='3rd Party Mac Developer Installer: Example Developer (ABCDEFGHIJ)'
 
 CODESIGNING_OUTPUT="$(printf '%s\n' \
   '  1) AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA "Apple Development: Example (AAAAAAAAAA)"' \

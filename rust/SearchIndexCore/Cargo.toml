@@ -1,6 +1,11 @@
 [package]
 name = "search_index_core"
 version = "0.1.0"
+description = "Private Rust search and normalization core embedded in ClipVault"
+repository = "https://github.com/rsitech-ai/clip_vault"
+readme = "../../README.md"
+license = "Apache-2.0"
+publish = false
 edition = "2024"
 rust-version = "1.85"
 

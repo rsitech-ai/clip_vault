@@ -317,6 +317,7 @@ struct GeneratedPromptPersistenceTests {
             sourceApp: nil
         ))
         let before = try store.allClips()
+        let syntheticOpenAIToken = ["sk", "proj", "abcdefghijklmnopqrstuvwx"].joined(separator: "-")
 
         #expect(throws: GeneratedPromptStoreError.rejectedOutput(second.id)) {
             try store.saveGeneratedPrompts([
@@ -328,7 +329,7 @@ struct GeneratedPromptPersistenceTests {
                 GeneratedPromptDraft(
                     sourceClipID: second.id,
                     sourceTitle: second.title,
-                    enhancedText: "API key: sk-proj-abcdefghijklmnopqrstuvwx"
+                    enhancedText: "API key: \(syntheticOpenAIToken)"
                 )
             ])
         }
