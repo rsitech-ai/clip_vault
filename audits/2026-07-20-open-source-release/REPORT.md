@@ -4,7 +4,7 @@ Date: 2026-07-20 (Europe/Warsaw)
 
 ## Outcome
 
-**HOLD pending authorized history rewrite and external GitHub/notarization gates.** The engineering candidate is locally verified and the owner/legal decisions are closed. No formal Codex Security scan was run, per owner instruction.
+**HOLD pending external GitHub/notarization gates.** The engineering candidate, owner/legal decisions, and history-privacy rewrite are locally verified. No formal Codex Security scan was run, per owner instruction.
 
 ## Scope and authority
 
@@ -31,7 +31,7 @@ Date: 2026-07-20 (Europe/Warsaw)
 - Rust has one local crate and no third-party dependency; Swift has no external package dependency.
 - RustSec plus cargo-deny advisories/bans/sources passed.
 - GitHub checkout is full-SHA pinned, workflow permissions are read-only, and credential persistence is disabled.
-- Historical author metadata still exposes a personal email in all 122 commits at this pre-rewrite point. The owner authorized rewriting every retained commit to the approved GitHub no-reply address.
+- Both retained private branches were rewritten and force-updated. Every reachable candidate commit uses only the approved GitHub no-reply email, and rewritten tree IDs exactly match the pre-rewrite trees.
 - The approved Apache-2.0 license and matching Rust package metadata are present in the candidate.
 
 ## Documentation and community health
@@ -51,7 +51,7 @@ Date: 2026-07-20 (Europe/Warsaw)
 
 1. Apache-2.0; copyright owner Rafal Sikora.
 2. RSI Tech public maintenance at `https://rsitech.ai` with `info@rsitech.ai` for public/confidential contact.
-3. Rewrite every retained commit to `24563931+s1korrrr@users.noreply.github.com` before publication.
+3. Rewrite every retained commit to `24563931+s1korrrr@users.noreply.github.com` before publication. Completed and verified on both retained branches.
 4. Continue through PR review/merge, public organization publication, and a verified downloadable release.
 
 The repository namespace and support/privacy URLs are now approved as `rsitech-ai/clip_vault`. Obsolete merged worktrees and untracked historical audit artifacts were removed from the workspace; the dirty July 15 release lane was preserved as verified recovery archives before cleanup.

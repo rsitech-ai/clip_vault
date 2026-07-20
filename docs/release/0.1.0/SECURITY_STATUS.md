@@ -19,9 +19,15 @@ Verdict: **ordinary review passed with documented residuals; formal security sca
 
 ## Publication blockers
 
-- Historical author metadata exposes a personal email in all 122 commits. The owner approved rewriting retained history to the GitHub no-reply address; publication remains blocked until the rewrite is verified on every retained ref.
 - GitHub private vulnerability reporting is not enabled yet. The approved confidential fallback is `info@rsitech.ai`.
 - Hosted CI has not executed successfully on the exact candidate. The prior run executed and failed only at the intentionally missing-license gate, which is now resolved in the candidate.
+
+## History privacy
+
+- Both retained branches were rewritten and force-updated while the repository remained private.
+- Every commit reachable from the candidate uses only `24563931+s1korrrr@users.noreply.github.com` for author and committer email.
+- Rewritten `main` and candidate tree IDs exactly match their pre-rewrite counterparts; only commit metadata and resulting commit IDs changed.
+- The complete pre-rewrite repository is preserved as a verified Git bundle in the local Trash for recovery and must not be republished.
 
 ## Residual risks
 
