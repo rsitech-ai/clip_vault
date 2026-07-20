@@ -100,4 +100,4 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the data flow and trust bou
 
 ## License
 
-Copyright © 2026 Rafal Sikora. ClipVault is licensed under the [Apache License 2.0](LICENSE). RSI Tech is the public project maintainer; contact [info@rsitech.ai](mailto:info@rsitech.ai).
+Copyright © 2026 Rafal Sikora. ClipVault is licensed under the [Apache License 2.0](LICENSE). See [NOTICE](NOTICE) for attribution. RSI Tech is the public project maintainer; contact [info@rsitech.ai](mailto:info@rsitech.ai).

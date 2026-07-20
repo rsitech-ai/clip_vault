@@ -2,7 +2,7 @@
 
 All notable user-visible changes to ClipVault will be documented here.
 
-The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). ClipVault is pre-1.0 and has not published a public release.
+The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). ClipVault is pre-1.0 and has not published a notarized binary release.
 
 ## [Unreleased]
 
@@ -14,6 +14,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Cli
 - Image and screenshot previews with local OCR indexing.
 - On-device prompt enhancement through Apple Foundation Models when available.
 - Swift, Rust, shell, signed-app, persistence, and package-validation test lanes.
+- Public Apache-2.0 source repository under RSI Tech with NOTICE, security policy, and contribution guide.
 
 ### Security
 
@@ -23,7 +24,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Cli
 
 ### Known limitations
 
-- No public tag, GitHub release, or supported binary distribution exists yet.
+- No public tag, GitHub Release, or notarized binary distribution exists yet.
 - The current build is arm64-only and requires macOS 15 or later.
 - Cloud sync, accounts, teams, and cloud AI providers are not available.
-- GitHub-hosted CI and the public repository security/settings gates remain to be proven on the final release commit.
+- Direct-download publication remains blocked until a notarization Keychain profile and clean-account Gatekeeper proof are available.

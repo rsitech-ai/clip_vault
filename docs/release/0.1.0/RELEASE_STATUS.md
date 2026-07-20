@@ -10,6 +10,10 @@ The current source, release build, isolated runtime, E2E path, documentation lin
 
 No formal Codex Security scan was run; the owner explicitly waived that workflow for this pass. The evidence below is ordinary source/provenance review plus local tools and does not claim formal scan coverage.
 
+## Public surface cleanup (2026-07-20 late)
+
+Removed tracked agent/Codex/skill plans, local reflection notes, and historical internal audit reports from the public tree. Added `NOTICE`, hardened `.gitignore`, pinned `actions/checkout` to v7.0.1, and closed the Dependabot branch that still reached a personal-Gmail merge commit. Current-tree Gitleaks remains clean. Downloadable binary publication remains blocked on notarization credentials.
+
 ## Readiness labels
 
 | Lane | Status | Meaning |
