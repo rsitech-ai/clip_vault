@@ -4,9 +4,9 @@ Date: 2026-07-20 (Europe/Warsaw)
 
 ## Verdict
 
-**HOLD — source candidate locally verified; hosted CI and repository safeguard gates remain.**
+**SOURCE PUBLISHED — public repository is repo-ready; downloadable binary remains blocked:external.**
 
-The current source, release build, isolated runtime, E2E path, documentation links, dependency checks, and current-tree hygiene pass locally. The repository is owned by `rsitech-ai` and remains private. Apache-2.0, copyright ownership by Rafal Sikora, RSI Tech maintenance, `info@rsitech.ai` for public/confidential contact, and the full retained-history rewrite to the approved GitHub no-reply address are complete. Publication remains blocked until exact-head hosted CI, private vulnerability reporting, and default-branch protection are verified.
+The current source, release build, isolated runtime, E2E path, documentation links, dependency checks, and current-tree hygiene pass. PR #13 passed exact-head hosted arm64 CI, was reviewed and merged, and the repository is public under `rsitech-ai`. Apache-2.0, copyright ownership by Rafal Sikora, RSI Tech maintenance, `info@rsitech.ai` for public/confidential contact, the retained-history rewrite, private vulnerability reporting, and an active default-branch ruleset are verified. A downloadable binary must not be published until notarization, stapling, Gatekeeper, and clean-account runtime proof pass.
 
 No formal Codex Security scan was run; the owner explicitly waived that workflow for this pass. The evidence below is ordinary source/provenance review plus local tools and does not claim formal scan coverage.
 
@@ -14,20 +14,20 @@ No formal Codex Security scan was run; the owner explicitly waived that workflow
 
 | Lane | Status | Meaning |
 | --- | --- | --- |
-| Source engineering candidate | LOCALLY VERIFIED | Local tests, release compilation, E2E, native UI smoke, documentation validation, and current-tree hygiene passed. |
-| Public open-source repository | HOLD | Namespace, license/copyright, brand, contacts, and history privacy pass. Visibility/security settings and exact-head hosted CI remain to be completed. |
+| Source engineering candidate | RUNTIME-PROVEN | Local tests, release compilation, E2E, native UI smoke, documentation validation, current-tree hygiene, and hosted arm64 CI passed. |
+| Public open-source repository | REPO-READY / PUBLISHED | Public organization repository, Apache-2.0 detection, confidential reporting, PR/ruleset protection, and required CI are active. |
 | Direct-download macOS binary | BLOCKED:EXTERNAL | A valid Developer ID Application identity is installed and timestamp signing passed. No `notarytool` keychain profile exists, so notarization, stapling, Gatekeeper, and clean-machine install proof remain unavailable. |
 | Mac App Store package | BLOCKED:EXTERNAL | Local bundle structure passes, but distribution identities, expected Team ID, App Store Connect validation, and owner declarations are unavailable. |
 
 ## Current environment and identity
 
-- Rewritten source baseline: `5cace92adaf5b51e45b45a300a9b29c2a3fbb9ca` (`main` and `origin/main` before integration of this release-hardening change).
-- Candidate branch: `chore/oss-release-readiness`; final integration commit is recorded by Git, not self-embedded in this document.
+- Rewritten source baseline: `5cace92adaf5b51e45b45a300a9b29c2a3fbb9ca` (pre-integration `main`).
+- Reviewed PR #13 head: `45205f80ec19f7ad844b17bcf0db0da0c216c03b`; privacy-corrected two-parent integration commit: `313dc34ef5ac62d583ddf282e148bf46f4772a13`.
 - macOS 27.0 (26A5378j), Apple silicon.
 - Xcode 26.6 (17F113), Swift 6.3.3.
 - Rust/Cargo 1.91.0.
 - Product bundle ID `com.andrzej.ClipVault`, version `0.1.0`, build `1`, minimum macOS `15.0`, arm64.
-- Current GitHub repository is private at `https://github.com/rsitech-ai/clip_vault`. The namespace is approved; visibility and publication timing remain gated.
+- Current GitHub repository is public at `https://github.com/rsitech-ai/clip_vault` with Apache-2.0 detected and `https://rsitech.ai` configured as the homepage.
 
 ## Gate matrix
 
@@ -47,9 +47,10 @@ No formal Codex Security scan was run; the owner explicitly waived that workflow
 | License/copyright | PASS | Apache-2.0, Rafal Sikora copyright ownership, RSI Tech maintenance, and matching package metadata are approved and committed in the candidate. |
 | Git-history privacy | PASS | Both retained remote branches were force-updated after a verified rewrite. Every reachable candidate commit uses only `24563931+s1korrrr@users.noreply.github.com`; pre/post tree IDs match. |
 | Public namespace/contact | PASS | `rsitech-ai/clip_vault`, `https://rsitech.ai`, and `info@rsitech.ai` are approved for public and confidential project contact. |
-| GitHub visibility/security/rules | BLOCKED:EXTERNAL | Repository is private; private vulnerability reporting, branch rules, and required checks are not enabled. |
-| Hosted exact-head CI | PENDING | The post-rewrite run passed checkout, architecture, syntax, and public-contract gates, then exposed that the clean runner lacks the shell harness's `rg` prerequisite. The candidate now installs a pinned ripgrep version before shell tests; rerun required. |
-| Public tag/release | PENDING | Publication is authorized after history, exact-head CI, repository safeguards, and binary notarization gates close. |
+| GitHub visibility/security/rules | PASS | Repository is public; private vulnerability reporting is enabled; active ruleset `Protect main` blocks deletion/non-fast-forward updates and requires PRs, resolved threads, an up-to-date branch, and `verify`. |
+| Hosted exact-head CI | PASS | PR #13 exact head passed all 17 steps on hosted arm64 CI in run `29774529702`, job `88460604543`. |
+| Public source repository | PASS | PR #13 merged and the source repository is publicly available under `rsitech-ai`. |
+| Public tag/binary release | BLOCKED:EXTERNAL | No tag or GitHub Release exists. Create both only after notarization, stapling, Gatekeeper, checksum, and clean-account runtime proof pass. |
 
 ## Residual engineering risks
 
@@ -61,4 +62,4 @@ No formal Codex Security scan was run; the owner explicitly waived that workflow
 
 ## Next decision point
 
-Rerun exact-head hosted CI, enable repository safeguards, and publish the source repository. Binary publication additionally requires a scoped notarization credential profile and clean-account runtime proof.
+Create the scoped `clipvault-notary` Keychain profile, run the fail-closed direct-download packaging command, verify the stapled app on a clean account/machine, and only then publish the version tag and GitHub Release asset.

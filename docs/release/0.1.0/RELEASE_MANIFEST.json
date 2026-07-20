@@ -8,14 +8,18 @@
   "architectures": ["arm64"],
   "candidate": {
     "baseline_commit": "5cace92adaf5b51e45b45a300a9b29c2a3fbb9ca",
-    "branch": "chore/oss-release-readiness",
-    "final_commit": "recorded_by_git_after_integration"
+    "branch": "main",
+    "reviewed_pr": 13,
+    "reviewed_head": "45205f80ec19f7ad844b17bcf0db0da0c216c03b",
+    "integration_commit": "313dc34ef5ac62d583ddf282e148bf46f4772a13"
   },
   "repository": {
     "owner": "rsitech-ai",
     "name": "clip_vault",
     "url": "https://github.com/rsitech-ai/clip_vault",
-    "visibility": "PRIVATE"
+    "visibility": "PUBLIC",
+    "private_vulnerability_reporting": "ENABLED",
+    "main_ruleset": "ACTIVE_PR_AND_VERIFY_REQUIRED"
   },
   "legal": {
     "license": "Apache-2.0",
@@ -65,9 +69,9 @@
     }
   ],
   "formal_security_scan": "WAIVED_BY_OWNER_NOT_RUN",
-  "source_publication": "HOLD_HISTORY_AND_EXTERNAL_GATES",
+  "source_publication": "PUBLIC_REPO_READY",
   "direct_download": {
-    "status": "BLOCKED_EXTERNAL_SIGNING_NOTARIZATION",
+    "status": "BLOCKED_EXTERNAL_NOTARIZATION",
     "packaging_automation": "PASS_LOCAL_TESTS",
     "preflight_exit": 2,
     "developer_id_application_identity": "PRESENT_AND_TIMESTAMP_SIGNING_VERIFIED",
