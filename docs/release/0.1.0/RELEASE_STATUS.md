@@ -48,7 +48,7 @@ No formal Codex Security scan was run; the owner explicitly waived that workflow
 | Git-history privacy | PASS | Both retained remote branches were force-updated after a verified rewrite. Every reachable candidate commit uses only `24563931+s1korrrr@users.noreply.github.com`; pre/post tree IDs match. |
 | Public namespace/contact | PASS | `rsitech-ai/clip_vault`, `https://rsitech.ai`, and `info@rsitech.ai` are approved for public and confidential project contact. |
 | GitHub visibility/security/rules | BLOCKED:EXTERNAL | Repository is private; private vulnerability reporting, branch rules, and required checks are not enabled. |
-| Hosted exact-head CI | PENDING | The prior exact-head run executed and failed only at the intentionally missing `LICENSE` gate. The approved license now exists; rerun after the authorized history rewrite. |
+| Hosted exact-head CI | PENDING | The post-rewrite run passed checkout, architecture, syntax, and public-contract gates, then exposed that the clean runner lacks the shell harness's `rg` prerequisite. The candidate now installs a pinned ripgrep version before shell tests; rerun required. |
 | Public tag/release | PENDING | Publication is authorized after history, exact-head CI, repository safeguards, and binary notarization gates close. |
 
 ## Residual engineering risks

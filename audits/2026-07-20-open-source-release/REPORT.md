@@ -22,6 +22,7 @@ Date: 2026-07-20 (Europe/Warsaw)
 
 - Full harness: 10 shell groups, 4 Rust tests, and 178 Swift tests passed.
 - Release-mode Rust/Swift compilation passed.
+- Hosted post-rewrite CI exposed an undeclared ripgrep prerequisite on the clean macOS runner. CI now installs a pinned ripgrep version before the shell harness, and contributor requirements document it.
 - The E2E harness initially exposed two defects: an unbounded store-probe subprocess and false launch verification through the `/tmp` symlink. Regression tests now cover descendant termination and canonical distribution paths.
 - E2E state now uses a per-run bundle/Keychain/defaults/store namespace and app-owned store cleanup.
 
