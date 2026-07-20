@@ -95,20 +95,20 @@ assert_hardened_runtime "$RUNTIME_BINARY" || fail "a signed binary with the runt
 
 CODESIGN_FIXTURE='Executable=/tmp/ClipVault
 Identifier=com.andrzej.ClipVault
-Authority=Apple Distribution: Example (2NY8A789TN)
-TeamIdentifier=2NY8A789TN'
-[[ "$(printf '%s\n' "$CODESIGN_FIXTURE" | team_identifier_from_codesign_details)" == "2NY8A789TN" ]] || \
+Authority=Apple Distribution: Example Developer (ABCDEFGHIJ)
+TeamIdentifier=ABCDEFGHIJ'
+[[ "$(printf '%s\n' "$CODESIGN_FIXTURE" | team_identifier_from_codesign_details)" == "ABCDEFGHIJ" ]] || \
   fail "codesign TeamIdentifier parser must return the exact team"
 
 PKG_SIGNATURE_FIXTURE='Package "ClipVault.pkg":
    Status: signed by a developer certificate issued by Apple (Development)
    Certificate Chain:
-    1. 3rd Party Mac Developer Installer: Example (2NY8A789TN)
+    1. 3rd Party Mac Developer Installer: Example Developer (ABCDEFGHIJ)
        Expires: 2027-06-29 12:42:38 +0000'
-EXPECTED_INSTALLER='3rd Party Mac Developer Installer: Example (2NY8A789TN)'
+EXPECTED_INSTALLER='3rd Party Mac Developer Installer: Example Developer (ABCDEFGHIJ)'
 [[ "$(printf '%s\n' "$PKG_SIGNATURE_FIXTURE" | installer_identity_from_pkg_signature)" == "$EXPECTED_INSTALLER" ]] || \
   fail "package signature parser must return the exact installer identity"
-[[ "$(team_identifier_from_identity "$EXPECTED_INSTALLER")" == "2NY8A789TN" ]] || \
+[[ "$(team_identifier_from_identity "$EXPECTED_INSTALLER")" == "ABCDEFGHIJ" ]] || \
   fail "identity parser must return the exact installer team"
 
 echo "Release artifact helper tests passed."

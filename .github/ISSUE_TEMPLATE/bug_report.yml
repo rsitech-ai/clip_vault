@@ -1,0 +1,72 @@
+name: Bug report
+description: Report a reproducible ClipVault defect using non-sensitive test data.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include clipboard contents, credentials, private logs, personal data, or proprietary material. Use the Security policy for vulnerabilities.
+
+  - type: input
+    id: version
+    attributes:
+      label: ClipVault version or commit
+      description: Provide the release version or full commit SHA you tested.
+      placeholder: v0.1.0 or 0123456789abcdef...
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: macOS and hardware
+      description: Include the macOS version and whether the Mac is Apple silicon.
+      placeholder: macOS 15.5, Apple M2
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: Use sanitized sample data and list the smallest reliable sequence.
+      placeholder: |
+        1. Launch ClipVault...
+        2. ...
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Sanitized evidence
+      description: Add a short log excerpt or screenshot only after removing sensitive values and local paths.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Safety checklist
+      options:
+        - label: I reproduced this on the latest available release or commit.
+          required: true
+        - label: I removed clipboard contents, credentials, personal data, private paths, and proprietary material.
+          required: true
+        - label: This is not a security vulnerability.
+          required: true

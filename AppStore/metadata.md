@@ -26,11 +26,11 @@ clipboard, history, snippets, screenshots, OCR, notes, search, code, productivit
 
 ## Support URL
 
-Required before submission. Must point to a public page with support contact information.
+Owner approval required: canonical public support URL is not selected.
 
 ## Privacy Policy URL
 
-Required before submission. Publish `PRIVACY.md` or equivalent as a public HTTPS page.
+Owner approval required: canonical public privacy-policy URL is not selected.
 
 ## Review Notes Draft
 
