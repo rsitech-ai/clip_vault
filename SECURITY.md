@@ -8,9 +8,7 @@ ClipVault has not published a stable release. Security fixes are currently appli
 
 Do not open a public issue for a suspected vulnerability and do not include secrets, clipboard contents, private logs, personal data, or exploit details in public discussions.
 
-GitHub private vulnerability reporting is the intended reporting channel for this repository. It must be enabled before public launch. Once enabled, use the repository's **Security** tab and choose **Report a vulnerability**.
-
-The project cannot offer a safe private intake channel until that setting is enabled. This is a publication blocker, not an invitation to disclose a vulnerability publicly.
+GitHub private vulnerability reporting is the preferred reporting channel. Use the repository's **Security** tab and choose **Report a vulnerability**. If that route is unavailable, email [info@rsitech.ai](mailto:info@rsitech.ai) with a minimal, non-destructive report. Do not send live secrets or private clipboard data.
 
 Include, when possible:
 

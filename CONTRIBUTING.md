@@ -59,6 +59,8 @@ Keep each pull request reviewable:
 
 CI must pass on the exact pull-request head before merge. A hosted job that never starts because of account infrastructure is an external blocker, not a passing check.
 
+Unless explicitly marked otherwise, contributions intentionally submitted for inclusion are licensed under the Apache License 2.0, consistent with [LICENSE](LICENSE).
+
 ## Reporting problems
 
 Use the issue forms for reproducible bugs and feature requests. Do not include clipboard contents, credentials, private logs, personal data, or proprietary material in public issues. Follow [SECURITY.md](SECURITY.md) for vulnerabilities.

@@ -19,10 +19,9 @@ Verdict: **ordinary review passed with documented residuals; formal security sca
 
 ## Publication blockers
 
-- No approved license exists, so dependency/license policy and public redistribution cannot pass.
-- Historical author metadata exposes a personal email in all 122 commits. Current-file sanitization does not change Git history.
-- A confidential vulnerability-reporting channel is not enabled, and a separate confidential conduct route is not approved.
-- Hosted CI has not executed successfully on the exact candidate.
+- Historical author metadata exposes a personal email in all 122 commits. The owner approved rewriting retained history to the GitHub no-reply address; publication remains blocked until the rewrite is verified on every retained ref.
+- GitHub private vulnerability reporting is not enabled yet. The approved confidential fallback is `info@rsitech.ai`.
+- Hosted CI has not executed successfully on the exact candidate. The prior run executed and failed only at the intentionally missing-license gate, which is now resolved in the candidate.
 
 ## Residual risks
 

@@ -6,6 +6,6 @@ In practical terms, participate with empathy and respect, accept constructive fe
 
 Maintainers may edit or remove contributions, restrict participation, or permanently ban conduct that violates this standard. Enforcement decisions should be proportionate, documented privately where possible, and protect the reporter's privacy.
 
-The maintainer must approve a dedicated confidential conduct-reporting route before public launch. GitHub private vulnerability reporting is reserved for security vulnerabilities and is not the conduct channel. Until a conduct route is approved, do not disclose a sensitive incident publicly; the missing route is a publication blocker.
+Report conduct incidents confidentially to [info@rsitech.ai](mailto:info@rsitech.ai). GitHub private vulnerability reporting is reserved for security vulnerabilities and is not the conduct channel. Do not disclose a sensitive incident publicly.
 
 This policy incorporates the Contributor Covenant 2.1 by reference. Its Community Impact Guidelines were inspired by Mozilla's code-of-conduct enforcement ladder. See the [Contributor Covenant FAQ](https://www.contributor-covenant.org/faq) for background and translations.

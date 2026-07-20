@@ -19,7 +19,7 @@ After that route is approved, use the feature-request issue form and describe th
 
 Do not use a public issue for vulnerabilities or sensitive privacy failures. Follow [SECURITY.md](SECURITY.md).
 
-The canonical support URL is `https://github.com/rsitech-ai/clip_vault/blob/main/SUPPORT.md`. Repository issue forms become the public support route only after the repository is approved for public visibility.
+The canonical support URL is `https://github.com/rsitech-ai/clip_vault/blob/main/SUPPORT.md`. Repository issue forms are the public support route. For private account or privacy matters that cannot be safely reported in an issue, contact [info@rsitech.ai](mailto:info@rsitech.ai).
 
 ## App Store and account support
 

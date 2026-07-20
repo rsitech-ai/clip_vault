@@ -28,6 +28,8 @@ clipboard, history, snippets, screenshots, OCR, notes, search, code, productivit
 
 `https://github.com/rsitech-ai/clip_vault/blob/main/SUPPORT.md`
 
+Support contact: `info@rsitech.ai`
+
 ## Privacy Policy URL
 
 `https://github.com/rsitech-ai/clip_vault/blob/main/PRIVACY.md`
