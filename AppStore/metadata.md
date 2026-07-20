@@ -26,11 +26,13 @@ clipboard, history, snippets, screenshots, OCR, notes, search, code, productivit
 
 ## Support URL
 
-Required before submission. Must point to a public page with support contact information.
+`https://github.com/rsitech-ai/clip_vault/blob/main/SUPPORT.md`
+
+Support contact: `info@rsitech.ai`
 
 ## Privacy Policy URL
 
-Required before submission. Publish `PRIVACY.md` or equivalent as a public HTTPS page.
+`https://github.com/rsitech-ai/clip_vault/blob/main/PRIVACY.md`
 
 ## Review Notes Draft
 

@@ -1,5 +1,7 @@
 # Production Plan: ClipVault
 
+> Historical planning record. Machine-local `/tmp` evidence paths below are not distributed artifacts and are not current release proof; use `docs/release/0.1.0/` for the current gate.
+
 ## Product Brief
 
 - Target user: developers, writers, and researchers who copy many fragments and need fast private retrieval.
@@ -66,14 +68,14 @@
 ## App Store Readiness
 
 - Bundle ID: currently `com.andrzej.ClipVault`; consider final brand/company bundle ID before first upload.
-- Signing team: application distribution identity exists for `Apple Distribution: Rafal Sikora (2NY8A789TN)`.
+- Signing team: distribution identity availability is environment-specific and must be verified without committing personal signer details.
 - Sandbox/entitlements: App Sandbox enabled with user-selected read-only file entitlement.
 - Privacy manifest: present in `Resources/PrivacyInfo.xcprivacy`.
 - Privacy labels: should match local-only/no-tracking behavior unless future features change.
 - Assets: app icon generated and bundled.
 - Metadata: draft exists in `AppStore/metadata.md`.
 - Review notes: state that clipboard processing is local, sensitive items are excluded before storage, and cloud AI is disabled in MVP.
-- Local package identities: `Apple Distribution: Rafal Sikora (2NY8A789TN)` and `3rd Party Mac Developer Installer: Rafal Sikora (2NY8A789TN)` are both present; local package creation succeeds.
+- Historical local package identity checks passed on the original release host; signer names and team identifiers are intentionally omitted from the public tree.
 - Current implementation package: `dist/AppStore/ClipVault-0.1.0-1.pkg` was regenerated from source commit `d11b7f96467d65cabb37e63a66545b9780595aac` on 2026-07-11; it is version `0.1.0` build `1`, 2,734,791 bytes, SHA-256 `264b949215d02a07cc35211eff956873b9f120e85ff35a4834a3440ebede5d0d`, and has a valid 3rd Party Mac Developer Installer chain. See `docs/release/0.1.0/RELEASE_STATUS.md` for the current NOT READY verdict.
 - Remaining external gates: finalize the App Store name, bundle ID, company-account choice, metadata, privacy answers, and screenshots; create/confirm the App Store Connect record; upload the package; complete server-side validation and App Review. No upload was attempted and App Store Connect was not contacted in this review.
 - Remaining manual gates: complete the MenuBarExtra dismissal/non-dismissal matrix, destructive workspace confirmation against controlled persisted data, result-text selection, compact splitter, light appearance, large-window, and clean-account package-install checks.
@@ -110,7 +112,7 @@
 - `./script/test.sh` passed: Rust 2/2 and Swift Testing 32/32 across 10 suites.
 - `swift build -c release -Xswiftc -warnings-as-errors` passed with no warnings or errors.
 - `./script/e2e_smoke.sh` exited 0 after capture, dedupe, persistence, and restart-recovery checks.
-- `./script/build_and_run.sh --verify` rebuilt, signed, and launched the staged bundle. The only matching process was PID 92822, executing `/Users/s1kor/dev/andrzej/ClipVault/dist/ClipVault.app/Contents/MacOS/ClipVault`; no `/Applications/ClipVault.app` process supplied runtime evidence.
+- `./script/build_and_run.sh --verify` rebuilt, signed, and launched the staged bundle. The only matching process was PID 92822, executing `<repository-root>/dist/ClipVault.app/Contents/MacOS/ClipVault`; no `/Applications/ClipVault.app` process supplied runtime evidence.
 
 ### Runtime and accessibility evidence
 

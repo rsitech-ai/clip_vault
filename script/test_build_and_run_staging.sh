@@ -6,6 +6,7 @@ BUILD_SCRIPT="$ROOT_DIR/script/build_and_run.sh"
 APP_STORE_CHECK="$ROOT_DIR/script/app_store_check.sh"
 
 rg -Fq './script/build_and_run.sh --stage' "$APP_STORE_CHECK"
+rg -Fq 'DIST_DIR="$(cd "$DIST_DIR" && pwd -P)"' "$BUILD_SCRIPT"
 
 STAGE_BODY="$(sed -n '/--stage|stage)/,/^    ;;/p' "$BUILD_SCRIPT")"
 [[ -n "$STAGE_BODY" ]]

@@ -30,6 +30,18 @@ struct ClipVaultStoreProbeRequestTests {
         ))
     }
 
+    @Test("parses only an exact E2E store-reset request")
+    func parsesResetRequest() {
+        let request = ClipVaultStoreProbeRequest.parse(
+            arguments: ["ClipVault", "--reset-e2e-store"]
+        )
+
+        #expect(request == ClipVaultStoreProbeRequest(mode: .resetE2EStore, tokens: []))
+        #expect(ClipVaultStoreProbeRequest.parse(
+            arguments: ["ClipVault", "--reset-e2e-store", "extra"]
+        ) == nil)
+    }
+
     @Test("accepts only an exact multi-source generated-prompt batch")
     func reportsExactGeneratedPromptBatch() {
         let sourceOne = source(id: "source-1", token: "source one")

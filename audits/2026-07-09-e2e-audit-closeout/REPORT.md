@@ -10,7 +10,7 @@ Readiness label: repo-side local release gate passed; App Store upload remains b
 
 This pass audited the current ClipVault implementation end to end against:
 
-- Current project standards in `/Users/s1kor/.codex/AGENTS.md` and the existing ClipVault ExecPlan.
+- Current project standards in `<local-codex-config>/AGENTS.md` and the existing ClipVault ExecPlan.
 - `app-e2e-audit-orchestrator`, `swiftui-polish-auditor`, and macOS SwiftUI/build/test skill guidance.
 - Official Apple references:
   - Apple Design Resources: https://developer.apple.com/design/resources/

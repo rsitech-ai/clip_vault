@@ -1,5 +1,7 @@
 # Menu Actions, Workspace Folders, and AI Pane Implementation Plan
 
+> Historical implementation plan. Machine-local `/tmp` evidence paths below are not distributed artifacts and may no longer exist.
+
 > **For Codex:** REQUIRED SUB-SKILL: Use `superpowers:executing-plans` to implement this plan task-by-task.
 
 **Goal:** Make every completed menu-bar action dismiss the menu, make workspace folder management reliable and truthful, and rebuild the always-visible AI workspace as a compact native utility pane with a readable result area and pinned Ask composer.

@@ -18,7 +18,7 @@ Official references used:
 
 Passed:
 
-- `/Users/s1kor/.codex/scripts/session-bootstrap.sh`
+- `<local-codex-config>/scripts/session-bootstrap.sh`
 - `bash -n script/build_and_run.sh script/e2e_smoke.sh script/app_store_check.sh script/package_app_store.sh script/upload_app_store.sh script/test.sh`
 - `swift build -Xswiftc -warnings-as-errors`
 - `cargo test --manifest-path rust/SearchIndexCore/Cargo.toml`

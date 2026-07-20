@@ -1,6 +1,6 @@
 # ClipVault Privacy Policy
 
-Last updated: 2026-07-11
+Last updated: 2026-07-20
 
 ClipVault is a local-first clipboard workspace for macOS.
 
@@ -26,8 +26,8 @@ ClipVault attempts to exclude obvious secrets before storage, including private 
 
 Users can delete individual clips or bulk-delete groups of clips inside the app. Deleting a clip removes its stored payload, notes, tags, and metadata from ClipVault's local store.
 
-Ordinary clips are retained for 30 days by default. The retention period can be changed in Settings. Pinned clips and clips assigned to a board are not automatically removed.
+Ordinary clips are retained for 30 days by default. The retention period can be changed in Settings. Pinned clips are not automatically removed.
 
 ## Contact
 
-Support contact and public privacy URL must be finalized before App Store submission.
+The canonical policy URL is `https://github.com/rsitech-ai/clip_vault/blob/main/PRIVACY.md`. General support uses the repository issue forms. For confidential privacy matters, contact [info@rsitech.ai](mailto:info@rsitech.ai). Do not disclose clipboard contents, credentials, personal data, private logs, vulnerabilities, or sensitive privacy failures in a public issue. See `SECURITY.md` for vulnerability reporting.

@@ -1,17 +1,16 @@
-# Release Blockers
+# ClipVault 0.1.0 Blockers
 
-| Blocker | Why external | Owner | Exact resolution |
-| --- | --- | --- | --- |
-| App Store Connect record, credentials, role, upload validation | Account-only state/secret | Apple account owner | Confirm app record and provide scoped API key; run validate-only/upload and inspect warnings |
-| GitHub Actions billing/spending limit | Both push and PR jobs were rejected before runner assignment with GitHub's billing annotation | GitHub account owner | Resolve failed payment or raise the Actions spending limit, then rerun PR #9 checks |
-| Provisioning confirmation | No embedded profile and server validation unavailable | Apple account owner | Confirm bundle provisioning/profile policy and pass ASC validation |
-| Public support/privacy URLs | Public hosting/contact decision | Product owner | Publish HTTPS pages and enter URLs |
-| Privacy labels, age rating, accessibility declaration | Truthful owner declarations in ASC | Product/legal owner | Complete questionnaires from `PRIVACY_DATA_MAP.md` and actual behavior |
-| Export compliance | AES-GCM use requires owner/legal response | Legal/account owner | Answer ASC encryption questions; do not add plist exemption without confirmation |
-| DSA trader, content rights | Legal/business declarations | Legal/account owner | Complete in ASC |
-| Price, territories, release mode | Business decisions | Product owner | Select values in ASC |
-| macOS 15 and clean-user proof | Runtime/environment unavailable | QA | Install and smoke the signed candidate on clean macOS 15+ environment |
-| macOS 27 compatibility | Toolchain/runtime unavailable | QA | Test separately when Xcode/macOS 27 is available |
-| Newest accepted production toolchain | Apple lists Xcode 26.6 as the latest stable Xcode; this host has only 26.5 | Engineering/QA | Install Xcode 26.6 and regenerate/revalidate the candidate before submission |
+Date: 2026-07-20
 
-These external blockers plus the formal security-scan, newest-toolchain, and remaining manual-QA gaps prevent readiness. Screenshot assets are now locally complete.
+| Blocker | Owner | Exact resolution |
+| --- | --- | --- |
+| Repository visibility remains private | Repository owner | Make `rsitech-ai/clip_vault` public only after confidential reporting and exact-head verification gates close. |
+| Private vulnerability reporting unavailable | Repository owner | Enable GitHub private vulnerability reporting before public launch; `info@rsitech.ai` is the approved fallback. |
+| Hosted CI not proven on exact candidate | GitHub account owner | Resolve Actions billing/spending state and rerun the final commit successfully. |
+| Default-branch rules and required checks missing | Repository owner | Configure branch/ruleset protection after the required workflow is able to run. |
+| No publishable tag or release artifact | Project owner / Apple account owner | Close source gates and obtain Developer ID signing/notarization before publishing the direct-download asset. |
+| App Store distribution identities are not usable locally | Apple account owner | Xcode reports Apple Distribution as not in Keychain and Mac Installer Distribution as missing its private key. Install usable identity/private-key pairs before App Store packaging. |
+| Notarization profile absent | Apple account owner | Developer ID Application signing now works. Store a scoped `notarytool` keychain profile, run `package_direct_download.sh`, then smoke the stapled app on a clean account/machine. Current preflight exits 2 at the missing profile gate. |
+| App Store Connect record/validation and declarations absent | Apple/product/legal owners | Complete record, credentials, support/privacy URLs, privacy labels, age/accessibility, export, DSA, rights, price, territories, server validation, and upload. |
+
+The formal Codex Security scan was waived for this pass. That waiver removes the workflow from this task; it is not evidence that a formal scan ran.
