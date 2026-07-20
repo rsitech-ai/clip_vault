@@ -6,9 +6,7 @@ ClipVault is a local-first clipboard workspace for macOS. It captures clipboard 
 
 ## Project status
 
-ClipVault is a pre-1.0 release candidate. The source, tests, and local app bundle are actively hardened, but no public binary release has been published. The current build targets macOS 15 or later on Apple silicon.
-
-This repository is not open source until an approved license is added. Until then, the source is available for review only and no redistribution permission is granted.
+ClipVault is a pre-1.0 release candidate maintained by [RSI Tech](https://rsitech.ai). The source, tests, and local app bundle are actively hardened, but no public binary release has been published. The current build targets macOS 15 or later on Apple silicon.
 
 ## What it does
 
@@ -101,4 +99,4 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the data flow and trust bou
 
 ## License
 
-No project license has been approved yet. That decision is a publication blocker; do not redistribute or publish this repository as open source until a `LICENSE` file and matching package metadata are committed.
+Copyright © 2026 Rafal Sikora. ClipVault is licensed under the [Apache License 2.0](LICENSE). RSI Tech is the public project maintainer; contact [info@rsitech.ai](mailto:info@rsitech.ai).

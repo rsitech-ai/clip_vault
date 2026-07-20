@@ -30,4 +30,4 @@ Ordinary clips are retained for 30 days by default. The retention period can be 
 
 ## Contact
 
-The canonical policy URL is `https://github.com/rsitech-ai/clip_vault/blob/main/PRIVACY.md`. General support will use the repository issue forms after public launch. Do not disclose clipboard contents, credentials, personal data, private logs, vulnerabilities, or sensitive privacy failures in a public issue. See `SECURITY.md` for the planned private vulnerability-reporting route.
+The canonical policy URL is `https://github.com/rsitech-ai/clip_vault/blob/main/PRIVACY.md`. General support uses the repository issue forms. For confidential privacy matters, contact [info@rsitech.ai](mailto:info@rsitech.ai). Do not disclose clipboard contents, credentials, personal data, private logs, vulnerabilities, or sensitive privacy failures in a public issue. See `SECURITY.md` for vulnerability reporting.

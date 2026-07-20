@@ -23,7 +23,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Cli
 
 ### Known limitations
 
-- No public license, tag, GitHub release, or supported binary distribution exists yet.
+- No public tag, GitHub release, or supported binary distribution exists yet.
 - The current build is arm64-only and requires macOS 15 or later.
 - Cloud sync, accounts, teams, and cloud AI providers are not available.
 - GitHub-hosted CI and the public repository security/settings gates remain to be proven on the final release commit.

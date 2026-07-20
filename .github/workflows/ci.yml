@@ -20,6 +20,7 @@ jobs:
     timeout-minutes: 30
     env:
       CARGO_AUDIT_VERSION: 0.22.2
+      CARGO_DENY_VERSION: 0.20.2
 
     steps:
       - name: Check out repository
@@ -52,7 +53,7 @@ jobs:
               exit 1
             }
           done
-          if git grep -nE '/Users/s1kor|mrsikorarafal@gmail\.com|Rafal Sikora|Rafał Sikora|2NY8A789TN' -- . ':(exclude).github/workflows/ci.yml'; then
+          if git grep -nE '/Users/s1kor|mrsikorarafal@gmail\.com|2NY8A789TN' -- . ':(exclude).github/workflows/ci.yml'; then
             echo "Tracked files contain private release-environment identifiers." >&2
             exit 1
           fi
@@ -75,6 +76,12 @@ jobs:
 
       - name: Audit Rust dependencies
         run: cargo audit --file rust/SearchIndexCore/Cargo.lock
+
+      - name: Install pinned cargo-deny
+        run: cargo install cargo-deny --version "$CARGO_DENY_VERSION" --locked
+
+      - name: Enforce Rust dependency policy
+        run: cargo deny --manifest-path rust/SearchIndexCore/Cargo.toml check
 
       - name: Build Rust release library
         run: cargo build --manifest-path rust/SearchIndexCore/Cargo.toml --release
