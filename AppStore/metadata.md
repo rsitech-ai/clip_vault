@@ -26,11 +26,11 @@ clipboard, history, snippets, screenshots, OCR, notes, search, code, productivit
 
 ## Support URL
 
-Owner approval required: canonical public support URL is not selected.
+`https://github.com/rsitech-ai/clip_vault/blob/main/SUPPORT.md`
 
 ## Privacy Policy URL
 
-Owner approval required: canonical public privacy-policy URL is not selected.
+`https://github.com/rsitech-ai/clip_vault/blob/main/PRIVACY.md`
 
 ## Review Notes Draft
 

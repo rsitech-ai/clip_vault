@@ -14,7 +14,7 @@ You need:
 Clone the repository and verify the baseline:
 
 ```bash
-git clone <approved-repository-url>
+git clone https://github.com/rsitech-ai/clip_vault.git
 cd clip_vault
 ./script/test.sh
 ```

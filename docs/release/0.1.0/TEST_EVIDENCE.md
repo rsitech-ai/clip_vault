@@ -4,7 +4,7 @@ Date: 2026-07-20. Run from the isolated release-hardening worktree; transient lo
 
 | Check | Fresh result |
 | --- | --- |
-| `./script/test.sh` | PASS: 9 shell groups; Rust 4/4; Swift 178/178 in 17 suites. |
+| `./script/test.sh` | PASS: 10 shell groups; Rust 4/4; Swift 178/178 in 17 suites. |
 | `cargo fmt --manifest-path rust/SearchIndexCore/Cargo.toml --check` | PASS. |
 | `cargo clippy --manifest-path rust/SearchIndexCore/Cargo.toml --all-targets -- -D warnings` | PASS. |
 | `cargo audit --file rust/SearchIndexCore/Cargo.lock` | PASS: 1 local crate scanned; no vulnerable dependency. |
@@ -18,6 +18,7 @@ Date: 2026-07-20. Run from the isolated release-hardening worktree; transient lo
 | YAML / JSON parsing | PASS for GitHub workflow/templates/Dependabot and release manifest. |
 | `git diff --check` | PASS. |
 | `./script/app_store_check.sh` | Expected exit 3: bundle/plist/entitlements/privacy/signatures pass locally; application/installer distribution identities and expected Team ID are missing. |
+| `./script/package_direct_download.sh --preflight` | Expected exit 2: fail-closed direct-download gate reports the missing Developer ID Application identity before build/notarization work. |
 
 ## Runtime observations
 

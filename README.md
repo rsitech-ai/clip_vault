@@ -34,7 +34,7 @@ The Swift target links a locally built Rust library. A bare `swift build` or `sw
 ## Build and run
 
 ```bash
-git clone <approved-repository-url>
+git clone https://github.com/rsitech-ai/clip_vault.git
 cd clip_vault
 ./script/build_and_run.sh --verify
 ```
