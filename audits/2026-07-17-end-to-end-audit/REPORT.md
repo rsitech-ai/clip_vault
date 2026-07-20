@@ -105,8 +105,8 @@ The macOS 27 beta environment produced framework noise outside the app subsystem
 
 - Package: `dist/AppStore/ClipVault-0.1.0-1.pkg`
 - Matching symbols: `dist/AppStore/ClipVault.app.dSYM`
-- Application identifier: `2NY8A789TN.com.andrzej.ClipVault`
-- Team identifier: `2NY8A789TN`
+- Application identifier: `<TEAMID>.com.andrzej.ClipVault`
+- Team identifier: `<TEAMID>`
 - Sandbox: enabled
 - User-selected files: read-only
 - Architecture: arm64

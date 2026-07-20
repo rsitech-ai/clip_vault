@@ -1,84 +1,64 @@
 # ClipVault 0.1.0 Release Status
 
-## Final verdict
+Date: 2026-07-20 (Europe/Warsaw)
 
-**NOT READY**
+## Verdict
 
-Date: 2026-07-11 (Europe/Warsaw)
+**HOLD — source candidate locally verified; hosted CI and repository safeguard gates remain.**
 
-Core source, automated tests, signed runtime, local packaging, lifecycle proof, and accepted-size screenshots pass. Draft PR #9 is open and mergeable. The release is not yet ready because formal security scans, the newest stable Xcode toolchain, remaining appearance/status-item QA, GitHub Actions billing, and external App Store Connect/legal gates remain incomplete.
+The current source, release build, isolated runtime, E2E path, documentation links, dependency checks, and current-tree hygiene pass locally. The repository is owned by `rsitech-ai` and remains private. Apache-2.0, copyright ownership by Rafal Sikora, RSI Tech maintenance, `info@rsitech.ai` for public/confidential contact, and the full retained-history rewrite to the approved GitHub no-reply address are complete. Publication remains blocked until exact-head hosted CI, private vulnerability reporting, and default-branch protection are verified.
 
-## Toolchain and release identity
+No formal Codex Security scan was run; the owner explicitly waived that workflow for this pass. The evidence below is ordinary source/provenance review plus local tools and does not claim formal scan coverage.
 
-- Project: SwiftPM macOS application; no iOS, extension, widget, helper, watch, or Xcode project target exists.
-- Bundle: `com.andrzej.ClipVault`; version `0.1.0`; build `1`; deployment target macOS 15.0; architecture arm64.
-- Production archive/package toolchain: Xcode 26.5 (17F42), macOS 26.5 SDK, Swift 6.3.2.
-- Host tested: macOS 26.3 (25D125), Apple silicon.
-- Apple sources checked 2026-07-11: [Xcode support](https://developer.apple.com/support/xcode/), [Upload builds](https://developer.apple.com/help/app-store-connect/manage-builds/upload-builds/), and [Upcoming requirements](https://developer.apple.com/news/upcoming-requirements/). Xcode 26.5 remains upload-compatible for macOS, but Apple lists Xcode 26.6 as the latest stable release. This mission requires the newest accepted production toolchain, so regeneration on 26.6 remains a release gate.
-- Xcode/macOS 27 compatibility: **BLOCKED** because no Xcode 27 or macOS 27 runtime is installed. No 27-only API or deployment requirement was found. This is a separate compatibility track, not the production package toolchain.
+## Readiness labels
 
-## Release gates
+| Lane | Status | Meaning |
+| --- | --- | --- |
+| Source engineering candidate | LOCALLY VERIFIED | Local tests, release compilation, E2E, native UI smoke, documentation validation, and current-tree hygiene passed. |
+| Public open-source repository | HOLD | Namespace, license/copyright, brand, contacts, and history privacy pass. Visibility/security settings and exact-head hosted CI remain to be completed. |
+| Direct-download macOS binary | BLOCKED:EXTERNAL | A valid Developer ID Application identity is installed and timestamp signing passed. No `notarytool` keychain profile exists, so notarization, stapling, Gatekeeper, and clean-machine install proof remain unavailable. |
+| Mac App Store package | BLOCKED:EXTERNAL | Local bundle structure passes, but distribution identities, expected Team ID, App Store Connect validation, and owner declarations are unavailable. |
 
-| Gate | Status | Command or inspection | Evidence | Owner | Next action |
-| --- | --- | --- | --- | --- | --- |
-| Repository/targets | PASS | SwiftPM and file inventory | This file; `Package.swift` | Engineering | None |
-| Debug/unit tests | PASS | `./script/test.sh` | `TEST_EVIDENCE.md` | Engineering | Keep CI green |
-| Release warnings | PASS | `swift build -c release -Xswiftc -warnings-as-errors` | `TEST_EVIDENCE.md` | Engineering | None |
-| Draft PR | PASS | GitHub PR inspection | [PR #9](https://github.com/s1korrrr/clip_vault/pull/9) | Engineering | Keep draft until every approval gate closes |
-| CI execution | BLOCKED | GitHub check annotations | `TEST_EVIDENCE.md`; `BLOCKERS.md` | GitHub account owner | Resolve Actions billing/spending limit and rerun |
-| Newest production toolchain | BLOCKED | Apple Xcode support page vs installed Xcode | This file; `BLOCKERS.md` | Engineering/QA | Install Xcode 26.6 and regenerate candidate |
-| Signed runtime/E2E | PASS | `build_and_run.sh --verify`; two `e2e_smoke.sh` runs | `TEST_EVIDENCE.md` | Engineering | Repeat after merged changes |
-| Runtime logs | PASS | PID-scoped warning/error/fault scan | `TEST_EVIDENCE.md` | Engineering | None; one system-owned WindowServer task-port row documented |
-| Accessibility/UI | FAIL | Broad native accessibility-tree interaction | `TEST_EVIDENCE.md` | Engineering/QA | Complete light/contrast/Reduce Motion and status-item matrix |
-| Performance/leaks | PASS | repeated Settings lifecycle, `ps`, `vmmap`, differential `leaks` | `TEST_EVIDENCE.md` | Engineering/QA | Monitor on clean macOS 15 environment |
-| Security/dependencies | BLOCKED | source audit, Clippy, `cargo audit`; native final scan awaiting start | `SECURITY_STATUS.md` | Engineering/user | Start and complete standard/final diff scans |
-| Privacy implementation | PASS | consent, retention, encryption, manifest inspections | `PRIVACY_DATA_MAP.md` | Engineering | Publish policy URL |
-| Local distribution package | PASS | package and strict validator | `RELEASE_MANIFEST.json` | Engineering | Preserve uncommitted package externally if needed |
-| Provisioning/server validation | BLOCKED | no embedded profile; no ASC credentials | `BLOCKERS.md` | Apple account owner | Validate/upload in App Store Connect |
-| Required metadata/URLs | BLOCKED | metadata audit | `APP_STORE_CHECKLIST.md` | Product owner | Supply public URLs and final fields |
-| Screenshots | PASS | dimensions and visual content inspected | `AppStore/Screenshots/`; `APP_STORE_CHECKLIST.md` | Engineering/QA | Upload after owner metadata review |
-| Legal/business declarations | BLOCKED | guideline/ASC field audit | `BLOCKERS.md` | Account/legal owner | Answer export, DSA, age, rights, price/territories |
-| TestFlight/upload | BLOCKED | not attempted without credentials | `BLOCKERS.md` | Apple account owner | Authorize and provide ASC API credentials |
-| iOS track | NOT APPLICABLE | no iOS shipping target | target inventory | Engineering | None |
-| macOS 15 minimum runtime | BLOCKED | runtime unavailable on this host | `TEST_EVIDENCE.md` | QA | Run on macOS 15 hardware/VM |
-| macOS 27 compatibility | BLOCKED | Xcode/runtime unavailable | `BLOCKERS.md` | QA | Run when beta/stable runtime is available |
+## Current environment and identity
 
-## Verification summary
+- Rewritten source baseline: `5cace92adaf5b51e45b45a300a9b29c2a3fbb9ca` (`main` and `origin/main` before integration of this release-hardening change).
+- Candidate branch: `chore/oss-release-readiness`; final integration commit is recorded by Git, not self-embedded in this document.
+- macOS 27.0 (26A5378j), Apple silicon.
+- Xcode 26.6 (17F113), Swift 6.3.3.
+- Rust/Cargo 1.91.0.
+- Product bundle ID `com.andrzej.ClipVault`, version `0.1.0`, build `1`, minimum macOS `15.0`, arm64.
+- Current GitHub repository is private at `https://github.com/rsitech-ai/clip_vault`. The namespace is approved; visibility and publication timing remain gated.
 
-- Rust: 3 tests passed; format and Clippy clean; no RustSec advisory match.
-- Swift: 74 tests in 15 suites passed; Release warnings-as-errors and the ASan test run passed.
-- Shell release checks: identity selection, artifact helpers, upload dry-run, and consent preference restoration passed.
-- Runtime: explicit consent decline/reopen/accept flow passed; capture, dedupe, persistence, exact-process restart, screenshot subprocess launch/cancel, search, keyboard navigation, hierarchical move, and one-clip drag semantics passed.
-- Accessibility: first-launch disclosure, toolbar actions, search, list selection, Move menus, drop-target help, detail controls, and Settings were exposed with labels/state. No iOS devices/simulators apply.
-- Performance: after five Settings open/close cycles, idle CPU settled at 0.2%; physical footprint was 90.3 MB (92.5 MB peak).
-- Leaks: the lifecycle delta was 928 bytes only in AppKit `NSAccessibilityCustomAction`/`NSArray` objects after accessibility instrumentation; no app-owned retaining path was identified.
-- Screenshots: two sanitized actual-product 1280x800 JPEGs are staged under `AppStore/Screenshots/`.
-- Security: clipboard details are AES-GCM encrypted at rest with a Keychain-held key; future envelope versions fail closed; capture requires consent; sensitive values are filtered before persistence.
-- Signing: Apple Distribution app and 3rd Party Mac Developer Installer identities are present. Final `.pkg`, nested dylib, hardened runtime, entitlements, load paths, architecture, Info.plist, privacy manifest, and matching dSYM passed repository-local validation.
-- Upload: not attempted; App Store Connect credentials and server-side provisioning validation are unavailable.
+## Gate matrix
 
-## App Review and compliance
+| Gate | Result | Evidence / next action |
+| --- | --- | --- |
+| Rust format, lint, tests | PASS | `cargo fmt --check`; Clippy with `-D warnings`; 4/4 Rust tests. |
+| Swift tests | PASS | 178/178 tests in 17 suites via `./script/test.sh`. |
+| Swift release build | PASS | `swift build -c release`. |
+| Shell policy tests | PASS | Ten shell groups, including direct-download release gates, bounded-process descendant cleanup, and E2E isolation checks. |
+| Dependency advisories/policy | PASS | RustSec scanned the one-crate lockfile; cargo-deny advisories, bans, and sources passed. Apache-2.0 is approved and declared in the Rust package metadata. |
+| Current-tree secret hygiene | PASS | Gitleaks current-tree run and targeted identity/token checks found no confirmed live secret. Synthetic token fixtures are assembled from fragments. |
+| E2E runtime | PASS | Per-run test bundle verified consent-enabled private-pasteboard capture, deduplication, encrypted persistence, relaunch recovery, bounded probes, and app-owned cleanup. |
+| Native visual/accessibility smoke | PASS | Isolated `com.andrzej.ClipVault.ossqa` build exercised consent decline/retry, sidebar empty states, search/no-result recovery, AI workspace disabled states, and General/Capture/Access/AI/Surfaces/About settings. Production clipboard data was not captured. |
+| Bundle contents/signature | PASS (local only) | Plist, privacy manifest, sandbox entitlements, nested dylib signature/load path, and ad-hoc signature validate locally. |
+| Direct-download packaging automation | PASS (logic/signing) / BLOCKED:EXTERNAL (notarization) | Identity validation, notarization-result handling, and fail-closed preflight tests pass. Developer ID timestamp/hardened-runtime signing succeeds; real preflight now exits 2 because `NOTARY_KEYCHAIN_PROFILE` is missing. |
+| Distribution signing/package | BLOCKED:EXTERNAL | `app_store_check.sh` exits 3: no application/installer distribution identity or expected Team ID. |
+| License/copyright | PASS | Apache-2.0, Rafal Sikora copyright ownership, RSI Tech maintenance, and matching package metadata are approved and committed in the candidate. |
+| Git-history privacy | PASS | Both retained remote branches were force-updated after a verified rewrite. Every reachable candidate commit uses only `24563931+s1korrrr@users.noreply.github.com`; pre/post tree IDs match. |
+| Public namespace/contact | PASS | `rsitech-ai/clip_vault`, `https://rsitech.ai`, and `info@rsitech.ai` are approved for public and confidential project contact. |
+| GitHub visibility/security/rules | BLOCKED:EXTERNAL | Repository is private; private vulnerability reporting, branch rules, and required checks are not enabled. |
+| Hosted exact-head CI | PENDING | The post-rewrite run passed checkout, architecture, syntax, and public-contract gates, then exposed that the clean runner lacks the shell harness's `rg` prerequisite. The candidate now installs a pinned ripgrep version before shell tests; rerun required. |
+| Public tag/release | PENDING | Publication is authorized after history, exact-head CI, repository safeguards, and binary notarization gates close. |
 
-Official sources checked 2026-07-11: [App Review Guidelines](https://developer.apple.com/app-store/review/guidelines/), [privacy manifests](https://developer.apple.com/documentation/bundleresources/privacy_manifest_files), [screenshot specifications](https://developer.apple.com/help/app-store-connect/reference/screenshot-specifications), [age ratings](https://developer.apple.com/help/app-store-connect/manage-app-information/set-an-app-age-rating), and [accessibility nutrition labels](https://developer.apple.com/help/app-store-connect/manage-app-accessibility/overview-of-app-accessibility/).
+## Residual engineering risks
 
-The explicit clipboard disclosure addresses guideline 2.5.14. A complete local privacy disclosure is available in Settings, and retention/deletion behavior and the privacy manifest are aligned, but a public policy URL and owner-confirmed App Store privacy answers remain mandatory. The use of `/usr/sbin/screencapture` is a residual App Review risk because it is an external system command rather than a documented app API; it has not produced a local failure.
-
-## Changed implementation and commits
-
-The release branch adds at-rest details encryption and legacy migration, explicit capture consent and lifecycle invalidation, hardened build/package/upload validation, CI, consent preference restoration, a warning-free accessible clip list, hierarchical Move to Collection menus, exact single-clip drag/drop, production probe isolation, and sanitized App Store screenshots. The reviewed release source spans `origin/main..d11b7f96467d65cabb37e63a66545b9780595aac`.
-
-Changed-file groups: CI (`.github/workflows/ci.yml`); consent/settings/app views (`Sources/ClipVault/**`); encrypted storage/capture services (`Sources/ClipVaultCore/**`); regression tests (`Tests/ClipVaultCoreTests/**`); build, package, validation, upload, and shell tests (`script/**`); privacy/metadata and release dossier (`PRIVACY.md`, `AppStore/metadata.md`, `docs/**`). The PR URL and final CI result will replace the current placeholder after push.
-
-Draft [PR #9](https://github.com/s1korrrr/clip_vault/pull/9) is open and mergeable. Its push and pull-request CI jobs both failed before runner assignment because GitHub reported an account payment/spending-limit blocker; no workflow step executed. No merge, tag, upload, submission, or public release is authorized by this dossier.
-
-## Exact next action to unblock submission
-
-The GitHub account owner must first restore Actions billing or raise the spending limit so PR #9 can execute CI. The Apple account owner must create/confirm the App Store Connect record, provide an authorized API key for validate-only upload, publish the support and privacy URLs, confirm provisioning, and supply truthful export-compliance, privacy-label, age-rating, DSA trader, content-rights, price, territory, and release-mode answers. Engineering can then rerun CI, regenerate on Xcode 26.6, run validate-only upload, resolve any server warnings, and update this verdict. Submit for Review still requires separate explicit approval.
-
-## Residual risks
-
-- No macOS 15, Intel, clean-user installation, or macOS 27 runtime proof in this run. Intel is not declared supported; the package is arm64 only.
-- MenuBarExtra interaction through SystemUIServer could not be fully automated; source/state tests and workspace interactions passed.
-- Two sanitized screenshots meet accepted dimensions; owner review before upload is still prudent.
-- Historical pre-hardening SQLite freelist/WAL/backups may retain plaintext remnants on upgraded development data; first-release fresh installs do not write the protected detail fields in plaintext.
+- Deduplication fingerprints remain plaintext local metadata and are not keyed; the privacy policy discloses this boundary. A keyed fingerprint migration can reduce guessing risk but is outside this release-hardening slice.
+- The Keychain item uses `AfterFirstUnlockThisDeviceOnly`; changing accessibility semantics requires a separate migration and background-behavior decision.
+- Historical audit reports are retained as historical records and may reference ephemeral artifacts that no longer exist. Current claims are limited to this dossier and reproducible commands.
+- No macOS 15 clean-machine, Intel, Developer ID/notarized, or App Store Connect server proof exists. Intel is not declared supported.
 - `/usr/sbin/screencapture` remains an App Review/API-surface risk.
+
+## Next decision point
+
+Rerun exact-head hosted CI, enable repository safeguards, and publish the source repository. Binary publication additionally requires a scoped notarization credential profile and clean-account runtime proof.

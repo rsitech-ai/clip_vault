@@ -5,6 +5,7 @@ public struct ClipVaultStoreProbeRequest: Equatable, Sendable {
     public enum Mode: Equatable, Sendable {
         case storedClip
         case generatedPromptBatch
+        case resetE2EStore
     }
 
     public let mode: Mode
@@ -20,6 +21,17 @@ public struct ClipVaultStoreProbeRequest: Equatable, Sendable {
     }
 
     public static func parse(arguments: [String]) -> Self? {
+        guard arguments.count >= 2 else {
+            return nil
+        }
+
+        if arguments[1] == "--reset-e2e-store" {
+            guard arguments.count == 2 else {
+                return nil
+            }
+            return Self(mode: .resetE2EStore, tokens: [])
+        }
+
         guard arguments.count >= 3 else {
             return nil
         }
@@ -45,6 +57,27 @@ public struct ClipVaultStoreProbeRequest: Equatable, Sendable {
             return nil
         }
         return Self(mode: mode, tokens: tokens)
+    }
+
+    public static var e2eStoreURL: URL {
+        let bundleIdentifier = Bundle.main.bundleIdentifier ?? "missing-bundle-identifier"
+        let runNamespace = bundleIdentifier.replacingOccurrences(
+            of: "com.andrzej.ClipVault.e2e.",
+            with: ""
+        )
+        return FileManager.default.temporaryDirectory
+            .appendingPathComponent("ClipVault-E2E-\(runNamespace).store")
+    }
+
+    public static func resetE2EStoreFiles() throws {
+        let fileManager = FileManager.default
+        for url in [
+            e2eStoreURL,
+            URL(fileURLWithPath: e2eStoreURL.path + "-shm"),
+            URL(fileURLWithPath: e2eStoreURL.path + "-wal"),
+        ] where fileManager.fileExists(atPath: url.path) {
+            try fileManager.removeItem(at: url)
+        }
     }
 }
 

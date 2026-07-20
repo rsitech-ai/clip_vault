@@ -6,7 +6,7 @@
 
 - Date: 2026-07-10
 - Auditor: Codex
-- App path: `/Users/s1kor/dev/andrzej/ClipVault/dist/ClipVault.app`
+- App path: `<repository-root>/dist/ClipVault.app`
 - Package: SwiftPM executable `ClipVault` with Rust `SearchIndexCore`
 - Bundle ID: `com.andrzej.ClipVault`
 - Platform and surfaces: macOS 15+, workspace window, menu bar extra, Settings, Dock menu, screenshot capture, local Foundation Models actions
