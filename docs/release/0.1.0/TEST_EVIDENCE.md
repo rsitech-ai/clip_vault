@@ -8,7 +8,7 @@ Date: 2026-07-20. Run from the isolated release-hardening worktree; transient lo
 | `cargo fmt --manifest-path rust/SearchIndexCore/Cargo.toml --check` | PASS. |
 | `cargo clippy --manifest-path rust/SearchIndexCore/Cargo.toml --all-targets -- -D warnings` | PASS. |
 | `cargo audit --file rust/SearchIndexCore/Cargo.lock` | PASS: 1 local crate scanned; no vulnerable dependency. |
-| `cargo deny --manifest-path rust/SearchIndexCore/Cargo.toml check advisories bans sources` | PASS. License check intentionally blocked pending project license. |
+| `cargo deny --manifest-path rust/SearchIndexCore/Cargo.toml check` | PASS, including the approved Apache-2.0 license policy. |
 | `swift build -c release` | PASS. |
 | `./script/e2e_smoke.sh` | PASS: per-run sandbox/Keychain namespace; isolated capture, dedupe, persistence, relaunch recovery, bounded offline probe, cleanup. |
 | `./script/build_and_run.sh --verify` | PASS after canonicalizing `/tmp` to `/private/tmp`; exact staged executable remained alive. |
@@ -18,7 +18,8 @@ Date: 2026-07-20. Run from the isolated release-hardening worktree; transient lo
 | YAML / JSON parsing | PASS for GitHub workflow/templates/Dependabot and release manifest. |
 | `git diff --check` | PASS. |
 | `./script/app_store_check.sh` | Expected exit 3: bundle/plist/entitlements/privacy/signatures pass locally; application/installer distribution identities and expected Team ID are missing. |
-| `./script/package_direct_download.sh --preflight` | Expected exit 2: fail-closed direct-download gate reports the missing Developer ID Application identity before build/notarization work. |
+| `DEVELOPER_ID_APPLICATION_IDENTITY='<installed Developer ID Application identity>' NOTARY_KEYCHAIN_PROFILE='clipvault-notary' ./script/package_direct_download.sh --preflight` | Expected exit 2: Developer ID identity validation passes and the fail-closed gate reports the missing notarization Keychain profile. |
+| Hosted arm64 CI run `29774529702`, job `88460604543` | PASS: all 17 steps completed at reviewed PR #13 exact head `45205f80ec19f7ad844b17bcf0db0da0c216c03b`. |
 
 ## Runtime observations
 
@@ -30,5 +31,5 @@ Date: 2026-07-20. Run from the isolated release-hardening worktree; transient lo
 ## Environment limits
 
 - macOS 27.0 beta host, Xcode 26.6, Apple silicon only.
-- No clean macOS 15 machine/account, Intel runtime, Developer ID/notarized build, App Store Connect server validation, or hosted exact-head CI proof.
+- No clean macOS 15 machine/account, Intel runtime, Developer ID/notarized downloadable build, or App Store Connect server validation proof. Hosted exact-head arm64 CI passes.
 - No formal Codex Security scan was run by owner request.

@@ -17,10 +17,11 @@ Verdict: **ordinary review passed with documented residuals; formal security sca
 - Clipboard capture requires explicit consent in production; stopping or revoking capture invalidates in-flight work.
 - Clip payloads/details use AES-GCM with a Keychain-backed key; sensitive-value filtering happens before persistence and is documented as best effort.
 
-## Publication blockers
+## Publication controls
 
-- GitHub private vulnerability reporting is not enabled yet. The approved confidential fallback is `info@rsitech.ai`.
-- Hosted CI has not executed successfully on the exact candidate. The post-rewrite run passed the public-contract gate and failed because the clean runner lacked the shell harness's `rg` prerequisite; the candidate now installs a pinned ripgrep version before those tests.
+- GitHub private vulnerability reporting is enabled; `info@rsitech.ai` remains the documented confidential fallback.
+- Hosted arm64 CI passed all 17 steps on reviewed PR #13 exact head in run `29774529702`.
+- Active repository rules block deletion/non-fast-forward updates to `main` and require PRs, resolved review threads, an up-to-date branch, and the `verify` status check.
 
 ## History privacy
 
