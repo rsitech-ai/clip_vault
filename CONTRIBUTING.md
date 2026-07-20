@@ -9,7 +9,8 @@ You need:
 - an Apple-silicon Mac running macOS 15 or later;
 - Xcode 26 or later and the macOS command-line tools;
 - Swift 6;
-- Rust 1.85 or later.
+- Rust 1.85 or later;
+- ripgrep 15 or later.
 
 Clone the repository and verify the baseline:
 

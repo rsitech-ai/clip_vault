@@ -26,6 +26,7 @@ ClipVault does not provide cloud sync, accounts, team workspaces, or a cloud AI 
 - Xcode 26 or later with macOS command-line tools
 - Swift 6
 - Rust 1.85 or later, including Cargo
+- ripgrep 15 or later for the shell policy tests
 
 The Swift target links a locally built Rust library. A bare `swift build` or `swift test` from a fresh clone will fail until the Rust release library exists. Use the repository scripts below; they build Rust first.
 

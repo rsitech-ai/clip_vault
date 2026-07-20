@@ -20,7 +20,7 @@ Verdict: **ordinary review passed with documented residuals; formal security sca
 ## Publication blockers
 
 - GitHub private vulnerability reporting is not enabled yet. The approved confidential fallback is `info@rsitech.ai`.
-- Hosted CI has not executed successfully on the exact candidate. The prior run executed and failed only at the intentionally missing-license gate, which is now resolved in the candidate.
+- Hosted CI has not executed successfully on the exact candidate. The post-rewrite run passed the public-contract gate and failed because the clean runner lacked the shell harness's `rg` prerequisite; the candidate now installs a pinned ripgrep version before those tests.
 
 ## History privacy
 
