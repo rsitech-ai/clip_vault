@@ -3,7 +3,7 @@ import Foundation
 import SwiftData
 @testable import ClipVaultCore
 
-@Suite("Collection folder tree")
+@Suite("Collection folder tree", .serialized)
 struct FolderTreeTests {
     @Test("Prompts is a protected default manual collection")
     func promptsIsProtectedDefaultManualCollection() throws {
@@ -722,6 +722,49 @@ struct FolderTreeTests {
         }
     }
 
+    @Test("SwiftData collection mutations decrypt only the requested clips")
+    func swiftDataCollectionMutationsAvoidWholeLibraryReloads() throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let storeURL = directory.appendingPathComponent("ClipVault.sqlite")
+        let container = try makeSwiftDataContainer(at: storeURL)
+        let encryptor = CountingFolderTreePayloadEncryptor()
+        let store = SwiftDataClipStore(
+            context: ModelContext(container),
+            encryptor: encryptor
+        )
+        try store.saveFolder(
+            CollectionFolder(id: "queue-folder", title: "Queue", collectionID: "queue"),
+            parentID: nil,
+            sortOrder: 20
+        )
+        var clipIDs: [String] = []
+        for index in 0..<100 {
+            let clip = try #require(try store.save(
+                payload: ClipPayload(
+                    kind: .file,
+                    displayText: "/tmp/fixture-\(index)",
+                    extractedText: "/tmp/fixture-\(index)"
+                ),
+                sourceApp: "Tests"
+            ))
+            clipIDs.append(clip.id)
+        }
+        let targetID = try #require(clipIDs.first)
+
+        encryptor.resetDecryptCount()
+        let assigned = try store.addClips(ids: [targetID], toCollectionID: "queue")
+
+        #expect(assigned.map(\.id) == [targetID])
+        #expect(encryptor.decryptCount == 1)
+
+        encryptor.resetDecryptCount()
+        let moved = try store.moveClips(ids: [targetID], toCollectionID: "queue")
+
+        #expect(moved.map(\.id) == [targetID])
+        #expect(encryptor.decryptCount == 1)
+    }
+
     @Test("SwiftData clip moves roll back failed saves and leave disk unchanged")
     func swiftDataClipMoveRollsBackFailedSave() throws {
         let directory = try makeTemporaryDirectory()
@@ -751,9 +794,13 @@ struct FolderTreeTests {
         do {
             let container = try makeSwiftDataContainer(at: storeURL)
             let context = ModelContext(container)
-            let failingStore = SwiftDataClipStore(context: context, saveContext: { _ in
-                throw ForcedSaveError()
-            })
+            let failingStore = SwiftDataClipStore(
+                context: context,
+                encryptor: FolderTreeTestPayloadEncryptor(),
+                saveContext: { _ in
+                    throw ForcedSaveError()
+                }
+            )
 
             #expect(throws: ForcedSaveError()) {
                 try failingStore.moveClips(ids: [clipID], toCollectionID: "prompts")
@@ -764,6 +811,49 @@ struct FolderTreeTests {
         try withSwiftDataStore(at: storeURL) { store in
             let clip = try #require(try store.allClips().first { $0.id == clipID })
             #expect(clip.collectionIDs == ["research", "archive"])
+        }
+    }
+
+    @Test("SwiftData clip assignments roll back failed saves and leave disk unchanged")
+    func swiftDataClipAssignmentRollsBackFailedSave() throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let storeURL = directory.appendingPathComponent("ClipVault.sqlite")
+        var clipID = ""
+
+        try withSwiftDataStore(at: storeURL) { store in
+            try store.saveFolder(
+                CollectionFolder(id: "queue-folder", title: "Queue", collectionID: "queue"),
+                parentID: nil,
+                sortOrder: 20
+            )
+            let clip = try #require(try store.save(
+                payload: ClipPayload(kind: .text, displayText: "Queued", extractedText: "Queued"),
+                sourceApp: "Tests"
+            ))
+            clipID = clip.id
+        }
+
+        do {
+            let container = try makeSwiftDataContainer(at: storeURL)
+            let context = ModelContext(container)
+            let failingStore = SwiftDataClipStore(
+                context: context,
+                encryptor: FolderTreeTestPayloadEncryptor(),
+                saveContext: { _ in
+                    throw ForcedSaveError()
+                }
+            )
+
+            #expect(throws: ForcedSaveError()) {
+                try failingStore.addClips(ids: [clipID], toCollectionID: "queue")
+            }
+            #expect(!context.hasChanges)
+        }
+
+        try withSwiftDataStore(at: storeURL) { store in
+            let clip = try #require(try store.allClips().first { $0.id == clipID })
+            #expect(clip.collectionIDs == ["research"])
         }
     }
 
@@ -1187,6 +1277,32 @@ private struct FolderTreeTestPayloadEncryptor: PayloadEncrypting {
 
     func decrypt(_ data: Data) throws -> Data {
         data
+    }
+}
+
+private final class CountingFolderTreePayloadEncryptor: PayloadEncrypting, @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedDecryptCount = 0
+
+    var decryptCount: Int {
+        lock.withLock { storedDecryptCount }
+    }
+
+    func resetDecryptCount() {
+        lock.withLock {
+            storedDecryptCount = 0
+        }
+    }
+
+    func encrypt(_ data: Data) throws -> Data {
+        data
+    }
+
+    func decrypt(_ data: Data) throws -> Data {
+        lock.withLock {
+            storedDecryptCount += 1
+        }
+        return data
     }
 }
 
