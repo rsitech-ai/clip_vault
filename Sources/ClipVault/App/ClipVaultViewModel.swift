@@ -593,10 +593,15 @@ final class ClipVaultViewModel {
             captureStatus = "Select clips first"
             return
         }
+        guard let store else {
+            captureStatus = "Storage is not ready. Try again."
+            updateDockTile()
+            return
+        }
 
         do {
-            try store?.addClips(ids: ids, toCollectionID: collectionID)
-            reload()
+            let updatedClips = try store.addClips(ids: ids, toCollectionID: collectionID)
+            mergeUpdatedClips(updatedClips)
             captureStatus = "Added \(ids.count) clips to collection"
             updateDockTile()
         } catch {
@@ -626,11 +631,9 @@ final class ClipVaultViewModel {
         }
 
         do {
-            try store.moveClips(ids: [id], toCollectionID: destinationID)
-            let didRefresh = reload()
-            captureStatus = didRefresh
-                ? "Moved to \(destination.title)"
-                : "Moved, but the clip list couldn’t refresh. Reopen ClipVault to update it."
+            let updatedClips = try store.moveClips(ids: [id], toCollectionID: destinationID)
+            mergeUpdatedClips(updatedClips)
+            captureStatus = "Moved to \(destination.title)"
             updateDockTile()
             return true
         } catch {
@@ -880,13 +883,14 @@ final class ClipVaultViewModel {
                     clips.insert(clip, at: 0)
                 }
                 selectedClipID = clip.id
+                selectFirstVisibleResultIfNeeded()
                 Self.logger.info("Captured clipboard item")
                 captureStatus = "Added to \(payload.kind.title)"
             } else {
                 Self.logger.info("Excluded sensitive clipboard item before persistence")
                 captureStatus = "Excluded sensitive item"
             }
-            reload()
+            updateDockTile()
         } catch {
             Self.logFailure(operation: "ingest_clipboard", error: error)
             captureStatus = error.localizedDescription
@@ -938,12 +942,14 @@ final class ClipVaultViewModel {
     }
 
     private func selectFirstVisibleResultIfNeeded() {
-        if let selectedClipID,
-           visibleResults.contains(where: { $0.clip.id == selectedClipID }) {
-            return
-        }
-
-        selectedClipID = visibleResults.first?.clip.id
+        let currentIsVisible = selectedClipID.map { selectedID in
+            visibleResults.contains(where: { $0.clip.id == selectedID })
+        } ?? false
+        selectedClipID = WorkspaceClipSelectionPolicy.reconciledSelection(
+            currentID: selectedClipID,
+            currentIsVisible: currentIsVisible,
+            firstVisibleID: visibleResults.first?.clip.id
+        )
     }
 
     private func refreshAllSearchResults() {
@@ -981,6 +987,15 @@ final class ClipVaultViewModel {
         folders = folders.map { existing in
             inserting(folder, under: parentFolderID, in: existing)
         }
+    }
+
+    private func mergeUpdatedClips(_ updatedClips: [Clip]) {
+        guard !updatedClips.isEmpty else {
+            return
+        }
+        let updatedByID = Dictionary(uniqueKeysWithValues: updatedClips.map { ($0.id, $0) })
+        clips = clips.map { updatedByID[$0.id] ?? $0 }
+        selectFirstVisibleResultIfNeeded()
     }
 
     private func inserting(_ folder: CollectionFolder, under parentID: String, in root: CollectionFolder) -> CollectionFolder {

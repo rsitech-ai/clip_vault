@@ -104,7 +104,20 @@ public final class ClipboardCaptureService {
 
     private static func snapshot(from pasteboard: NSPasteboard) -> PasteboardSnapshot {
         let types = pasteboard.types?.map(\.rawValue) ?? []
-        let fileURLs = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL] ?? []
+        let urls = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL] ?? []
+        let fileURLs = urls.filter(\.isFileURL)
+        if !fileURLs.isEmpty {
+            return PasteboardSnapshot(
+                uniformTypeIdentifiers: types,
+                string: nil,
+                urlString: nil,
+                rtfData: nil,
+                tiffData: nil,
+                pngData: nil,
+                objectImageData: nil,
+                filePaths: fileURLs.map(\.path)
+            )
+        }
         let objectImageData = (pasteboard.readObjects(forClasses: [NSImage.self])?.first as? NSImage)?.tiffRepresentation
 
         return PasteboardSnapshot(
@@ -120,10 +133,6 @@ public final class ClipboardCaptureService {
     }
 
     nonisolated private static func payload(from snapshot: PasteboardSnapshot) -> ClipPayload? {
-        if let imagePayload = imagePayload(from: snapshot) {
-            return imagePayload
-        }
-
         if !snapshot.filePaths.isEmpty {
             let text = snapshot.filePaths.joined(separator: "\n")
             return ClipPayload(
@@ -133,6 +142,10 @@ public final class ClipboardCaptureService {
                 metadata: ["count": "\(snapshot.filePaths.count)", "paths": text],
                 uniformTypeIdentifiers: snapshot.uniformTypeIdentifiers
             )
+        }
+
+        if let imagePayload = imagePayload(from: snapshot) {
+            return imagePayload
         }
 
         if let urlString = snapshot.urlString,

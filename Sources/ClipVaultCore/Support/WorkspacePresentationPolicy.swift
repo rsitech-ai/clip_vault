@@ -25,6 +25,19 @@ public enum MenuBarPresentationPolicy {
     }
 }
 
+public enum WorkspaceClipSelectionPolicy {
+    public static func reconciledSelection(
+        currentID: String?,
+        currentIsVisible: Bool,
+        firstVisibleID: String?
+    ) -> String? {
+        if let currentID, currentIsVisible {
+            return currentID
+        }
+        return firstVisibleID
+    }
+}
+
 public enum WorkspaceWidthClass: Equatable, Sendable {
     case compact
     case regular

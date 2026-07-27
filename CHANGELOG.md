@@ -16,6 +16,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Cli
 - Swift, Rust, shell, signed-app, persistence, and package-validation test lanes.
 - Public Apache-2.0 source repository under RSI Tech with NOTICE, security policy, and contribution guide.
 
+### Changed
+
+- Collection assignment and move operations update only the affected clips instead of reloading and decrypting the entire library.
+- Finder file and folder clipboard items use their file URLs directly, avoiding unnecessary rich-pasteboard decoding.
+
+### Fixed
+
+- The menu-bar surface consistently shows All Clips, independently of the collection selected in the main window.
+- Moving or assigning the selected clip now reconciles the visible selection without triggering a full workspace reload.
+
 ### Security
 
 - Capture cancellation and consent revocation invalidate in-flight work.

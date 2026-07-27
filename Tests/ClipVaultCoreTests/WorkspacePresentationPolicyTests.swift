@@ -16,6 +16,38 @@ struct WorkspacePresentationPolicyTests {
         }
     }
 
+    @Test("selection falls back when an incremental update hides the current clip")
+    func selectionReconcilesAfterIncrementalUpdates() {
+        #expect(
+            WorkspaceClipSelectionPolicy.reconciledSelection(
+                currentID: "moved-out",
+                currentIsVisible: false,
+                firstVisibleID: "still-visible"
+            ) == "still-visible"
+        )
+        #expect(
+            WorkspaceClipSelectionPolicy.reconciledSelection(
+                currentID: "captured-outside-filter",
+                currentIsVisible: false,
+                firstVisibleID: "still-visible"
+            ) == "still-visible"
+        )
+        #expect(
+            WorkspaceClipSelectionPolicy.reconciledSelection(
+                currentID: "still-visible",
+                currentIsVisible: true,
+                firstVisibleID: "another"
+            ) == "still-visible"
+        )
+        #expect(
+            WorkspaceClipSelectionPolicy.reconciledSelection(
+                currentID: "moved-out",
+                currentIsVisible: false,
+                firstVisibleID: nil
+            ) == nil
+        )
+    }
+
     @Test("first reload snapshot exposes reconciled Prompts membership")
     func firstReloadSnapshotExposesReconciledPromptsMembership() throws {
         let legacyCollectionID = "legacy-reload-prompts"

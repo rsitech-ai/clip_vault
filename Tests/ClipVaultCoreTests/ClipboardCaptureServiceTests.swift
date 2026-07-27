@@ -199,6 +199,54 @@ struct ClipboardCaptureServiceTests {
         #expect(payload.metadata["count"] == "2")
         #expect(payload.metadata["paths"] == "/tmp/clipvault-a.txt\n/tmp/clipvault-b.txt")
     }
+
+    @MainActor
+    @Test("Finder file URLs take precedence over redundant image representations")
+    func finderFileURLsTakePrecedenceOverImageRepresentations() throws {
+        let pasteboard = NSPasteboard(
+            name: NSPasteboard.Name("ClipVaultFinderFilePriorityTest-\(UUID().uuidString)")
+        )
+        pasteboard.clearContents()
+        let file = URL(fileURLWithPath: "/tmp/clipvault-image.png")
+        let bitmap = try #require(NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: 8,
+            pixelsHigh: 8,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 32,
+            bitsPerPixel: 32
+        ))
+        let tiffData = bitmap.tiffRepresentation
+        pasteboard.writeObjects([file as NSURL])
+        pasteboard.setData(tiffData, forType: .tiff)
+
+        let payload = try #require(ClipboardCaptureService.payload(from: pasteboard))
+
+        #expect(payload.kind == .file)
+        #expect(payload.metadata["paths"] == file.path)
+        #expect(payload.previewData == nil)
+    }
+
+    @MainActor
+    @Test("web URL objects remain links rather than file paths")
+    func webURLObjectsRemainLinks() throws {
+        let pasteboard = NSPasteboard(
+            name: NSPasteboard.Name("ClipVaultWebURLObjectTest-\(UUID().uuidString)")
+        )
+        pasteboard.clearContents()
+        let url = try #require(URL(string: "https://rsitech.ai/clipvault"))
+        pasteboard.writeObjects([url as NSURL])
+
+        let payload = try #require(ClipboardCaptureService.payload(from: pasteboard))
+
+        #expect(payload.kind == .url)
+        #expect(payload.displayText == url.absoluteString)
+        #expect(payload.metadata["host"] == "rsitech.ai")
+    }
 }
 
 private actor PayloadBuilderGate {

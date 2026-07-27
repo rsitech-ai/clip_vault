@@ -47,6 +47,36 @@ struct ClipManagementTests {
         #expect(updated.collectionIDs.filter { $0 == "client-research" }.count == 1)
     }
 
+    @Test("collection assignment returns only updated clips for an incremental UI refresh")
+    func collectionAssignmentReturnsUpdatedClips() throws {
+        let store = InMemoryClipStore()
+        let first = try #require(try store.save(
+            payload: ClipPayload(kind: .text, displayText: "First", extractedText: "First"),
+            sourceApp: "Tests"
+        ))
+        let second = try #require(try store.save(
+            payload: ClipPayload(kind: .file, displayText: "/tmp/second", extractedText: "/tmp/second"),
+            sourceApp: "Tests"
+        ))
+        let untouched = try #require(try store.save(
+            payload: ClipPayload(
+                kind: .url,
+                displayText: "https://example.com",
+                extractedText: "https://example.com"
+            ),
+            sourceApp: "Tests"
+        ))
+
+        let updated = try store.addClips(
+            ids: [first.id, second.id],
+            toCollectionID: "queue"
+        )
+
+        #expect(Set(updated.map(\.id)) == [first.id, second.id])
+        #expect(updated.allSatisfy { $0.collectionIDs.contains("queue") })
+        #expect(!updated.contains { $0.id == untouched.id })
+    }
+
     @Test("moving a clip replaces custom memberships and preserves smart memberships")
     func movingClipReplacesOnlyCustomMemberships() throws {
         let store = InMemoryClipStore()
@@ -68,6 +98,37 @@ struct ClipManagementTests {
 
         let moved = try #require(try store.allClips().first { $0.id == clip.id })
         #expect(moved.collectionIDs == ["research", "prompts"])
+    }
+
+    @Test("collection move returns only updated clips for an incremental UI refresh")
+    func collectionMoveReturnsUpdatedClips() throws {
+        let store = InMemoryClipStore()
+        try store.saveFolder(
+            CollectionFolder(id: "queue-folder", title: "Queue", collectionID: "queue"),
+            parentID: nil,
+            sortOrder: 20
+        )
+        let first = try #require(try store.save(
+            payload: ClipPayload(kind: .file, displayText: "/tmp/first", extractedText: "/tmp/first"),
+            sourceApp: "Tests"
+        ))
+        let second = try #require(try store.save(
+            payload: ClipPayload(kind: .file, displayText: "/tmp/second", extractedText: "/tmp/second"),
+            sourceApp: "Tests"
+        ))
+        let untouched = try #require(try store.save(
+            payload: ClipPayload(kind: .text, displayText: "Untouched", extractedText: "Untouched"),
+            sourceApp: "Tests"
+        ))
+
+        let updated = try store.moveClips(
+            ids: [first.id, second.id],
+            toCollectionID: "queue"
+        )
+
+        #expect(Set(updated.map(\.id)) == [first.id, second.id])
+        #expect(updated.allSatisfy { $0.collectionIDs == ["files", "queue"] })
+        #expect(!updated.contains { $0.id == untouched.id })
     }
 
     @Test("moving a clip rejects a missing destination without changing memberships")

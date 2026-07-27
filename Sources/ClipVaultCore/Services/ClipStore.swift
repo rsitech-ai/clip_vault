@@ -100,8 +100,10 @@ public protocol ClipStoring: AnyObject {
     func payload(for clipID: String) throws -> ClipPayload?
     func save(payload: ClipPayload, sourceApp: String?) throws -> Clip?
     func saveGeneratedPrompts(_ drafts: [GeneratedPromptDraft]) throws -> [Clip]
-    func addClips(ids: [String], toCollectionID collectionID: String) throws
-    func moveClips(ids: [String], toCollectionID collectionID: String) throws
+    @discardableResult
+    func addClips(ids: [String], toCollectionID collectionID: String) throws -> [Clip]
+    @discardableResult
+    func moveClips(ids: [String], toCollectionID collectionID: String) throws -> [Clip]
     func togglePinned(id: String) throws
     func updateNote(id: String, note: String) throws
     func updateTitle(id: String, title: String) throws
@@ -738,30 +740,39 @@ public final class SwiftDataClipStore: ClipStoring {
         }
     }
 
-    public func addClips(ids: [String], toCollectionID collectionID: String) throws {
-        let trimmed = collectionID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            return
-        }
-
-        let idSet = Set(ids)
-        guard !idSet.isEmpty else {
-            return
-        }
-
-        let descriptor = FetchDescriptor<ClipRecord>()
-        for record in try context.fetch(descriptor) where idSet.contains(record.id) {
-            var collectionIDs = split(record.collectionIDsRaw)
-            if !collectionIDs.contains(trimmed) {
-                collectionIDs.append(trimmed)
-                record.collectionIDsRaw = collectionIDs.joined(separator: ",")
-                record.updatedAt = Date()
+    @discardableResult
+    public func addClips(ids: [String], toCollectionID collectionID: String) throws -> [Clip] {
+        try withFolderRollback {
+            let destination = collectionID.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !destination.isEmpty else {
+                return []
             }
+
+            let requestedIDs = Array(Set(ids))
+            guard !requestedIDs.isEmpty else {
+                return []
+            }
+
+            let descriptor = FetchDescriptor<ClipRecord>(
+                predicate: #Predicate { requestedIDs.contains($0.id) }
+            )
+            let records = try context.fetch(descriptor)
+            for record in records {
+                var collectionIDs = split(record.collectionIDsRaw)
+                if !collectionIDs.contains(destination) {
+                    collectionIDs.append(destination)
+                    record.collectionIDsRaw = collectionIDs.joined(separator: ",")
+                    record.updatedAt = Date()
+                }
+            }
+            let updatedClips = try records.compactMap(recordToClip)
+            try saveFolderContext(context)
+            return updatedClips
         }
-        try context.save()
     }
 
-    public func moveClips(ids: [String], toCollectionID collectionID: String) throws {
+    @discardableResult
+    public func moveClips(ids: [String], toCollectionID collectionID: String) throws -> [Clip] {
         try withFolderRollback {
             let requestedIDs = Set(ids)
             guard !requestedIDs.isEmpty else { throw ClipCollectionMoveError.noClips }
@@ -776,8 +787,11 @@ public final class SwiftDataClipStore: ClipStoring {
                 throw ClipCollectionMoveError.invalidDestination
             }
 
-            let records = try context.fetch(FetchDescriptor<ClipRecord>())
-                .filter { requestedIDs.contains($0.id) }
+            let requestedIDList = Array(requestedIDs)
+            let descriptor = FetchDescriptor<ClipRecord>(
+                predicate: #Predicate { requestedIDList.contains($0.id) }
+            )
+            let records = try context.fetch(descriptor)
             guard records.count == requestedIDs.count else { throw ClipCollectionMoveError.clipNotFound }
             for record in records {
                 let preserved = split(record.collectionIDsRaw).filter {
@@ -786,7 +800,9 @@ public final class SwiftDataClipStore: ClipStoring {
                 record.collectionIDsRaw = (preserved + [destination]).joined(separator: ",")
                 record.updatedAt = Date()
             }
+            let updatedClips = try records.compactMap(recordToClip)
             try saveFolderContext(context)
+            return updatedClips
         }
     }
 
@@ -1392,10 +1408,11 @@ public final class InMemoryClipStore: ClipStoring {
         return prepared.map(\.clip)
     }
 
-    public func addClips(ids: [String], toCollectionID collectionID: String) throws {
+    @discardableResult
+    public func addClips(ids: [String], toCollectionID collectionID: String) throws -> [Clip] {
         let idSet = Set(ids)
         guard !idSet.isEmpty, !collectionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return
+            return []
         }
 
         for index in clips.indices where idSet.contains(clips[index].id) {
@@ -1404,9 +1421,11 @@ public final class InMemoryClipStore: ClipStoring {
                 clips[index].updatedAt = Date()
             }
         }
+        return clips.filter { idSet.contains($0.id) }
     }
 
-    public func moveClips(ids: [String], toCollectionID collectionID: String) throws {
+    @discardableResult
+    public func moveClips(ids: [String], toCollectionID collectionID: String) throws -> [Clip] {
         let requestedIDs = Set(ids)
         guard !requestedIDs.isEmpty else { throw ClipCollectionMoveError.noClips }
 
@@ -1428,6 +1447,7 @@ public final class InMemoryClipStore: ClipStoring {
             clips[index].collectionIDs = preserved + [destination]
             clips[index].updatedAt = Date()
         }
+        return indexes.map { clips[$0] }
     }
 
     public func togglePinned(id: String) throws {
