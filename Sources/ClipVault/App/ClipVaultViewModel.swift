@@ -351,18 +351,18 @@ final class ClipVaultViewModel {
     }
 
     func togglePinned(_ clip: Clip) {
-        let previousSelection = selectedClipID
+        guard let store else {
+            captureStatus = "Storage is not ready. Try again."
+            updateDockTile()
+            return
+        }
+
         do {
-            try store?.togglePinned(id: clip.id)
-            guard reload() else {
-                selectedClipID = previousSelection
-                return
+            if let updated = try store.togglePinned(id: clip.id) {
+                mergeUpdatedClips([updated])
             }
-            if visibleResults.contains(where: { $0.clip.id == clip.id }) {
-                selectedClipID = clip.id
-            }
+            updateDockTile()
         } catch {
-            selectedClipID = previousSelection
             Self.logFailure(operation: "toggle_pinned", error: error)
             captureStatus = error.localizedDescription
             updateDockTile()
@@ -427,9 +427,7 @@ final class ClipVaultViewModel {
             try store?.delete(id: clip.id)
             clips.removeAll { $0.id == clip.id }
             selectedClipIDs.remove(clip.id)
-            if selectedClipID == clip.id {
-                selectedClipID = clips.first?.id
-            }
+            selectFirstVisibleResultIfNeeded()
             captureStatus = "Deleted clip"
             updateDockTile()
         } catch {
@@ -447,9 +445,7 @@ final class ClipVaultViewModel {
             }
             clips.removeAll { !$0.isPinned }
             selectedClipIDs = selectedClipIDs.intersection(Set(clips.map(\.id)))
-            if let selectedClipID, !clips.contains(where: { $0.id == selectedClipID }) {
-                self.selectedClipID = clips.first?.id
-            }
+            selectFirstVisibleResultIfNeeded()
             captureStatus = "Cleared \(removable.count) clips"
             updateDockTile()
         } catch {
@@ -488,9 +484,7 @@ final class ClipVaultViewModel {
             let ids = Set(candidates.map(\.id))
             clips.removeAll { ids.contains($0.id) }
             selectedClipIDs.subtract(ids)
-            if let selectedClipID, ids.contains(selectedClipID) {
-                self.selectedClipID = clips.first?.id
-            }
+            selectFirstVisibleResultIfNeeded()
             captureStatus = "Deleted \(candidates.count) clips"
             updateDockTile()
         } catch {

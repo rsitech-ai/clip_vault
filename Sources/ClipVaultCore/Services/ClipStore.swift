@@ -104,7 +104,8 @@ public protocol ClipStoring: AnyObject {
     func addClips(ids: [String], toCollectionID collectionID: String) throws -> [Clip]
     @discardableResult
     func moveClips(ids: [String], toCollectionID collectionID: String) throws -> [Clip]
-    func togglePinned(id: String) throws
+    @discardableResult
+    func togglePinned(id: String) throws -> Clip?
     func updateNote(id: String, note: String) throws
     func updateTitle(id: String, title: String) throws
     func updateTags(id: String, tags: [String]) throws
@@ -806,17 +807,19 @@ public final class SwiftDataClipStore: ClipStoring {
         }
     }
 
-    public func togglePinned(id: String) throws {
+    @discardableResult
+    public func togglePinned(id: String) throws -> Clip? {
         let descriptor = FetchDescriptor<ClipRecord>(
             predicate: #Predicate { record in record.id == id }
         )
         guard let record = try context.fetch(descriptor).first else {
-            return
+            return nil
         }
 
         record.isPinned.toggle()
         record.updatedAt = Date()
         try context.save()
+        return try recordToClip(record)
     }
 
     public func updateNote(id: String, note: String) throws {
@@ -1450,11 +1453,14 @@ public final class InMemoryClipStore: ClipStoring {
         return indexes.map { clips[$0] }
     }
 
-    public func togglePinned(id: String) throws {
+    @discardableResult
+    public func togglePinned(id: String) throws -> Clip? {
         guard let index = clips.firstIndex(where: { $0.id == id }) else {
-            return
+            return nil
         }
         clips[index].isPinned.toggle()
+        clips[index].updatedAt = Date()
+        return clips[index]
     }
 
     public func updateNote(id: String, note: String) throws {

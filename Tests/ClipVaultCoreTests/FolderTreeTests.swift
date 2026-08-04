@@ -722,8 +722,8 @@ struct FolderTreeTests {
         }
     }
 
-    @Test("SwiftData collection mutations decrypt only the requested clips")
-    func swiftDataCollectionMutationsAvoidWholeLibraryReloads() throws {
+    @Test("SwiftData targeted mutations decrypt only the requested clips")
+    func swiftDataTargetedMutationsAvoidWholeLibraryReloads() throws {
         let directory = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let storeURL = directory.appendingPathComponent("ClipVault.sqlite")
@@ -762,6 +762,13 @@ struct FolderTreeTests {
         let moved = try store.moveClips(ids: [targetID], toCollectionID: "queue")
 
         #expect(moved.map(\.id) == [targetID])
+        #expect(encryptor.decryptCount == 1)
+
+        encryptor.resetDecryptCount()
+        let pinned = try #require(try store.togglePinned(id: targetID))
+
+        #expect(pinned.id == targetID)
+        #expect(pinned.isPinned)
         #expect(encryptor.decryptCount == 1)
     }
 

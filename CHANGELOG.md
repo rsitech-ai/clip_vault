@@ -19,12 +19,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Cli
 ### Changed
 
 - Collection assignment and move operations update only the affected clips instead of reloading and decrypting the entire library.
+- Pin toggles update only the affected clip instead of reloading and decrypting the entire library.
 - Finder file and folder clipboard items use their file URLs directly, avoiding unnecessary rich-pasteboard decoding.
 
 ### Fixed
 
 - The menu-bar surface consistently shows All Clips, independently of the collection selected in the main window.
 - Moving or assigning the selected clip now reconciles the visible selection without triggering a full workspace reload.
+- Deleting, clearing, or cleaning up clips now reconciles selection against the visible workspace results instead of the raw library order.
 
 ### Security
 

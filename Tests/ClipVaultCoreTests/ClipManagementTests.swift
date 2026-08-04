@@ -131,6 +131,26 @@ struct ClipManagementTests {
         #expect(!updated.contains { $0.id == untouched.id })
     }
 
+    @Test("pin toggle returns the updated clip for an incremental UI refresh")
+    func pinToggleReturnsUpdatedClip() throws {
+        let store = InMemoryClipStore()
+        let clip = try #require(try store.save(
+            payload: ClipPayload(kind: .text, displayText: "Pin me", extractedText: "Pin me"),
+            sourceApp: "Tests"
+        ))
+        #expect(clip.isPinned == false)
+
+        let pinned = try #require(try store.togglePinned(id: clip.id))
+        #expect(pinned.id == clip.id)
+        #expect(pinned.isPinned)
+        #expect(try store.allClips().first?.isPinned == true)
+
+        let unpinned = try #require(try store.togglePinned(id: clip.id))
+        #expect(unpinned.id == clip.id)
+        #expect(!unpinned.isPinned)
+        #expect(try store.togglePinned(id: "missing-clip-id") == nil)
+    }
+
     @Test("moving a clip rejects a missing destination without changing memberships")
     func movingClipRejectsMissingDestination() throws {
         let store = InMemoryClipStore()
