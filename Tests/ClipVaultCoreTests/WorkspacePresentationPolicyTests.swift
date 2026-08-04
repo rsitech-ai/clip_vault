@@ -46,6 +46,13 @@ struct WorkspacePresentationPolicyTests {
                 firstVisibleID: nil
             ) == nil
         )
+        #expect(
+            WorkspaceClipSelectionPolicy.reconciledSelection(
+                currentID: "deleted-clip",
+                currentIsVisible: false,
+                firstVisibleID: "next-visible"
+            ) == "next-visible"
+        )
     }
 
     @Test("first reload snapshot exposes reconciled Prompts membership")
