@@ -179,8 +179,11 @@ final class ClipVaultViewModel {
         captureService.onClipCaptured = { [weak self] payload, sourceApp in
             self?.ingest(payload: payload, sourceApp: sourceApp)
         }
-        let screenshotHotKeyRegistered = ScreenshotCaptureController.shared.configure { [weak self] didCapture in
-            self?.captureStatus = didCapture ? "Screenshot copied to clipboard" : "Screenshot cancelled"
+        let screenshotHotKeyRegistered = ScreenshotCaptureController.shared.configure { [weak self] didCapture, status in
+            self?.captureStatus = status
+            if !didCapture {
+                Self.logger.error("Screenshot capture failed: \(status, privacy: .public)")
+            }
             self?.updateDockTile()
         }
         if captureConsentPolicy.isCapturing {
@@ -506,10 +509,10 @@ final class ClipVaultViewModel {
         NotchLiveActivityController.shared.refreshPreferences()
     }
 
-    func captureInteractiveScreenshot() {
-        captureStatus = "Select screenshot area"
+    func captureInteractiveScreenshot(mode: ScreenshotCaptureMode = .area) {
+        captureStatus = mode.statusMessage
         updateDockTile()
-        ScreenshotCaptureController.shared.captureInteractiveScreenshot()
+        ScreenshotCaptureController.shared.captureInteractiveScreenshot(mode: mode)
     }
 
     func select(_ clip: Clip) {

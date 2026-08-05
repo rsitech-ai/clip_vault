@@ -192,7 +192,9 @@ private struct CaptureStorageSettingsTab: View {
 }
 
 private struct PrivacyAccessSettingsTab: View {
-    @State private var screenCaptureAllowed = CGPreflightScreenCaptureAccess()
+    @State private var screenCaptureAllowed = false
+    @State private var screenCaptureDetail = "Checking Screen Recording…"
+    @State private var runningAppPath = Bundle.main.bundlePath
 
     var body: some View {
         Form {
@@ -221,9 +223,7 @@ private struct PrivacyAccessSettingsTab: View {
                 )
                 PermissionStatusRow(
                     title: "Screenshot capture",
-                    detail: screenCaptureAllowed
-                        ? "Screen Recording is allowed for screenshot capture."
-                        : "macOS may ask for Screen Recording the first time Shot is used.",
+                    detail: screenCaptureDetail,
                     state: screenCaptureAllowed ? .ready : .needsReview
                 )
                 PermissionStatusRow(
@@ -238,10 +238,28 @@ private struct PrivacyAccessSettingsTab: View {
                 )
             }
 
-            Section("Not Required") {
+            Section("Full-Page Capture") {
+                PermissionStatusRow(
+                    title: "Automation (Apple Events)",
+                    detail: "Used to scroll Chrome/Safari via JavaScript while stitching a scrolling page. Enable ClipVault for the browser when prompted, and turn on “Allow JavaScript from Apple Events” in the browser’s Develop menu. After rebuilding, grant for the staged app at dist/ClipVault.app (not only /Applications).",
+                    state: .needsReview
+                )
                 PermissionStatusRow(
                     title: "Accessibility",
-                    detail: "Not required for normal capture, search, copy, or Settings workflows.",
+                    detail: "Fallback scroll control when browser JavaScript automation is unavailable. Grant in Privacy & Security → Accessibility for the same ClipVault.app binary you launch. Ad-hoc builds need re-grant after every rebuild.",
+                    state: .needsReview
+                )
+                PermissionStatusRow(
+                    title: "Running binary",
+                    detail: runningAppPath,
+                    state: .needsReview
+                )
+            }
+
+            Section("Not Required") {
+                PermissionStatusRow(
+                    title: "Accessibility for normal capture",
+                    detail: "Not required for area/window screenshots, clipboard capture, search, copy, or Settings.",
                     state: .notRequired
                 )
                 PermissionStatusRow(
@@ -271,23 +289,53 @@ private struct PrivacyAccessSettingsTab: View {
 
             Section("System Settings") {
                 Button {
-                    screenCaptureAllowed = CGPreflightScreenCaptureAccess()
+                    Task { await refreshScreenCaptureStatus() }
                 } label: {
                     Label("Check Screen Recording", systemImage: "arrow.clockwise")
                 }
 
                 Button {
-                    openScreenRecordingSettings()
+                    _ = CGRequestScreenCaptureAccess()
+                    ScreenRecordingAccess.openSystemSettings()
                 } label: {
-                    Label("Open Screen Recording Settings", systemImage: "gearshape")
+                    Label("Request / Open Screen Recording Settings", systemImage: "gearshape")
+                }
+
+                Button {
+                    openPrivacySettings(pane: "Privacy_Automation")
+                } label: {
+                    Label("Open Automation Settings", systemImage: "gearshape")
+                }
+
+                Button {
+                    openPrivacySettings(pane: "Privacy_Accessibility")
+                } label: {
+                    Label("Open Accessibility Settings", systemImage: "gearshape")
                 }
             }
         }
         .formStyle(.grouped)
+        .task {
+            await refreshScreenCaptureStatus()
+        }
     }
 
-    private func openScreenRecordingSettings() {
-        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") else {
+    private func refreshScreenCaptureStatus() async {
+        runningAppPath = Bundle.main.bundlePath
+        let allowed = await ScreenRecordingAccess.hasShareableContent()
+        screenCaptureAllowed = allowed
+        if allowed {
+            screenCaptureDetail = "Screen Recording works for \(runningAppPath)."
+        } else {
+            let preflight = CGPreflightScreenCaptureAccess()
+            screenCaptureDetail = preflight
+                ? "Preflight is true but ScreenCaptureKit is not ready — quit and relaunch ClipVault."
+                : "Screen Recording is not granted for \(runningAppPath). Enable this exact binary (not only /Applications if you launch from dist)."
+        }
+    }
+
+    private func openPrivacySettings(pane: String) {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") else {
             return
         }
         NSWorkspace.shared.open(url)

@@ -78,9 +78,17 @@ struct ClipVaultApp: App {
                 .keyboardShortcut("v", modifiers: [.command, .shift])
 
                 Button("Capture Area Screenshot") {
-                    model.captureInteractiveScreenshot()
+                    model.captureInteractiveScreenshot(mode: .area)
                 }
                 .keyboardShortcut("2", modifiers: [.command, .shift])
+
+                Button("Capture Window Screenshot") {
+                    model.captureInteractiveScreenshot(mode: .window)
+                }
+
+                Button("Capture Scrolling Page") {
+                    model.captureInteractiveScreenshot(mode: .fullPage)
+                }
             }
         }
 

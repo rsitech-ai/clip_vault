@@ -97,6 +97,8 @@ cat >"$INFO_PLIST" <<PLIST
   <string>NSApplication</string>
   <key>NSSupportsAutomaticGraphicsSwitching</key>
   <true/>
+  <key>NSAppleEventsUsageDescription</key>
+  <string>ClipVault uses Apple Events to scroll Chrome, Safari, and related browsers while capturing a full scrolling page.</string>
   <key>UTExportedTypeDeclarations</key>
   <array>
     <dict>
@@ -115,8 +117,13 @@ cat >"$INFO_PLIST" <<PLIST
 PLIST
 
 if [[ -f "$ENTITLEMENTS" ]]; then
+  # Prefer a stable Team ID signature so TCC Automation/Accessibility grants survive rebuilds.
+  # Ad-hoc (TeamIdentifier=not set) gets a new CDHash every build — grants do not stick.
   if [[ -z "$LOCAL_SIGNING_IDENTITY" ]]; then
     LOCAL_SIGNING_IDENTITY="$(security find-identity -v -p codesigning | sed -nE 's/.*"(Apple Development:[^"]*)".*/\1/p' | head -1)"
+  fi
+  if [[ -z "$LOCAL_SIGNING_IDENTITY" ]]; then
+    LOCAL_SIGNING_IDENTITY="$(security find-identity -v -p codesigning | sed -nE 's/.*"(Developer ID Application:[^"]*)".*/\1/p' | head -1)"
   fi
 
   if [[ -n "$LOCAL_SIGNING_IDENTITY" ]]; then
@@ -124,9 +131,29 @@ if [[ -f "$ENTITLEMENTS" ]]; then
     codesign --force --sign "$LOCAL_SIGNING_IDENTITY" "$RUST_DYLIB_BUNDLE" >/dev/null
     codesign --force --sign "$LOCAL_SIGNING_IDENTITY" --entitlements "$ENTITLEMENTS" "$APP_BUNDLE" >/dev/null
   else
-    echo "Signing $APP_NAME ad-hoc because no Apple Development identity was found"
+    echo "WARNING: Signing $APP_NAME ad-hoc (no Development/Developer ID identity)." >&2
+    echo "WARNING: Automation/Accessibility grants will reset after every rebuild." >&2
     codesign --force --sign - "$RUST_DYLIB_BUNDLE" >/dev/null
     codesign --force --sign - --entitlements "$ENTITLEMENTS" "$APP_BUNDLE" >/dev/null
+  fi
+  echo "Staged app: $APP_BUNDLE"
+  codesign -dv --verbose=2 "$APP_BUNDLE" 2>&1 | sed -nE 's/^(Identifier|Authority|TeamIdentifier|Signature)=?(.*)/  \1\2/p' || true
+
+  # TCC Screen Recording / Automation bind to the designated requirement. An older
+  # /Applications/ClipVault.app signed with a different cert looks like "ClipVault"
+  # in System Settings but does not authorize this staged binary.
+  if [[ -d "/Applications/$APP_NAME.app" ]]; then
+    APPS_TEAM="$(codesign -dv --verbose=2 "/Applications/$APP_NAME.app" 2>&1 | sed -nE 's/^TeamIdentifier=(.*)/\1/p' | head -1 || true)"
+    APPS_AUTH="$(codesign -dv --verbose=2 "/Applications/$APP_NAME.app" 2>&1 | sed -nE 's/^Authority=(.*)/\1/p' | head -1 || true)"
+    STAGED_AUTH="$(codesign -dv --verbose=2 "$APP_BUNDLE" 2>&1 | sed -nE 's/^Authority=(.*)/\1/p' | head -1 || true)"
+    if [[ -n "$APPS_AUTH" && -n "$STAGED_AUTH" && "$APPS_AUTH" != "$STAGED_AUTH" ]]; then
+      echo "WARNING: /Applications/$APP_NAME.app is signed as:" >&2
+      echo "WARNING:   $APPS_AUTH (Team $APPS_TEAM)" >&2
+      echo "WARNING: Staged build is signed as:" >&2
+      echo "WARNING:   $STAGED_AUTH" >&2
+      echo "WARNING: Screen Recording grants for /Applications do NOT cover $APP_BUNDLE." >&2
+      echo "WARNING: In System Settings → Screen Recording, remove stale ClipVault entries and drag in: $APP_BUNDLE" >&2
+    fi
   fi
 fi
 

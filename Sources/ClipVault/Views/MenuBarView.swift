@@ -110,13 +110,21 @@ struct MenuBarView: View {
 
                         Spacer()
 
-                        Button {
-                            captureAfterClosingMenu()
+                        Menu {
+                            Button("Capture Area") {
+                                captureAfterClosingMenu(mode: .area)
+                            }
+                            Button("Capture Window") {
+                                captureAfterClosingMenu(mode: .window)
+                            }
+                            Button("Capture Scrolling Page") {
+                                captureAfterClosingMenu(mode: .fullPage)
+                            }
                         } label: {
                             Label("Shot", systemImage: "camera.viewfinder")
                         }
                         .clipVaultGlassButtonStyle()
-                        .help("Capture a custom area or window screenshot with Command-Shift-2")
+                        .help("Capture area (⌘⇧2), a window, or a scrolling full page")
 
                         Button {
                             performAndClose { openSettings() }
@@ -295,11 +303,11 @@ struct MenuBarView: View {
         action()
     }
 
-    private func captureAfterClosingMenu() {
+    private func captureAfterClosingMenu(mode: ScreenshotCaptureMode) {
         closeMenuWindow()
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(180))
-            model.captureInteractiveScreenshot()
+            model.captureInteractiveScreenshot(mode: mode)
         }
     }
 

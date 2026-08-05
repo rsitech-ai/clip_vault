@@ -136,6 +136,8 @@ cat >"$INFO_PLIST" <<PLIST
   <string>NSApplication</string>
   <key>NSSupportsAutomaticGraphicsSwitching</key>
   <true/>
+  <key>NSAppleEventsUsageDescription</key>
+  <string>ClipVault uses Apple Events to scroll Chrome, Safari, and related browsers while capturing a full scrolling page.</string>
   <key>UTExportedTypeDeclarations</key>
   <array>
     <dict>

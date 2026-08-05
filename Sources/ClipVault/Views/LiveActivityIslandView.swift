@@ -171,8 +171,16 @@ struct LiveActivityIslandView: View {
                 }
                 .disabled(latestClip == nil)
 
-                Button {
-                    model.captureInteractiveScreenshot()
+                Menu {
+                    Button("Capture Area") {
+                        model.captureInteractiveScreenshot(mode: .area)
+                    }
+                    Button("Capture Window") {
+                        model.captureInteractiveScreenshot(mode: .window)
+                    }
+                    Button("Capture Scrolling Page") {
+                        model.captureInteractiveScreenshot(mode: .fullPage)
+                    }
                 } label: {
                     Label("Screenshot", systemImage: "camera.viewfinder")
                 }
