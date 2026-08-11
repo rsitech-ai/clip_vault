@@ -1,12 +1,12 @@
 # ClipVault 0.1.0 Release Status
 
-Date: 2026-07-20 (Europe/Warsaw)
+Date: 2026-08-11 (Europe/Warsaw)
 
 ## Verdict
 
 **SOURCE PUBLISHED — public repository is repo-ready; downloadable binary remains blocked:external.**
 
-The current source, release build, isolated runtime, E2E path, documentation links, dependency checks, and current-tree hygiene pass. PR #13 passed exact-head hosted arm64 CI, was reviewed and merged, and the repository is public under `rsitech-ai`. Apache-2.0, copyright ownership by Rafal Sikora, RSI Tech maintenance, `info@rsitech.ai` for public/confidential contact, the retained-history rewrite, private vulnerability reporting, and an active default-branch ruleset are verified. A downloadable binary must not be published until notarization, stapling, Gatekeeper, and clean-account runtime proof pass.
+The current source, release build, isolated runtime, installed Developer ID runtime capture, E2E path, documentation links, dependency checks, and current-tree hygiene pass. PR #13 passed exact-head hosted arm64 CI, was reviewed and merged, and the repository is public under `rsitech-ai`; that older run is not current-branch proof. The owner explicitly waived current-branch GitHub Actions/CI errors for this release-candidate build, which is recorded as a waiver rather than a pass. Apache-2.0, copyright ownership by Rafal Sikora, RSI Tech maintenance, `info@rsitech.ai` for public/confidential contact, the retained-history rewrite, private vulnerability reporting, and an active default-branch ruleset are verified. A downloadable binary must not be published until notarization, stapling, Gatekeeper, and clean-account runtime proof pass.
 
 No formal Codex Security scan was run; the owner explicitly waived that workflow for this pass. The evidence below is ordinary source/provenance review plus local tools and does not claim formal scan coverage.
 
@@ -18,7 +18,7 @@ Removed tracked agent/Codex/skill plans, local reflection notes, and historical 
 
 | Lane | Status | Meaning |
 | --- | --- | --- |
-| Source engineering candidate | RUNTIME-PROVEN | Local tests, release compilation, E2E, native UI smoke, documentation validation, current-tree hygiene, and hosted arm64 CI passed. |
+| Source engineering candidate | RUNTIME-PROVEN LOCALLY / HOSTED CI WAIVED | Local tests, release compilation, E2E, installed capture modes, native UI smoke, documentation validation, and current-tree hygiene passed. Current-branch hosted CI is explicitly waived, not passed. |
 | Public open-source repository | REPO-READY / PUBLISHED | Public organization repository, Apache-2.0 detection, confidential reporting, PR/ruleset protection, and required CI are active. |
 | Direct-download macOS binary | BLOCKED:EXTERNAL | A valid Developer ID Application identity is installed and timestamp signing passed. No `notarytool` keychain profile exists, so notarization, stapling, Gatekeeper, and clean-machine install proof remain unavailable. |
 | Mac App Store package | BLOCKED:EXTERNAL | Local bundle structure passes, but distribution identities, expected Team ID, App Store Connect validation, and owner declarations are unavailable. |
@@ -30,7 +30,7 @@ Removed tracked agent/Codex/skill plans, local reflection notes, and historical 
 - macOS 27.0 (26A5378j), Apple silicon.
 - Xcode 26.6 (17F113), Swift 6.3.3.
 - Rust/Cargo 1.91.0.
-- Product bundle ID `com.andrzej.ClipVault`, version `0.1.0`, build `1`, minimum macOS `15.0`, arm64.
+- Product bundle ID `com.andrzej.ClipVault`, version `0.1.0`, build `2`, minimum macOS `15.0`, arm64.
 - Current GitHub repository is public at `https://github.com/rsitech-ai/clip_vault` with Apache-2.0 detected and `https://rsitech.ai` configured as the homepage.
 
 ## Gate matrix
@@ -38,12 +38,13 @@ Removed tracked agent/Codex/skill plans, local reflection notes, and historical 
 | Gate | Result | Evidence / next action |
 | --- | --- | --- |
 | Rust format, lint, tests | PASS | `cargo fmt --check`; Clippy with `-D warnings`; 4/4 Rust tests. |
-| Swift tests | PASS | 178/178 tests in 17 suites via `./script/test.sh`. |
+| Swift tests | PASS | 191/191 tests in 19 suites via `./script/test.sh`. |
 | Swift release build | PASS | `swift build -c release`. |
 | Shell policy tests | PASS | Ten shell groups, including direct-download release gates, bounded-process descendant cleanup, and E2E isolation checks. |
 | Dependency advisories/policy | PASS | RustSec scanned the one-crate lockfile; cargo-deny advisories, bans, and sources passed. Apache-2.0 is approved and declared in the Rust package metadata. |
 | Current-tree secret hygiene | PASS | Gitleaks current-tree run and targeted identity/token checks found no confirmed live secret. Synthetic token fixtures are assembled from fragments. |
 | E2E runtime | PASS | Per-run test bundle verified consent-enabled private-pasteboard capture, deduplication, encrypted persistence, relaunch recovery, bounded probes, and app-owned cleanup. |
+| Installed screenshot runtime | PASS | Signed `/Applications/ClipVault.app` 0.1.0 (2) captured a selected area, a Finder window, and a stitched scrolling Finder page. Screen Recording and Accessibility remained effective after full quit/relaunch without another prompt. |
 | Native visual/accessibility smoke | PASS | Isolated `com.andrzej.ClipVault.ossqa` build exercised consent decline/retry, sidebar empty states, search/no-result recovery, AI workspace disabled states, and General/Capture/Access/AI/Surfaces/About settings. Production clipboard data was not captured. |
 | Bundle contents/signature | PASS (local only) | Plist, privacy manifest, sandbox entitlements, nested dylib signature/load path, and ad-hoc signature validate locally. |
 | Direct-download packaging automation | PASS (logic/signing) / BLOCKED:EXTERNAL (notarization) | Identity validation, notarization-result handling, and fail-closed preflight tests pass. Developer ID timestamp/hardened-runtime signing succeeds; real preflight now exits 2 because `NOTARY_KEYCHAIN_PROFILE` is missing. |
@@ -52,7 +53,7 @@ Removed tracked agent/Codex/skill plans, local reflection notes, and historical 
 | Git-history privacy | PASS | Both retained remote branches were force-updated after a verified rewrite. Every reachable candidate commit uses only `24563931+s1korrrr@users.noreply.github.com`; pre/post tree IDs match. |
 | Public namespace/contact | PASS | `rsitech-ai/clip_vault`, `https://rsitech.ai`, and `info@rsitech.ai` are approved for public and confidential project contact. |
 | GitHub visibility/security/rules | PASS | Repository is public; private vulnerability reporting is enabled; active ruleset `Protect main` blocks deletion/non-fast-forward updates and requires PRs, resolved threads, an up-to-date branch, and `verify`. |
-| Hosted exact-head CI | PASS | PR #13 exact head passed all 17 steps on hosted arm64 CI in run `29774529702`, job `88460604543`. |
+| Hosted exact-head CI | WAIVED / UNVERIFIED FOR CURRENT BRANCH | PR #13 exact head passed all 17 steps in historical run `29774529702`, job `88460604543`. The owner explicitly instructed this pass to ignore current GitHub Actions/CI errors; no current-branch hosted pass is claimed. |
 | Public source repository | PASS | PR #13 merged and the source repository is publicly available under `rsitech-ai`. |
 | Public tag/binary release | BLOCKED:EXTERNAL | No tag or GitHub Release exists. Create both only after notarization, stapling, Gatekeeper, checksum, and clean-account runtime proof pass. |
 

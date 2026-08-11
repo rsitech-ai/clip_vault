@@ -1,4 +1,4 @@
-# Release Notes — 0.1.0 (1)
+# Release Notes — 0.1.0 (2)
 
 Initial Mac release candidate:
 
@@ -11,5 +11,7 @@ Initial Mac release candidate:
 - Explicit clipboard-capture consent, pause, and revoke controls.
 - Encrypted local payload and detail storage with Keychain-backed keys.
 - Menu bar All Clips, Dock, Settings, and responsive workspace surfaces.
+- Area, window, and scrolling-page screenshot capture from the menu bar or File menu.
+- One shared Screen Recording readiness gate that distinguishes permission denial from cancellation before opening a capture picker.
 
 This copy is a draft and requires product-owner approval before App Store use.

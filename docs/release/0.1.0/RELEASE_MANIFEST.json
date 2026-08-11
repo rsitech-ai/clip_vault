@@ -3,7 +3,7 @@
   "platform": "macOS",
   "bundle_id": "com.andrzej.ClipVault",
   "version": "0.1.0",
-  "build": "1",
+  "build": "2",
   "minimum_macos": "15.0",
   "architectures": ["arm64"],
   "candidate": {
