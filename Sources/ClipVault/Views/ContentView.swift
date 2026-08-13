@@ -5,6 +5,7 @@ struct ContentView: View {
     @Bindable var model: ClipVaultViewModel
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var sidebarAdaptation = WorkspaceSidebarAdaptation()
+    @State private var focusState = WorkspaceFocusState()
     @State private var isApplyingAutomaticVisibility = false
 
     var body: some View {
@@ -42,27 +43,44 @@ struct ContentView: View {
         .captureConsentDisclosure(model: model)
     }
 
+    @ViewBuilder
     private var workspace: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            SidebarView(model: model)
-                .navigationSplitViewColumnWidth(min: 160, ideal: 210, max: 280)
-        } content: {
-            ClipListView(model: model)
-                .navigationSplitViewColumnWidth(min: 240, ideal: 300, max: 360)
-        } detail: {
-            DetailWorkspaceView(model: model)
-                .navigationSplitViewColumnWidth(min: 420, ideal: 660, max: 1_000)
-        }
-        .onChange(of: columnVisibility) {
-            if isApplyingAutomaticVisibility {
-                isApplyingAutomaticVisibility = false
-            } else {
-                sidebarAdaptation.recordManualVisibilityChange()
+        if focusState.isFocused {
+            DetailWorkspaceView(
+                model: model,
+                isFocused: true,
+                toggleFocus: toggleDetailFocus
+            )
+        } else {
+            NavigationSplitView(columnVisibility: $columnVisibility) {
+                SidebarView(model: model)
+                    .navigationSplitViewColumnWidth(min: 160, ideal: 210, max: 280)
+            } content: {
+                ClipListView(model: model)
+                    .navigationSplitViewColumnWidth(min: 240, ideal: 300, max: 360)
+            } detail: {
+                DetailWorkspaceView(
+                    model: model,
+                    isFocused: false,
+                    toggleFocus: toggleDetailFocus
+                )
+                    .navigationSplitViewColumnWidth(min: 420, ideal: 660, max: 1_000)
+            }
+            .onChange(of: columnVisibility) {
+                if isApplyingAutomaticVisibility {
+                    isApplyingAutomaticVisibility = false
+                } else {
+                    focusState.recordManualVisibilityChange(workspaceBrowserVisibility)
+                    sidebarAdaptation.recordManualVisibilityChange()
+                }
             }
         }
     }
 
     private func adaptSidebar(to width: CGFloat) {
+        guard !focusState.isFocused else {
+            return
+        }
         guard let target = sidebarAdaptation.update(
             width: width,
             current: workspaceSidebarState
@@ -77,73 +95,56 @@ struct ContentView: View {
     private var workspaceSidebarState: WorkspaceSidebarState {
         columnVisibility == .all ? .all : .contentAndDetail
     }
+
+    private var workspaceBrowserVisibility: WorkspaceBrowserVisibility {
+        switch columnVisibility {
+        case .all:
+            .all
+        case .doubleColumn:
+            .contentAndDetail
+        case .detailOnly:
+            .detailOnly
+        default:
+            .contentAndDetail
+        }
+    }
+
+    private func toggleDetailFocus() {
+        isApplyingAutomaticVisibility = true
+        if focusState.isFocused {
+            columnVisibility = navigationVisibility(for: focusState.restore())
+        } else {
+            columnVisibility = navigationVisibility(
+                for: focusState.enterFocus(from: workspaceBrowserVisibility)
+            )
+        }
+    }
+
+    private func navigationVisibility(
+        for visibility: WorkspaceBrowserVisibility
+    ) -> NavigationSplitViewVisibility {
+        switch visibility {
+        case .all:
+            .all
+        case .contentAndDetail:
+            .doubleColumn
+        case .detailOnly:
+            .detailOnly
+        }
+    }
 }
 
 struct DetailWorkspaceView: View {
     @Bindable var model: ClipVaultViewModel
-    @AppStorage("aiWorkspaceExpanded") private var isAIExpanded = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    var isFocused: Bool
+    var toggleFocus: () -> Void
 
     var body: some View {
-        Group {
-            if isAIExpanded {
-                GeometryReader { proxy in
-                    let metrics = AIWorkspaceLayoutPolicy.metrics(
-                        availableHeight: Double(proxy.size.height)
-                    )
-                    VSplitView {
-                        ClipDetailView(model: model)
-                            .frame(
-                                minHeight: CGFloat(metrics.detailMinimum),
-                                idealHeight: max(CGFloat(metrics.detailMinimum), proxy.size.height * 0.46),
-                                maxHeight: .infinity
-                            )
-                        AIActionPanel(model: model, placement: .inline) {
-                            setAIExpanded(false)
-                        }
-                        .frame(
-                            minHeight: CGFloat(metrics.aiMinimum),
-                            idealHeight: max(CGFloat(metrics.aiMinimum), proxy.size.height * 0.50),
-                            maxHeight: .infinity
-                        )
-                    }
-                }
-            } else {
-                VStack(spacing: 0) {
-                    ClipDetailView(model: model)
-                        .frame(maxHeight: .infinity)
-                    Divider()
-                    AIWorkspaceShelf(model: model) {
-                        setAIExpanded(true)
-                    }
-                    .frame(height: 48)
-                }
-            }
-        }
+        ClipDetailView(
+            model: model,
+            isFocused: isFocused,
+            toggleFocus: toggleFocus
+        )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onChange(of: model.selectedClipIDs.count) { previousCount, selectionCount in
-            if AIWorkspaceDisclosurePolicy.shouldExpand(
-                previousSelectionCount: previousCount,
-                selectionCount: selectionCount
-            ) {
-                setAIExpanded(true)
-            }
-        }
-        .onChange(of: model.isGenerating) { _, isGenerating in
-            if AIWorkspaceDisclosurePolicy.shouldExpandForGeneration(isGenerating: isGenerating) {
-                setAIExpanded(true)
-            }
-        }
-    }
-
-    private func setAIExpanded(_ isExpanded: Bool) {
-        guard isAIExpanded != isExpanded else { return }
-        if reduceMotion {
-            isAIExpanded = isExpanded
-        } else {
-            withAnimation(.easeOut(duration: 0.16)) {
-                isAIExpanded = isExpanded
-            }
-        }
     }
 }

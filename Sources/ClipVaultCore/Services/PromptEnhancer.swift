@@ -62,6 +62,15 @@ public enum PromptEnhancementState: Equatable, Sendable {
             false
         }
     }
+
+    public var dismissedPresentation: PromptEnhancementState {
+        switch self {
+        case .success, .failed, .cancelled:
+            .idle
+        case .idle, .enhancing, .saving:
+            self
+        }
+    }
 }
 
 public struct PromptEnhancementSelection: Equatable, Sendable {

@@ -22,6 +22,27 @@ struct PromptEnhancerTests {
         #expect(PromptEnhancementState.cancelled.savedCount == nil)
     }
 
+    @Test("dismissal clears terminal prompt states but preserves active work")
+    func dismissalOnlyClearsTerminalPresentation() {
+        #expect(PromptEnhancementState.success(count: 2).dismissedPresentation == .idle)
+        #expect(PromptEnhancementState.failed(
+            sourceTitle: "One",
+            message: "Failed"
+        ).dismissedPresentation == .idle)
+        #expect(PromptEnhancementState.cancelled.dismissedPresentation == .idle)
+        #expect(PromptEnhancementState.idle.dismissedPresentation == .idle)
+        #expect(PromptEnhancementState.enhancing(
+            current: 1,
+            total: 2,
+            sourceTitle: "One"
+        ).dismissedPresentation == .enhancing(
+            current: 1,
+            total: 2,
+            sourceTitle: "One"
+        ))
+        #expect(PromptEnhancementState.saving(total: 2).dismissedPresentation == .saving(total: 2))
+    }
+
     @MainActor
     @Test("workflow attributes mid-batch unavailability to the active source")
     func workflowAttributesMidBatchUnavailability() async {

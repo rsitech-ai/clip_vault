@@ -1,0 +1,38 @@
+{
+  "product": "ClipVault",
+  "platform": "macOS",
+  "bundle_id": "com.andrzej.ClipVault",
+  "version": "0.1.1",
+  "build": "3",
+  "minimum_macos": "15.0",
+  "architectures": ["arm64"],
+  "candidate_branch": "feat/andrzej_adaptive_clip_previews",
+  "toolchain": {
+    "host_macos": "27.0 (26A5378j)",
+    "xcode": "26.6 (17F113)",
+    "swift": "6.3.3",
+    "rust": "1.97.1",
+    "cargo": "1.97.1"
+  },
+  "tests": {
+    "swift": {"passed": 209, "failed": 0, "suites": 23},
+    "rust": {"passed": 4, "failed": 0},
+    "shell_policies": "PASS",
+    "e2e": "PASS"
+  },
+  "local_bundle": {
+    "signature": "Developer ID Application",
+    "team_id": "VERIFIED_LOCALLY_REDACTED_FROM_PUBLIC_DOSSIER",
+    "bundle_signature": "PASS",
+    "nested_library_signature": "PASS",
+    "executable_sha256": "de39cd6e79d5d6563fa3598df4a973bc345b6cfb13d85b8d49fe4b88212b47fa",
+    "rust_library_sha256": "d8d91608c1f4b69f0b407c85b6dad7a50693475444e8dffcf174dd43a8534d07"
+  },
+  "direct_download": {
+    "status": "BLOCKED_EXTERNAL_NOTARIZATION",
+    "developer_id_application_identity": "PRESENT",
+    "notarization_profile": "MISSING",
+    "published_asset": false
+  },
+  "generated_date": "2026-08-13"
+}
