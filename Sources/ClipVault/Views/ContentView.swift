@@ -43,27 +43,36 @@ struct ContentView: View {
         .captureConsentDisclosure(model: model)
     }
 
+    @ViewBuilder
     private var workspace: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            SidebarView(model: model)
-                .navigationSplitViewColumnWidth(min: 160, ideal: 210, max: 280)
-        } content: {
-            ClipListView(model: model)
-                .navigationSplitViewColumnWidth(min: 240, ideal: 300, max: 360)
-        } detail: {
+        if focusState.isFocused {
             DetailWorkspaceView(
                 model: model,
-                isFocused: focusState.isFocused,
+                isFocused: true,
                 toggleFocus: toggleDetailFocus
             )
-                .navigationSplitViewColumnWidth(min: 420, ideal: 660, max: 1_000)
-        }
-        .onChange(of: columnVisibility) {
-            if isApplyingAutomaticVisibility {
-                isApplyingAutomaticVisibility = false
-            } else {
-                focusState.recordManualVisibilityChange(workspaceBrowserVisibility)
-                sidebarAdaptation.recordManualVisibilityChange()
+        } else {
+            NavigationSplitView(columnVisibility: $columnVisibility) {
+                SidebarView(model: model)
+                    .navigationSplitViewColumnWidth(min: 160, ideal: 210, max: 280)
+            } content: {
+                ClipListView(model: model)
+                    .navigationSplitViewColumnWidth(min: 240, ideal: 300, max: 360)
+            } detail: {
+                DetailWorkspaceView(
+                    model: model,
+                    isFocused: false,
+                    toggleFocus: toggleDetailFocus
+                )
+                    .navigationSplitViewColumnWidth(min: 420, ideal: 660, max: 1_000)
+            }
+            .onChange(of: columnVisibility) {
+                if isApplyingAutomaticVisibility {
+                    isApplyingAutomaticVisibility = false
+                } else {
+                    focusState.recordManualVisibilityChange(workspaceBrowserVisibility)
+                    sidebarAdaptation.recordManualVisibilityChange()
+                }
             }
         }
     }
