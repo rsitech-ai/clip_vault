@@ -26,16 +26,30 @@ final class ScreenshotCaptureController {
             return
         }
 
+        isCapturingScreenshot = true
+        Task { @MainActor in
+            if mode.requiresScreenRecordingAccess,
+               let denial = await ScreenRecordingAccess.ensureReady() {
+                isCapturingScreenshot = false
+                completion?(false, denial)
+                Self.presentFailureAlert(denial)
+                return
+            }
+            beginCapture(mode: mode)
+        }
+    }
+
+    private func beginCapture(mode: ScreenshotCaptureMode) {
         switch mode {
         case .area:
             guard let arguments = mode.screencaptureArguments else {
+                isCapturingScreenshot = false
                 completion?(false, "Screenshot mode unavailable")
                 return
             }
             runScreencapture(arguments: arguments)
 
         case .window:
-            isCapturingScreenshot = true
             targetPicker.begin(modeLabel: mode.hoverLabel) { [weak self] target in
                 guard let self else { return }
                 guard let target else {
@@ -47,7 +61,6 @@ final class ScreenshotCaptureController {
             }
 
         case .fullPage:
-            isCapturingScreenshot = true
             targetPicker.begin(modeLabel: mode.hoverLabel) { [weak self] target in
                 guard let self else { return }
                 guard let target else {
@@ -98,7 +111,7 @@ final class ScreenshotCaptureController {
 
     private static func presentFailureAlert(_ message: String) {
         let alert = NSAlert()
-        alert.messageText = "Scrolling page capture failed"
+        alert.messageText = "Screen capture unavailable"
         alert.informativeText = message
         alert.alertStyle = .warning
         let needsScreenRecording = message.localizedCaseInsensitiveContains("Screen Recording")

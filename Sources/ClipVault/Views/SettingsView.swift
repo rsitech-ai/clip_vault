@@ -455,7 +455,7 @@ private struct AboutSettingsTab: View {
     }
 
     private var appBuild: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "1"
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "2"
     }
 
     private var bundleID: String {

@@ -15,6 +15,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Cli
 - On-device prompt enhancement through Apple Foundation Models when available.
 - Swift, Rust, shell, signed-app, persistence, and package-validation test lanes.
 - Public Apache-2.0 source repository under RSI Tech with NOTICE, security policy, and contribution guide.
+- Area, window, and scrolling-page screenshot capture from the menu bar and File menu.
 
 ### Changed
 
@@ -27,6 +28,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Cli
 - The menu-bar surface consistently shows All Clips, independently of the collection selected in the main window.
 - Moving or assigning the selected clip now reconciles the visible selection without triggering a full workspace reload.
 - Deleting, clearing, or cleaning up clips now reconciles selection against the visible workspace results instead of the raw library order.
+- Screenshot capture checks Screen Recording access before showing a picker and reports permission denial separately from cancellation.
 
 ### Security
 

@@ -11,4 +11,11 @@ struct ScreenshotCaptureModeTests {
         #expect(ScreenshotCaptureMode.window.hoverLabel == "Window")
         #expect(ScreenshotCaptureMode.fullPage.hoverLabel == "Scrolling page")
     }
+
+    @Test("Every screenshot mode prepares Screen Recording before interaction")
+    func everyModeRequiresScreenRecordingPreparation() {
+        #expect(ScreenshotCaptureMode.area.requiresScreenRecordingAccess)
+        #expect(ScreenshotCaptureMode.window.requiresScreenRecordingAccess)
+        #expect(ScreenshotCaptureMode.fullPage.requiresScreenRecordingAccess)
+    }
 }

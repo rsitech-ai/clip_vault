@@ -2,7 +2,7 @@
 
 ## Complete
 
-- [x] Version/build are 0.1.0 (1), bundle ID `com.andrzej.ClipVault`, category plist value Productivity.
+- [x] Version/build are 0.1.0 (2), bundle ID `com.andrzej.ClipVault`, category plist value Productivity.
 - [x] 1024-class app icon is embedded and package validator passes.
 - [x] Privacy manifest is embedded and valid.
 - [x] App Sandbox source entitlements and the ad-hoc local bundle are validated.

@@ -41,6 +41,12 @@ public enum ScreenshotCaptureMode: String, Sendable, CaseIterable, Equatable {
         }
     }
 
+    /// macOS requires Screen Recording authorization before any screenshot mode can read pixels.
+    /// Preparing access before showing a picker keeps denial distinct from user cancellation.
+    public var requiresScreenRecordingAccess: Bool {
+        true
+    }
+
     /// Interactive `screencapture` args for area mode only.
     /// Window / full-page use ClipVault's hover picker (native `-J window` has no mode label).
     public var screencaptureArguments: [String]? {
