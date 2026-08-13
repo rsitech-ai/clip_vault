@@ -771,6 +771,15 @@ final class ClipVaultViewModel {
         }
     }
 
+    func dismissAIResult() {
+        guard !isGenerating else {
+            return
+        }
+        aiResult = nil
+        aiError = nil
+        promptEnhancementState = promptEnhancementState.dismissedPresentation
+    }
+
     func runPromptEnhancement() {
         guard promptEnhancementTask == nil,
               !isGenerating,
