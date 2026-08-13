@@ -4,36 +4,50 @@ import SwiftUI
 
 struct ClipDetailView: View {
     @Bindable var model: ClipVaultViewModel
+    var isFocused: Bool
+    var toggleFocus: () -> Void
     @State private var pendingDeleteClip: Clip?
 
     var body: some View {
         Group {
             if let clip = model.selectedClip {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 18) {
-                        ClipDetailHeader(
-                            clip: clip,
-                            model: model,
-                            requestDelete: {
-                                pendingDeleteClip = clip
-                            }
-                        )
-
-                        clipBody(for: clip)
-
-                        if clip.kind == .image {
-                            ScreenshotAnnotationPanel(clip: clip, model: model)
+                VStack(spacing: 0) {
+                    ClipDetailHeader(
+                        clip: clip,
+                        model: model,
+                        isFocused: isFocused,
+                        toggleFocus: toggleFocus,
+                        requestDelete: {
+                            pendingDeleteClip = clip
                         }
+                    )
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 18)
 
-                        ClipTagsEditor(clip: clip, model: model)
-                        ClipNoteEditor(clip: clip, model: model)
+                    AICommandBar(model: model)
+                    Divider()
 
-                        FlowTags(tags: WorkspaceCollectionCatalog.displayTitles(
-                            for: clip.collectionIDs,
-                            in: model.collections
-                        ))
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 18) {
+                            InlineAIResultView(model: model)
+
+                            clipBody(for: clip)
+
+                            if clip.kind == .image {
+                                ScreenshotAnnotationPanel(clip: clip, model: model)
+                            }
+
+                            ClipTagsEditor(clip: clip, model: model)
+                            ClipNoteEditor(clip: clip, model: model)
+
+                            FlowTags(tags: WorkspaceCollectionCatalog.displayTitles(
+                                for: clip.collectionIDs,
+                                in: model.collections
+                            ))
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(24)
                     }
-                    .padding(24)
                 }
             } else {
                 ContentUnavailableView("Select a Clip", systemImage: "sparkle.magnifyingglass")
@@ -65,6 +79,8 @@ struct ClipDetailView: View {
 private struct ClipDetailHeader: View {
     var clip: Clip
     @Bindable var model: ClipVaultViewModel
+    var isFocused: Bool
+    var toggleFocus: () -> Void
     var requestDelete: () -> Void
 
     var body: some View {
@@ -109,40 +125,79 @@ private struct ClipDetailHeader: View {
 
     private var actionButtons: some View {
         ClipVaultGlassContainer(spacing: 10) {
-            HStack(spacing: 8) {
-                Button {
-                    model.copyToClipboard(clip)
-                } label: {
-                    Label("Copy", systemImage: "doc.on.doc")
-                }
-                .clipVaultGlassButtonStyle(prominent: true)
-                .help("Copy this clip to the clipboard")
+            ViewThatFits(in: .horizontal) {
+                actionRow(compact: false)
+                actionRow(compact: true)
+            }
+        }
+    }
 
-                Button {
-                    model.togglePinned(clip)
-                } label: {
-                    Label(clip.isPinned ? "Unpin" : "Pin", systemImage: clip.isPinned ? "pin.fill" : "pin")
-                }
+    private func actionRow(compact: Bool) -> some View {
+        HStack(spacing: 8) {
+            Button {
+                model.copyToClipboard(clip)
+            } label: {
+                adaptiveLabel("Copy", systemImage: "doc.on.doc", compact: compact)
+            }
+            .clipVaultGlassButtonStyle(prominent: true)
+            .help("Copy this clip to the clipboard")
+            .accessibilityLabel("Copy")
+
+            Button {
+                model.togglePinned(clip)
+            } label: {
+                adaptiveLabel(
+                    clip.isPinned ? "Unpin" : "Pin",
+                    systemImage: clip.isPinned ? "pin.fill" : "pin",
+                    compact: compact
+                )
+            }
+            .clipVaultGlassButtonStyle()
+            .help(clip.isPinned ? "Unpin this clip" : "Pin this clip")
+
+            MoveToCollectionMenu(clip: clip, model: model, label: "Move")
+                .menuStyle(.button)
                 .clipVaultGlassButtonStyle()
-                .help(clip.isPinned ? "Unpin this clip" : "Pin this clip")
 
-                MoveToCollectionMenu(clip: clip, model: model, label: "Move")
-                    .menuStyle(.button)
-                    .clipVaultGlassButtonStyle()
+            Button(action: toggleFocus) {
+                adaptiveLabel(
+                    isFocused ? "Restore Browser" : "Focus",
+                    systemImage: isFocused ? "rectangle.split.3x1" : "rectangle.inset.filled",
+                    compact: compact
+                )
+            }
+            .clipVaultGlassButtonStyle()
+            .help(isFocused ? "Restore sidebar and clip list" : "Use the full window for this clip")
 
-                Divider()
-                    .frame(height: 22)
-
+            Menu {
                 Button(role: .destructive) {
                     requestDelete()
                 } label: {
-                    Label("Delete", systemImage: "trash")
+                    Label("Delete Clip", systemImage: "trash")
                 }
-                .clipVaultGlassButtonStyle()
-                .help("Delete this clip")
+            } label: {
+                Label("More", systemImage: "ellipsis")
+                    .labelStyle(.iconOnly)
             }
+            .menuStyle(.button)
+            .clipVaultGlassButtonStyle()
+            .help("More clip actions")
+            .accessibilityLabel("More clip actions")
         }
-        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    @ViewBuilder
+    private func adaptiveLabel(
+        _ title: String,
+        systemImage: String,
+        compact: Bool
+    ) -> some View {
+        if compact {
+            Label(title, systemImage: systemImage)
+                .labelStyle(.iconOnly)
+        } else {
+            Label(title, systemImage: systemImage)
+        }
     }
 }
 
