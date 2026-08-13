@@ -75,6 +75,7 @@ final class ClipVaultViewModel {
     #endif
     private let pasteboardWriter = ClipPayloadPasteboardWriter()
     private var searchProjection = ClipSearchProjection()
+    private var workspaceProjection = ClipWorkspaceProjection()
     private let aiProvider: any AIActionProviding = FoundationModelsAIActionProvider()
     private let promptEnhancementRunner: PromptEnhancementBatchRunner
     private let encryptionBootstrap: LocalPayloadEncryptionBootstrap
@@ -215,7 +216,7 @@ final class ClipVaultViewModel {
     }
 
     var selectedClip: Clip? {
-        clips.first { $0.id == selectedClipID }
+        workspaceProjection.clip(id: selectedClipID)
     }
 
     var selectedClips: [Clip] {
@@ -228,6 +229,10 @@ final class ClipVaultViewModel {
 
     var visibleResults: [SearchResult] {
         searchProjection.workspaceResults
+    }
+
+    var workspaceSections: [ClipResultSection] {
+        workspaceProjection.sections
     }
 
     var menuBarResults: [SearchResult] {
@@ -964,16 +969,21 @@ final class ClipVaultViewModel {
             searchText: searchText,
             workspaceCollectionID: selectedCollectionID
         )
+        refreshWorkspaceProjection()
     }
 
     @discardableResult
     func refreshSearchRankingIfNeeded(now: Date = Date()) -> Bool {
-        searchProjection.refreshIfExpired(
+        let didRefresh = searchProjection.refreshIfExpired(
             clips: clips,
             searchText: searchText,
             workspaceCollectionID: selectedCollectionID,
             now: now
         )
+        if didRefresh {
+            refreshWorkspaceProjection(relativeTo: now)
+        }
+        return didRefresh
     }
 
     private func refreshWorkspaceSearchResults() {
@@ -981,6 +991,15 @@ final class ClipVaultViewModel {
             clips: clips,
             searchText: searchText,
             workspaceCollectionID: selectedCollectionID
+        )
+        refreshWorkspaceProjection()
+    }
+
+    private func refreshWorkspaceProjection(relativeTo referenceDate: Date = Date()) {
+        workspaceProjection.refresh(
+            results: searchProjection.workspaceResults,
+            clips: clips,
+            relativeTo: referenceDate
         )
     }
 

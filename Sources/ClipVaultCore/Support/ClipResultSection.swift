@@ -12,13 +12,24 @@ public struct ClipResultSection: Identifiable, Equatable, Sendable {
         locale: Locale = .autoupdatingCurrent
     ) -> [ClipResultSection] {
         var sections: [ClipResultSection] = []
+        let weekdayFormatter = formatter(
+            format: "EEEE",
+            calendar: calendar,
+            locale: locale
+        )
+        let datedFormatter = formatter(
+            format: "MMM d, yyyy",
+            calendar: calendar,
+            locale: locale
+        )
 
         for result in results {
             let label = sectionLabel(
                 for: result.clip.createdAt,
                 relativeTo: referenceDate,
                 calendar: calendar,
-                locale: locale
+                weekdayFormatter: weekdayFormatter,
+                datedFormatter: datedFormatter
             )
 
             if sections.last?.title == label {
@@ -39,7 +50,8 @@ public struct ClipResultSection: Identifiable, Equatable, Sendable {
         for date: Date,
         relativeTo referenceDate: Date,
         calendar: Calendar,
-        locale: Locale
+        weekdayFormatter: DateFormatter,
+        datedFormatter: DateFormatter
     ) -> String {
         let dateStart = calendar.startOfDay(for: date)
         let referenceStart = calendar.startOfDay(for: referenceDate)
@@ -53,32 +65,21 @@ public struct ClipResultSection: Identifiable, Equatable, Sendable {
         }
         if let week = calendar.dateInterval(of: .weekOfYear, for: referenceDate),
            week.contains(date) {
-            return formatted(
-                date,
-                format: "EEEE",
-                calendar: calendar,
-                locale: locale
-            )
+            return weekdayFormatter.string(from: date)
         }
-        return formatted(
-            date,
-            format: "MMM d, yyyy",
-            calendar: calendar,
-            locale: locale
-        )
+        return datedFormatter.string(from: date)
     }
 
-    private static func formatted(
-        _ date: Date,
+    private static func formatter(
         format: String,
         calendar: Calendar,
         locale: Locale
-    ) -> String {
+    ) -> DateFormatter {
         let formatter = DateFormatter()
         formatter.calendar = calendar
         formatter.locale = locale
         formatter.timeZone = calendar.timeZone
         formatter.dateFormat = format
-        return formatter.string(from: date)
+        return formatter
     }
 }

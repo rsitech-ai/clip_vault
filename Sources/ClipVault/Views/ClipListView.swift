@@ -24,7 +24,7 @@ struct ClipListView: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(spacing: 2) {
-                            ForEach(ClipResultSection.group(model.visibleResults)) { section in
+                            ForEach(model.workspaceSections) { section in
                                 Text(section.title)
                                     .font(.caption2.weight(.semibold))
                                     .foregroundStyle(.tertiary)
