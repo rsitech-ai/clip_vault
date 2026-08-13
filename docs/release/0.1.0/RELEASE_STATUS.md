@@ -6,7 +6,7 @@ Date: 2026-08-13 (Europe/Warsaw)
 
 **SOURCE PUBLISHED — public repository is repo-ready; downloadable binary remains blocked:external.**
 
-The current source, release build, isolated runtime, installed Developer ID runtime capture, E2E path, documentation links, dependency checks, and current-tree hygiene pass locally. PR #19 is the current review vehicle; its exact-head hosted arm64 CI and merge are pending. The repository is public under `rsitech-ai`. Apache-2.0, copyright ownership by Rafal Sikora, RSI Tech maintenance, `info@rsitech.ai` for public/confidential contact, the retained-history rewrite, private vulnerability reporting, and an active default-branch ruleset are verified. A downloadable binary must not be published until PR #19 merges and the exact-main artifact passes notarization, stapling, Gatekeeper, and clean-account runtime proof.
+The current source, release build, isolated runtime, installed Developer ID runtime capture, E2E path, documentation links, dependency checks, and current-tree hygiene pass. PR #19 passed exact-head hosted arm64 CI, was reviewed, and merged to `main` at `04a83bd5f040041f4bbcde3872a5643a40882903`. The repository is public under `rsitech-ai`. Apache-2.0, copyright ownership by Rafal Sikora, RSI Tech maintenance, `info@rsitech.ai` for public/confidential contact, the retained-history rewrite, private vulnerability reporting, and an active default-branch ruleset are verified. A downloadable binary must not be published until the exact-main artifact passes notarization, stapling, Gatekeeper, and clean-account runtime proof.
 
 No formal Codex Security scan was run; the owner explicitly waived that workflow for this pass. The evidence below is ordinary source/provenance review plus local tools and does not claim formal scan coverage.
 
@@ -18,7 +18,7 @@ Removed tracked agent/Codex/skill plans, local reflection notes, and historical 
 
 | Lane | Status | Meaning |
 | --- | --- | --- |
-| Source engineering candidate | RUNTIME-PROVEN LOCALLY / HOSTED CI PENDING | Local tests, release compilation, E2E, installed capture modes, native UI smoke, documentation validation, and current-tree hygiene passed. PR #19 exact-head hosted CI is pending. |
+| Source engineering candidate | RUNTIME-PROVEN / HOSTED CI PASSED | Local tests, release compilation, E2E, installed capture modes, native UI smoke, documentation validation, current-tree hygiene, and PR #19 exact-head hosted CI passed. |
 | Public open-source repository | REPO-READY / PUBLISHED | Public organization repository, Apache-2.0 detection, confidential reporting, PR/ruleset protection, and required CI are active. |
 | Direct-download macOS binary | BLOCKED:EXTERNAL | A valid Developer ID Application identity is installed and timestamp signing passed. No `notarytool` keychain profile exists, so notarization, stapling, Gatekeeper, and clean-machine install proof remain unavailable. |
 | Mac App Store package | BLOCKED:EXTERNAL | Local bundle structure passes, but distribution identities, expected Team ID, App Store Connect validation, and owner declarations are unavailable. |
@@ -53,8 +53,8 @@ Removed tracked agent/Codex/skill plans, local reflection notes, and historical 
 | Git-history privacy | PASS | Both retained remote branches were force-updated after a verified rewrite. Every reachable candidate commit uses only `24563931+s1korrrr@users.noreply.github.com`; pre/post tree IDs match. |
 | Public namespace/contact | PASS | `rsitech-ai/clip_vault`, `https://rsitech.ai`, and `info@rsitech.ai` are approved for public and confidential project contact. |
 | GitHub visibility/security/rules | PASS | Repository is public; private vulnerability reporting is enabled; active ruleset `Protect main` blocks deletion/non-fast-forward updates and requires PRs, resolved threads, an up-to-date branch, and `verify`. |
-| Hosted exact-head CI | PENDING | PR #19 targets `main`; wait for GitHub to report a successful check on the final PR head before merging. |
-| Public source repository | PASS / CURRENT CHANGE PENDING | The repository is publicly available under `rsitech-ai`; PR #19 is not yet merged. |
+| Hosted exact-head CI | PASS | PR #19 final head `e9294239a6e6dec6795b83dada66b667074781e2` passed all 17 steps in arm64 run `31687101443`, job `94405631470`. |
+| Public source repository | PASS | PR #19 merged at `04a83bd5f040041f4bbcde3872a5643a40882903`; `origin/main` readback matched. |
 | Public tag/binary release | BLOCKED:EXTERNAL | No tag or GitHub Release exists. Create both only after notarization, stapling, Gatekeeper, checksum, and clean-account runtime proof pass. |
 
 ## Residual engineering risks

@@ -8,10 +8,10 @@
   "architectures": ["arm64"],
   "candidate": {
     "baseline_commit": "d99fbe25b104d7d8fa5a603efabb8c69446c69b4",
-    "branch": "feat/andrzej_capture_release_audit",
+    "branch": "main",
     "reviewed_pr": 19,
     "reviewed_head": "d4015f1c934e9fa8054aba6ec0dd53db5341e71e",
-    "integration_commit": null
+    "integration_commit": "04a83bd5f040041f4bbcde3872a5643a40882903"
   },
   "repository": {
     "owner": "rsitech-ai",

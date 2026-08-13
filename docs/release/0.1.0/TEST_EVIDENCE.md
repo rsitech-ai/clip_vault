@@ -20,7 +20,7 @@ Date: 2026-08-13. Run from `feat/andrzej_capture_release_audit`; transient logs 
 | `git diff --check` | PASS. |
 | `./script/app_store_check.sh` | Expected exit 3: bundle/plist/entitlements/privacy/signatures pass locally; application/installer distribution identities and expected Team ID are missing. |
 | `DEVELOPER_ID_APPLICATION_IDENTITY='<installed Developer ID Application identity>' NOTARY_KEYCHAIN_PROFILE='clipvault-notary' ./script/package_direct_download.sh --preflight` | Expected exit 2: Developer ID identity validation passes and the fail-closed gate reports the missing notarization Keychain profile. |
-| Hosted arm64 CI | PENDING: PR #19 targets `main`. Do not record it as passed until GitHub reports a successful result for the final PR head. |
+| Hosted arm64 CI | PASS: PR #19 final head `e9294239a6e6dec6795b83dada66b667074781e2` passed all 17 steps in run `31687101443`, job `94405631470`. |
 
 ## Runtime observations
 
@@ -33,5 +33,5 @@ Date: 2026-08-13. Run from `feat/andrzej_capture_release_audit`; transient logs 
 ## Environment limits
 
 - macOS 27.0 beta host, Xcode 26.6, Apple silicon only.
-- No clean macOS 15 machine/account, Intel runtime, notarized downloadable build, completed current-head hosted CI, or App Store Connect server validation proof. The installed Developer ID build is signed and runtime-proven on this host, but Gatekeeper rejects it until notarization succeeds.
+- No clean macOS 15 machine/account, Intel runtime, notarized downloadable build, or App Store Connect server validation proof. The installed Developer ID build is signed and runtime-proven on this host, but Gatekeeper rejects it until notarization succeeds.
 - No formal Codex Security scan was run by owner request.
