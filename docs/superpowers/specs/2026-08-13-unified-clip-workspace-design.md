@@ -1,7 +1,7 @@
 # Unified Clip Workspace Design
 
-**Date:** 2026-08-13  
-**Status:** Approved visual direction; implementation pending written-spec review  
+**Date:** 2026-08-13
+**Status:** Approved visual direction; implementation pending written-spec review
 **Branch:** `feat/andrzej_adaptive_clip_previews`
 
 ## Outcome
