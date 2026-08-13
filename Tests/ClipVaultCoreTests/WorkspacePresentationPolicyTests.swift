@@ -150,6 +150,35 @@ struct WorkspacePresentationPolicyTests {
         #expect(!adaptation.isAutomaticallyCollapsed)
     }
 
+    @Test("focus mode restores the last browser visibility")
+    func focusModeRestoresBrowser() {
+        var state = WorkspaceFocusState()
+
+        #expect(state.enterFocus(from: .all) == .detailOnly)
+        #expect(state.isFocused)
+        #expect(state.restore() == .all)
+        #expect(!state.isFocused)
+
+        #expect(state.enterFocus(from: .contentAndDetail) == .detailOnly)
+        #expect(state.restore() == .contentAndDetail)
+    }
+
+    @Test("reentering focus preserves the last browser visibility")
+    func reenteringFocusPreservesRestoreTarget() {
+        var state = WorkspaceFocusState()
+
+        #expect(state.enterFocus(from: .contentAndDetail) == .detailOnly)
+        #expect(state.enterFocus(from: .detailOnly) == .detailOnly)
+        #expect(state.restore() == .contentAndDetail)
+    }
+
+    @Test("command bar keeps actions reachable at compact width")
+    func commandBarAdapts() {
+        #expect(AICommandBarLayout(width: 540) == .expanded)
+        #expect(AICommandBarLayout(width: 420) == .expanded)
+        #expect(AICommandBarLayout(width: 419) == .compact)
+    }
+
     @Test("AI expands only for a new selection or active generation")
     func aiExpansionTriggersAreIntentional() {
         #expect(AIWorkspaceDisclosurePolicy.shouldExpand(

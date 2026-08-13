@@ -52,6 +52,43 @@ public enum WorkspaceSidebarState: Equatable, Sendable {
     case contentAndDetail
 }
 
+public enum WorkspaceBrowserVisibility: Equatable, Sendable {
+    case all
+    case contentAndDetail
+    case detailOnly
+}
+
+public struct WorkspaceFocusState: Equatable, Sendable {
+    public private(set) var isFocused = false
+    private var restoreVisibility: WorkspaceBrowserVisibility = .all
+
+    public init() {}
+
+    public mutating func enterFocus(
+        from visibility: WorkspaceBrowserVisibility
+    ) -> WorkspaceBrowserVisibility {
+        if visibility != .detailOnly {
+            restoreVisibility = visibility
+        }
+        isFocused = true
+        return .detailOnly
+    }
+
+    public mutating func restore() -> WorkspaceBrowserVisibility {
+        isFocused = false
+        return restoreVisibility
+    }
+}
+
+public enum AICommandBarLayout: Equatable, Sendable {
+    case compact
+    case expanded
+
+    public init(width: Double) {
+        self = width < 420 ? .compact : .expanded
+    }
+}
+
 public struct WorkspaceSidebarAdaptation: Equatable, Sendable {
     public private(set) var isAutomaticallyCollapsed = false
 
