@@ -53,7 +53,7 @@ Removed tracked agent/Codex/skill plans, local reflection notes, and historical 
 | Git-history privacy | PASS | Both retained remote branches were force-updated after a verified rewrite. Every reachable candidate commit uses only `24563931+s1korrrr@users.noreply.github.com`; pre/post tree IDs match. |
 | Public namespace/contact | PASS | `rsitech-ai/clip_vault`, `https://rsitech.ai`, and `info@rsitech.ai` are approved for public and confidential project contact. |
 | GitHub visibility/security/rules | PASS | Repository is public; private vulnerability reporting is enabled; active ruleset `Protect main` blocks deletion/non-fast-forward updates and requires PRs, resolved threads, an up-to-date branch, and `verify`. |
-| Hosted exact-head CI | PENDING | PR #19 targets `main` from reviewed head `d4015f1c934e9fa8054aba6ec0dd53db5341e71e`; hosted run `31686920908` is pending. |
+| Hosted exact-head CI | PENDING | PR #19 targets `main`; wait for GitHub to report a successful check on the final PR head before merging. |
 | Public source repository | PASS / CURRENT CHANGE PENDING | The repository is publicly available under `rsitech-ai`; PR #19 is not yet merged. |
 | Public tag/binary release | BLOCKED:EXTERNAL | No tag or GitHub Release exists. Create both only after notarization, stapling, Gatekeeper, checksum, and clean-account runtime proof pass. |
 
