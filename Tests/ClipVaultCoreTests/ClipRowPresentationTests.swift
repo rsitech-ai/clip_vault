@@ -104,7 +104,7 @@ struct ClipRowPresentationTests {
         let clip = makeClip(
             kind: .file,
             title: "Report.pdf",
-            preview: "/Users/s1kor/Documents/Report.pdf"
+            preview: "/Users/example/Documents/Report.pdf"
         )
 
         #expect(ClipRowPresentation(clip: clip).titleTruncation == .middle)
