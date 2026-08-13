@@ -1,5 +1,22 @@
 import SwiftUI
 
+struct ClipVaultPressFeedbackModifier: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @GestureState private var isPointerPressed = false
+
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(isPointerPressed && !reduceMotion ? 0.98 : 1)
+            .animation(.easeOut(duration: 0.12), value: isPointerPressed)
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 0)
+                    .updating($isPointerPressed) { _, pressed, _ in
+                        pressed = true
+                    }
+            )
+    }
+}
+
 struct ClipVaultGlassContainer<Content: View>: View {
     var spacing: CGFloat = 16
     @ViewBuilder var content: () -> Content
@@ -16,6 +33,10 @@ struct ClipVaultGlassContainer<Content: View>: View {
 }
 
 extension View {
+    func clipVaultPressFeedback() -> some View {
+        modifier(ClipVaultPressFeedbackModifier())
+    }
+
     @ViewBuilder
     func clipVaultGlassSurface(
         cornerRadius: CGFloat = 12,

@@ -4,6 +4,8 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 AI_PANEL="$ROOT_DIR/Sources/ClipVault/Views/AIActionPanel.swift"
 CONTENT_VIEW="$ROOT_DIR/Sources/ClipVault/Views/ContentView.swift"
+GLASS_SOURCE_PATH="$ROOT_DIR/Sources/ClipVault/Views/ClipVaultGlass.swift"
+CLIP_LIST_PATH="$ROOT_DIR/Sources/ClipVault/Views/ClipListView.swift"
 
 fail() {
   echo "$1" >&2
@@ -27,6 +29,8 @@ require_absent() {
 check_unified_workspace_policy() {
   local source="$1"
   local content_source="$2"
+  local glass_source="$3"
+  local clip_list_source="$4"
   local command_bar ask_field inline_result
 
   command_bar="$(sed -n '/struct AICommandBar:/,/struct InlineAIResultView:/p' <<<"$source" | sed '$d')"
@@ -50,6 +54,13 @@ check_unified_workspace_policy() {
   require_absent "$source" 'AIWorkspaceShelf' 'legacy AI shelf must be removed' || return 1
   require_absent "$content_source" 'VSplitView' 'unified detail workspace must not use VSplitView' || return 1
   require_absent "$content_source" 'aiWorkspaceExpanded' 'legacy persisted AI expansion state must be removed' || return 1
+
+  require_contains "$glass_source" 'struct ClipVaultPressFeedbackModifier: ViewModifier' 'custom buttons must share one bounded pointer press modifier' || return 1
+  require_contains "$glass_source" 'isPointerPressed && !reduceMotion ? 0.98 : 1' 'press feedback must use the approved subtle scale and honor Reduce Motion' || return 1
+  require_contains "$glass_source" '.easeOut(duration: 0.12)' 'press feedback must use the approved 120ms ease-out response' || return 1
+  require_contains "$glass_source" 'DragGesture(minimumDistance: 0)' 'press feedback must be pointer-driven rather than keyboard-driven' || return 1
+  require_absent "$clip_list_source" 'clipVaultPressFeedback' 'high-frequency clip navigation must not animate' || return 1
+  require_absent "$clip_list_source" 'isPointerPressed' 'clip navigation rows must not gain press scaling' || return 1
 }
 
 mutate_ask_with_native_glass() {
@@ -84,18 +95,20 @@ mutate_result_with_nested_scroll() {
 
 SOURCE="$(<"$AI_PANEL")"
 CONTENT_SOURCE="$(<"$CONTENT_VIEW")"
+GLASS_SOURCE="$(<"$GLASS_SOURCE_PATH")"
+CLIP_LIST_SOURCE="$(<"$CLIP_LIST_PATH")"
 NATIVE_GLASS_FIXTURE="$(mutate_ask_with_native_glass "$SOURCE")"
 NESTED_SCROLL_FIXTURE="$(mutate_result_with_nested_scroll "$SOURCE")"
 
-if check_unified_workspace_policy "$NATIVE_GLASS_FIXTURE" "$CONTENT_SOURCE" >/dev/null 2>&1; then
+if check_unified_workspace_policy "$NATIVE_GLASS_FIXTURE" "$CONTENT_SOURCE" "$GLASS_SOURCE" "$CLIP_LIST_SOURCE" >/dev/null 2>&1; then
   fail 'unified workspace policy false-pass: native-glass Ask mutation was accepted'
   exit 1
 fi
 
-if check_unified_workspace_policy "$NESTED_SCROLL_FIXTURE" "$CONTENT_SOURCE" >/dev/null 2>&1; then
+if check_unified_workspace_policy "$NESTED_SCROLL_FIXTURE" "$CONTENT_SOURCE" "$GLASS_SOURCE" "$CLIP_LIST_SOURCE" >/dev/null 2>&1; then
   fail 'unified workspace policy false-pass: nested AI result scroll mutation was accepted'
   exit 1
 fi
 
-check_unified_workspace_policy "$SOURCE" "$CONTENT_SOURCE"
+check_unified_workspace_policy "$SOURCE" "$CONTENT_SOURCE" "$GLASS_SOURCE" "$CLIP_LIST_SOURCE"
 echo "Unified AI workspace policy passed (production + full-source negative fixtures)"

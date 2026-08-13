@@ -68,6 +68,7 @@ struct AICommandBar: View {
                 tint: ClipVaultDesign.tint(for: action).opacity(0.10),
                 interactive: true
             )
+            .clipVaultPressFeedback()
             .disabled(model.isGenerating)
             .help(actionHelp(for: action))
             .accessibilityHint(ClipVaultDesign.hint(for: action))
@@ -91,6 +92,7 @@ struct AICommandBar: View {
             tint: ClipVaultDesign.enhancePromptTint.opacity(0.11),
             interactive: true
         )
+        .clipVaultPressFeedback()
         .disabled(!model.canEnhancePrompts)
         .help(enhancePromptHelp)
         .accessibilityLabel("Enhance Prompt")
@@ -121,6 +123,7 @@ struct AICommandBar: View {
                 tint: ClipVaultDesign.tint(for: .ask).opacity(0.15),
                 interactive: true
             )
+            .clipVaultPressFeedback()
             .disabled(!model.canAskQuestion)
             .help(askHelp)
             .accessibilityLabel("Ask")
@@ -206,6 +209,7 @@ struct InlineAIResultView: View {
                         }
                         .buttonStyle(.plain)
                         .foregroundStyle(.secondary)
+                        .clipVaultPressFeedback()
                         .help("Dismiss AI result")
                         .accessibilityLabel("Dismiss AI result")
                     }
