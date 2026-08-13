@@ -1,12 +1,12 @@
 # ClipVault 0.1.0 Release Status
 
-Date: 2026-08-11 (Europe/Warsaw)
+Date: 2026-08-13 (Europe/Warsaw)
 
 ## Verdict
 
 **SOURCE PUBLISHED — public repository is repo-ready; downloadable binary remains blocked:external.**
 
-The current source, release build, isolated runtime, installed Developer ID runtime capture, E2E path, documentation links, dependency checks, and current-tree hygiene pass. PR #13 passed exact-head hosted arm64 CI, was reviewed and merged, and the repository is public under `rsitech-ai`; that older run is not current-branch proof. The owner explicitly waived current-branch GitHub Actions/CI errors for this release-candidate build, which is recorded as a waiver rather than a pass. Apache-2.0, copyright ownership by Rafal Sikora, RSI Tech maintenance, `info@rsitech.ai` for public/confidential contact, the retained-history rewrite, private vulnerability reporting, and an active default-branch ruleset are verified. A downloadable binary must not be published until notarization, stapling, Gatekeeper, and clean-account runtime proof pass.
+The current source, release build, isolated runtime, installed Developer ID runtime capture, E2E path, documentation links, dependency checks, and current-tree hygiene pass locally. PR #19 is the current review vehicle; its exact-head hosted arm64 CI and merge are pending. The repository is public under `rsitech-ai`. Apache-2.0, copyright ownership by Rafal Sikora, RSI Tech maintenance, `info@rsitech.ai` for public/confidential contact, the retained-history rewrite, private vulnerability reporting, and an active default-branch ruleset are verified. A downloadable binary must not be published until PR #19 merges and the exact-main artifact passes notarization, stapling, Gatekeeper, and clean-account runtime proof.
 
 No formal Codex Security scan was run; the owner explicitly waived that workflow for this pass. The evidence below is ordinary source/provenance review plus local tools and does not claim formal scan coverage.
 
@@ -18,7 +18,7 @@ Removed tracked agent/Codex/skill plans, local reflection notes, and historical 
 
 | Lane | Status | Meaning |
 | --- | --- | --- |
-| Source engineering candidate | RUNTIME-PROVEN LOCALLY / HOSTED CI WAIVED | Local tests, release compilation, E2E, installed capture modes, native UI smoke, documentation validation, and current-tree hygiene passed. Current-branch hosted CI is explicitly waived, not passed. |
+| Source engineering candidate | RUNTIME-PROVEN LOCALLY / HOSTED CI PENDING | Local tests, release compilation, E2E, installed capture modes, native UI smoke, documentation validation, and current-tree hygiene passed. PR #19 exact-head hosted CI is pending. |
 | Public open-source repository | REPO-READY / PUBLISHED | Public organization repository, Apache-2.0 detection, confidential reporting, PR/ruleset protection, and required CI are active. |
 | Direct-download macOS binary | BLOCKED:EXTERNAL | A valid Developer ID Application identity is installed and timestamp signing passed. No `notarytool` keychain profile exists, so notarization, stapling, Gatekeeper, and clean-machine install proof remain unavailable. |
 | Mac App Store package | BLOCKED:EXTERNAL | Local bundle structure passes, but distribution identities, expected Team ID, App Store Connect validation, and owner declarations are unavailable. |
@@ -53,8 +53,8 @@ Removed tracked agent/Codex/skill plans, local reflection notes, and historical 
 | Git-history privacy | PASS | Both retained remote branches were force-updated after a verified rewrite. Every reachable candidate commit uses only `24563931+s1korrrr@users.noreply.github.com`; pre/post tree IDs match. |
 | Public namespace/contact | PASS | `rsitech-ai/clip_vault`, `https://rsitech.ai`, and `info@rsitech.ai` are approved for public and confidential project contact. |
 | GitHub visibility/security/rules | PASS | Repository is public; private vulnerability reporting is enabled; active ruleset `Protect main` blocks deletion/non-fast-forward updates and requires PRs, resolved threads, an up-to-date branch, and `verify`. |
-| Hosted exact-head CI | WAIVED / UNVERIFIED FOR CURRENT BRANCH | PR #13 exact head passed all 17 steps in historical run `29774529702`, job `88460604543`. The owner explicitly instructed this pass to ignore current GitHub Actions/CI errors; no current-branch hosted pass is claimed. |
-| Public source repository | PASS | PR #13 merged and the source repository is publicly available under `rsitech-ai`. |
+| Hosted exact-head CI | PENDING | PR #19 targets `main` from reviewed head `d4015f1c934e9fa8054aba6ec0dd53db5341e71e`; hosted run `31686920908` is pending. |
+| Public source repository | PASS / CURRENT CHANGE PENDING | The repository is publicly available under `rsitech-ai`; PR #19 is not yet merged. |
 | Public tag/binary release | BLOCKED:EXTERNAL | No tag or GitHub Release exists. Create both only after notarization, stapling, Gatekeeper, checksum, and clean-account runtime proof pass. |
 
 ## Residual engineering risks

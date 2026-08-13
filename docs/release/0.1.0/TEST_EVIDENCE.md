@@ -1,6 +1,6 @@
 # ClipVault 0.1.0 Test Evidence
 
-Date: 2026-08-11. Run from `feat/andrzej_capture_release_audit`; transient logs and staged QA bundles were removed after inspection.
+Date: 2026-08-13. Run from `feat/andrzej_capture_release_audit`; transient logs and staged QA bundles were removed after inspection.
 
 | Check | Fresh result |
 | --- | --- |
@@ -20,7 +20,7 @@ Date: 2026-08-11. Run from `feat/andrzej_capture_release_audit`; transient logs 
 | `git diff --check` | PASS. |
 | `./script/app_store_check.sh` | Expected exit 3: bundle/plist/entitlements/privacy/signatures pass locally; application/installer distribution identities and expected Team ID are missing. |
 | `DEVELOPER_ID_APPLICATION_IDENTITY='<installed Developer ID Application identity>' NOTARY_KEYCHAIN_PROFILE='clipvault-notary' ./script/package_direct_download.sh --preflight` | Expected exit 2: Developer ID identity validation passes and the fail-closed gate reports the missing notarization Keychain profile. |
-| Hosted arm64 CI | NOT CURRENT-HEAD PROOF: run `29774529702`, job `88460604543` passed the older reviewed PR #13 head `45205f80ec19f7ad844b17bcf0db0da0c216c03b`. The owner explicitly waived current-branch GitHub Actions/CI errors for this release-candidate build; the waiver is not recorded as a pass. |
+| Hosted arm64 CI | PENDING: PR #19 run `31686920908` targets reviewed head `d4015f1c934e9fa8054aba6ec0dd53db5341e71e`. Do not record it as passed until GitHub reports a successful exact-head result. |
 
 ## Runtime observations
 
@@ -33,5 +33,5 @@ Date: 2026-08-11. Run from `feat/andrzej_capture_release_audit`; transient logs 
 ## Environment limits
 
 - macOS 27.0 beta host, Xcode 26.6, Apple silicon only.
-- No clean macOS 15 machine/account, Intel runtime, notarized downloadable build, current-head hosted CI, or App Store Connect server validation proof. The installed Developer ID build is signed and runtime-proven on this host, but Gatekeeper rejects it until notarization succeeds.
+- No clean macOS 15 machine/account, Intel runtime, notarized downloadable build, completed current-head hosted CI, or App Store Connect server validation proof. The installed Developer ID build is signed and runtime-proven on this host, but Gatekeeper rejects it until notarization succeeds.
 - No formal Codex Security scan was run by owner request.

@@ -7,11 +7,11 @@
   "minimum_macos": "15.0",
   "architectures": ["arm64"],
   "candidate": {
-    "baseline_commit": "5cace92adaf5b51e45b45a300a9b29c2a3fbb9ca",
-    "branch": "main",
-    "reviewed_pr": 13,
-    "reviewed_head": "45205f80ec19f7ad844b17bcf0db0da0c216c03b",
-    "integration_commit": "313dc34ef5ac62d583ddf282e148bf46f4772a13"
+    "baseline_commit": "d99fbe25b104d7d8fa5a603efabb8c69446c69b4",
+    "branch": "feat/andrzej_capture_release_audit",
+    "reviewed_pr": 19,
+    "reviewed_head": "d4015f1c934e9fa8054aba6ec0dd53db5341e71e",
+    "integration_commit": null
   },
   "repository": {
     "owner": "rsitech-ai",
@@ -40,7 +40,7 @@
   },
   "tests": {
     "shell_groups": {"passed": 10, "failed": 0},
-    "swift": {"passed": 178, "failed": 0, "suites": 17},
+    "swift": {"passed": 191, "failed": 0, "suites": 19},
     "rust": {"passed": 4, "failed": 0},
     "e2e": "PASS",
     "native_ui_smoke": "PASS_ISOLATED_BUNDLE"
@@ -78,5 +78,5 @@
     "notarization_profile": "MISSING"
   },
   "app_store": "BLOCKED_EXTERNAL_IDENTITIES_ACCOUNT_AND_DECLARATIONS",
-  "generated_date": "2026-07-20"
+  "generated_date": "2026-08-13"
 }
