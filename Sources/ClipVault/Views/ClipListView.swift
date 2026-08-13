@@ -24,54 +24,67 @@ struct ClipListView: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(spacing: 2) {
-                            ForEach(model.visibleResults) { result in
-                                draggableClipRow(clip: result.clip) {
-                                    ClipRowView(
-                                        result: result,
-                                        showsSelectionControl: selectionMode.showsSelectionControls,
-                                        isSelectedForAI: model.selectedClipIDs.contains(result.clip.id),
-                                        toggleAISelection: {
-                                            model.select(result.clip)
-                                        }
-                                    )
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 2)
-                                    .id(result.clip.id)
-                                    .contentShape(Rectangle())
-                                    .background {
-                                        RoundedRectangle(
-                                            cornerRadius: ClipVaultDesign.rowRadius,
-                                            style: .continuous
+                            ForEach(ClipResultSection.group(model.visibleResults)) { section in
+                                Text(section.title)
+                                    .font(.caption2.weight(.semibold))
+                                    .foregroundStyle(.tertiary)
+                                    .textCase(.uppercase)
+                                    .tracking(0.5)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.horizontal, 12)
+                                    .padding(.top, 10)
+                                    .padding(.bottom, 3)
+                                    .accessibilityAddTraits(.isHeader)
+
+                                ForEach(section.results) { result in
+                                    draggableClipRow(clip: result.clip) {
+                                        ClipRowView(
+                                            result: result,
+                                            showsSelectionControl: selectionMode.showsSelectionControls,
+                                            isSelectedForAI: model.selectedClipIDs.contains(result.clip.id),
+                                            toggleAISelection: {
+                                                model.select(result.clip)
+                                            }
                                         )
-                                        .fill(rowBackground(for: result.clip))
-                                        .padding(.horizontal, 4)
-                                    }
-                                    .onTapGesture(count: 2) {
-                                        model.selectAndCopy(result.clip)
-                                    }
-                                    .onTapGesture {
-                                        model.selectedClipID = result.clip.id
-                                    }
-                                    .contextMenu {
-                                        Button("Copy") {
-                                            model.copyToClipboard(result.clip)
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 2)
+                                        .id(result.clip.id)
+                                        .contentShape(Rectangle())
+                                        .background {
+                                            RoundedRectangle(
+                                                cornerRadius: ClipVaultDesign.rowRadius,
+                                                style: .continuous
+                                            )
+                                            .fill(rowBackground(for: result.clip))
+                                            .padding(.horizontal, 4)
                                         }
-                                        Button(model.selectedClipIDs.contains(result.clip.id) ? "Remove from AI Selection" : "Add to AI Selection") {
-                                            model.select(result.clip)
+                                        .onTapGesture(count: 2) {
+                                            model.selectAndCopy(result.clip)
                                         }
-                                        Button(result.clip.isPinned ? "Unpin" : "Pin") {
-                                            model.togglePinned(result.clip)
+                                        .onTapGesture {
+                                            model.selectedClipID = result.clip.id
                                         }
-                                        MoveToCollectionMenu(
-                                            clip: result.clip,
-                                            model: model,
-                                            label: "Move to Collection"
-                                        )
-                                        Button("Delete", role: .destructive) {
-                                            pendingDeleteClip = result.clip
+                                        .contextMenu {
+                                            Button("Copy") {
+                                                model.copyToClipboard(result.clip)
+                                            }
+                                            Button(model.selectedClipIDs.contains(result.clip.id) ? "Remove from AI Selection" : "Add to AI Selection") {
+                                                model.select(result.clip)
+                                            }
+                                            Button(result.clip.isPinned ? "Unpin" : "Pin") {
+                                                model.togglePinned(result.clip)
+                                            }
+                                            MoveToCollectionMenu(
+                                                clip: result.clip,
+                                                model: model,
+                                                label: "Move to Collection"
+                                            )
+                                            Button("Delete", role: .destructive) {
+                                                pendingDeleteClip = result.clip
+                                            }
                                         }
+                                        .accessibilityAddTraits(model.selectedClipID == result.clip.id ? .isSelected : [])
                                     }
-                                    .accessibilityAddTraits(model.selectedClipID == result.clip.id ? .isSelected : [])
                                 }
                             }
                         }
@@ -253,7 +266,9 @@ struct ClipRowView: View {
     var toggleAISelection: () -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
+        let presentation = ClipRowPresentation(clip: result.clip)
+
+        HStack(alignment: .top, spacing: 10) {
             if showsSelectionControl {
                 Button(action: toggleAISelection) {
                     Image(systemName: isSelectedForAI ? "checkmark.circle.fill" : "circle")
@@ -271,39 +286,60 @@ struct ClipRowView: View {
             thumbnail
                 .accessibilityHidden(true)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(result.clip.title)
+            VStack(alignment: .leading, spacing: 3) {
+                if let eyebrow = presentation.eyebrow {
+                    Text(eyebrow)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(ClipVaultDesign.tint(for: result.clip.kind))
+                        .lineLimit(1)
+                }
+
+                Text(presentation.title)
                     .font(.callout.weight(.semibold))
                     .lineLimit(1)
-                    .truncationMode(.middle)
-                Text(result.clip.kind.title)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
+                    .truncationMode(
+                        presentation.titleTruncation == .middle ? .middle : .tail
+                    )
 
-            Spacer(minLength: 8)
+                if let preview = presentation.preview {
+                    Text(preview)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
 
-            if result.clip.isPinned {
-                Image(systemName: "pin.fill")
-                    .font(.caption2)
-                    .foregroundStyle(.orange)
+                if !presentation.metadata.isEmpty {
+                    metadataLine(presentation.metadata)
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(presentation.title)
+            .accessibilityValue(presentation.accessibilitySummary)
+            .accessibilityHint("Press Return to copy this clip")
 
-            if result.clip.copyCount > 1 {
-                Text("x\(result.clip.copyCount)")
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
-            }
+            Spacer(minLength: 4)
 
             ClipTimestampText(date: result.clip.createdAt)
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
                 .monospacedDigit()
+                .fixedSize(horizontal: true, vertical: false)
         }
-        .frame(height: 44)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 8)
+        .frame(minHeight: 62, alignment: .top)
         .help(result.clip.preview.isEmpty ? result.clip.title : result.clip.preview)
+    }
+
+    private func metadataLine(_ metadata: [String]) -> some View {
+        ViewThatFits(in: .horizontal) {
+            Text(metadata.joined(separator: " · "))
+            Text(metadata.prefix(3).joined(separator: " · "))
+        }
+        .font(.caption2)
+        .foregroundStyle(.tertiary)
+        .lineLimit(1)
     }
 
     @ViewBuilder
@@ -316,12 +352,12 @@ struct ClipRowView: View {
                 contentMode: .fill,
                 placeholderSystemImage: "photo"
             )
-                .frame(width: 34, height: 34)
-                .clipShape(RoundedRectangle(cornerRadius: 5))
+                .frame(width: 38, height: 38)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
         } else {
             Image(systemName: icon)
                 .foregroundStyle(ClipVaultDesign.tint(for: result.clip.kind))
-                .frame(width: 34, height: 34)
+                .frame(width: 38, height: 38)
                 .background(
                     ClipVaultDesign.tint(for: result.clip.kind).opacity(0.11),
                     in: RoundedRectangle(cornerRadius: 8, style: .continuous)
