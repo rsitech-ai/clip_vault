@@ -19,6 +19,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Cli
 
 ### Changed
 
+- Date-grouped clip rows show clock time (or "Just now") instead of repeating the full date already in the section header.
 - Collection assignment and move operations update only the affected clips instead of reloading and decrypting the entire library.
 - Pin toggles update only the affected clip instead of reloading and decrypting the entire library.
 - Finder file and folder clipboard items use their file URLs directly, avoiding unnecessary rich-pasteboard decoding.

@@ -267,6 +267,7 @@ struct ClipRowView: View {
 
     var body: some View {
         let presentation = ClipRowPresentation(clip: result.clip)
+        let timeLabel = ClipTimeFormatter.listRowLabel(for: result.clip.createdAt)
 
         HStack(alignment: .top, spacing: 10) {
             if showsSelectionControl {
@@ -308,23 +309,27 @@ struct ClipRowView: View {
                         .lineLimit(2)
                 }
 
-                if !presentation.metadata.isEmpty {
-                    metadataLine(presentation.metadata)
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    if !presentation.metadata.isEmpty {
+                        metadataLine(presentation.metadata)
+                    }
+                    Spacer(minLength: 6)
+                    Text(timeLabel)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .monospacedDigit()
+                        .fixedSize(horizontal: true, vertical: false)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(presentation.title)
-            .accessibilityValue(presentation.accessibilitySummary)
+            .accessibilityValue(
+                [presentation.accessibilitySummary, timeLabel]
+                    .filter { !$0.isEmpty }
+                    .joined(separator: ". ")
+            )
             .accessibilityHint("Press Return to copy this clip")
-
-            Spacer(minLength: 4)
-
-            ClipTimestampText(date: result.clip.createdAt)
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-                .monospacedDigit()
-                .fixedSize(horizontal: true, vertical: false)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 8)
