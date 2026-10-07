@@ -98,7 +98,7 @@ public protocol ClipStoring: AnyObject {
     func folders() throws -> [CollectionFolder]
     func reconcileWorkspaceDefaults() throws
     func payload(for clipID: String) throws -> ClipPayload?
-    func save(payload: ClipPayload, sourceApp: String?) throws -> Clip?
+    func save(payload: ClipPayload, sourceApp: String?, capturedAt: Date) throws -> Clip?
     func saveGeneratedPrompts(_ drafts: [GeneratedPromptDraft]) throws -> [Clip]
     @discardableResult
     func addClips(ids: [String], toCollectionID collectionID: String) throws -> [Clip]
@@ -115,6 +115,12 @@ public protocol ClipStoring: AnyObject {
     func delete(id: String) throws
     func delete(ids: [String]) throws
     func pruneExpired(now: Date) throws
+}
+
+public extension ClipStoring {
+    func save(payload: ClipPayload, sourceApp: String? = nil) throws -> Clip? {
+        try save(payload: payload, sourceApp: sourceApp, capturedAt: Date())
+    }
 }
 
 public struct GeneratedPromptDraft: Hashable, Sendable {
@@ -622,7 +628,7 @@ public final class SwiftDataClipStore: ClipStoring {
         return try payload(from: record)
     }
 
-    public func save(payload: ClipPayload, sourceApp: String? = nil) throws -> Clip? {
+    public func save(payload: ClipPayload, sourceApp: String?, capturedAt: Date) throws -> Clip? {
         try withRollback {
             let classification = sensitiveRules.classify(payload.extractedText)
             guard !classification.isExcluded else {
@@ -643,14 +649,15 @@ public final class SwiftDataClipStore: ClipStoring {
 
             if let existing {
                 var details = try details(from: existing)
-                let capturedAt = Date()
                 existing.fingerprintValue = fingerprint
                 existing.copyCount = (existing.copyCount ?? 1) + 1
-                existing.createdAt = capturedAt
-                existing.updatedAt = capturedAt
-                let data = try encoder.encode(payload)
-                existing.encryptedPayload = try encryptor.encrypt(data)
-                details.listPayload = listPayload(for: payload)
+                if capturedAt >= existing.createdAt {
+                    existing.createdAt = capturedAt
+                    let data = try encoder.encode(payload)
+                    existing.encryptedPayload = try encryptor.encrypt(data)
+                    details.listPayload = listPayload(for: payload)
+                }
+                existing.updatedAt = max(existing.updatedAt, capturedAt)
                 existing.encryptedListPayload = try encryptedDetailsPayload(details)
                 clearPlaintextDetails(on: existing)
                 try saveContext(context)
@@ -659,6 +666,8 @@ public final class SwiftDataClipStore: ClipStoring {
 
             let listPayload = listPayload(for: payload)
             let clip = Clip(
+                createdAt: capturedAt,
+                updatedAt: capturedAt,
                 kind: listPayload.kind,
                 title: title(for: listPayload),
                 preview: listPayload.displayText,
@@ -1362,7 +1371,7 @@ public final class InMemoryClipStore: ClipStoring {
         payloads[clipID]
     }
 
-    public func save(payload: ClipPayload, sourceApp: String?) throws -> Clip? {
+    public func save(payload: ClipPayload, sourceApp: String?, capturedAt: Date) throws -> Clip? {
         guard !sensitiveRules.classify(payload.extractedText).isExcluded else {
             return nil
         }
@@ -1372,20 +1381,23 @@ public final class InMemoryClipStore: ClipStoring {
             ($0.fingerprint == fingerprint || $0.fingerprint == identity.legacyFingerprint)
                 && payloads[$0.id].map(identity.matches) == true
         }) {
-            let capturedAt = Date()
             clips[existingIndex].fingerprint = fingerprint
             clips[existingIndex].copyCount += 1
-            clips[existingIndex].createdAt = capturedAt
-            clips[existingIndex].updatedAt = capturedAt
-            clips[existingIndex].preview = payload.displayText
-            clips[existingIndex].extractedText = payload.extractedText
-            clips[existingIndex].previewData = payload.previewData
-            clips[existingIndex].metadata = payload.metadata
-            payloads[clips[existingIndex].id] = payload
+            if capturedAt >= clips[existingIndex].createdAt {
+                clips[existingIndex].createdAt = capturedAt
+                clips[existingIndex].preview = payload.displayText
+                clips[existingIndex].extractedText = payload.extractedText
+                clips[existingIndex].previewData = payload.previewData
+                clips[existingIndex].metadata = payload.metadata
+                payloads[clips[existingIndex].id] = payload
+            }
+            clips[existingIndex].updatedAt = max(clips[existingIndex].updatedAt, capturedAt)
             return clips[existingIndex]
         }
 
         let clip = Clip(
+            createdAt: capturedAt,
+            updatedAt: capturedAt,
             kind: payload.kind,
             title: payload.displayText.isEmpty ? payload.kind.title : String(payload.displayText.prefix(80)),
             preview: payload.displayText,

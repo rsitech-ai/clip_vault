@@ -1,4 +1,5 @@
 import AppKit
+import Dispatch
 import Foundation
 import UniformTypeIdentifiers
 import Vision
@@ -7,7 +8,7 @@ import Vision
 public final class ClipboardCaptureService {
     typealias PayloadBuilder = @Sendable (PasteboardSnapshot) async -> ClipPayload?
 
-    public var onClipCaptured: (@MainActor (ClipPayload, String?) -> Void)?
+    public var onClipCaptured: (@MainActor (ClipPayload, String?, Date) -> Void)?
     public private(set) var isRunning = false
 
     private let pasteboard: NSPasteboard
@@ -15,16 +16,22 @@ public final class ClipboardCaptureService {
     private var timer: Timer?
     private var lastChangeCount: Int
     private var lifecycleGeneration: UInt = 0
-    private var nextCaptureSequence: UInt = 0
-    private var nextDeliverySequence: UInt = 0
-    private var completedCaptures: [UInt: CompletedCapture] = [:]
     private var deferredRead: DeferredPasteboardRead?
+    // Vision performs synchronous work and can wait for system services. Keep it
+    // off Swift's cooperative executor so it cannot starve unrelated captures.
+    nonisolated private static let payloadQueue = DispatchQueue(
+        label: "com.andrzej.ClipVault.clipboard-payload",
+        qos: .utility,
+        attributes: .concurrent
+    )
 
     public convenience init(pasteboard: NSPasteboard = .general) {
         self.init(pasteboard: pasteboard) { snapshot in
-            await Task.detached(priority: .utility) {
-                Self.payload(from: snapshot)
-            }.value
+            await withCheckedContinuation { continuation in
+                Self.payloadQueue.async {
+                    continuation.resume(returning: Self.payload(from: snapshot))
+                }
+            }
         }
     }
 
@@ -41,9 +48,6 @@ public final class ClipboardCaptureService {
 
         lastChangeCount = pasteboard.changeCount
         lifecycleGeneration &+= 1
-        nextCaptureSequence = 0
-        nextDeliverySequence = 0
-        completedCaptures.removeAll()
         deferredRead = nil
         isRunning = true
         timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
@@ -58,7 +62,6 @@ public final class ClipboardCaptureService {
         timer = nil
         isRunning = false
         lifecycleGeneration &+= 1
-        completedCaptures.removeAll()
         deferredRead = nil
     }
 
@@ -99,8 +102,6 @@ public final class ClipboardCaptureService {
         deferredRead = nil
         let sourceApp = NSWorkspace.shared.frontmostApplication?.localizedName
         let generation = lifecycleGeneration
-        let sequence = nextCaptureSequence
-        nextCaptureSequence &+= 1
         let payloadBuilder = payloadBuilder
         Task { @MainActor [weak self, snapshot, sourceApp] in
             let payload = await payloadBuilder(snapshot)
@@ -110,17 +111,10 @@ public final class ClipboardCaptureService {
                   self.lifecycleGeneration == generation else {
                 return
             }
-            self.completeCapture(sequence: sequence, payload: payload, sourceApp: sourceApp)
-        }
-    }
-
-    private func completeCapture(sequence: UInt, payload: ClipPayload?, sourceApp: String?) {
-        completedCaptures[sequence] = CompletedCapture(payload: payload, sourceApp: sourceApp)
-
-        while let completed = completedCaptures.removeValue(forKey: nextDeliverySequence) {
-            nextDeliverySequence &+= 1
-            if let payload = completed.payload {
-                onClipCaptured?(payload, completed.sourceApp)
+            if let payload {
+                // Completion order must not become a dependency between copies.
+                // The store uses observation time to retain chronological history.
+                self.onClipCaptured?(payload, sourceApp, now)
             }
         }
     }
@@ -304,11 +298,6 @@ public final class ClipboardCaptureService {
             return ""
         }
     }
-}
-
-private struct CompletedCapture {
-    var payload: ClipPayload?
-    var sourceApp: String?
 }
 
 private struct DeferredPasteboardRead {
