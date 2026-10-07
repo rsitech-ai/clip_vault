@@ -37,54 +37,13 @@ struct ClipListView: View {
                                     .accessibilityAddTraits(.isHeader)
 
                                 ForEach(section.results) { result in
-                                    draggableClipRow(clip: result.clip) {
-                                        ClipRowView(
-                                            result: result,
-                                            showsSelectionControl: selectionMode.showsSelectionControls,
-                                            isSelectedForAI: model.selectedClipIDs.contains(result.clip.id),
-                                            toggleAISelection: {
-                                                model.select(result.clip)
-                                            }
-                                        )
-                                        .padding(.horizontal, 8)
-                                        .padding(.vertical, 2)
-                                        .id(result.clip.id)
-                                        .contentShape(Rectangle())
-                                        .background {
-                                            RoundedRectangle(
-                                                cornerRadius: ClipVaultDesign.rowRadius,
-                                                style: .continuous
-                                            )
-                                            .fill(rowBackground(for: result.clip))
-                                            .padding(.horizontal, 4)
-                                        }
-                                        .onTapGesture(count: 2) {
-                                            model.selectAndCopy(result.clip)
-                                        }
-                                        .onTapGesture {
-                                            model.selectedClipID = result.clip.id
-                                        }
-                                        .contextMenu {
-                                            Button("Copy") {
-                                                model.copyToClipboard(result.clip)
-                                            }
-                                            Button(model.selectedClipIDs.contains(result.clip.id) ? "Remove from AI Selection" : "Add to AI Selection") {
-                                                model.select(result.clip)
-                                            }
-                                            Button(result.clip.isPinned ? "Unpin" : "Pin") {
-                                                model.togglePinned(result.clip)
-                                            }
-                                            MoveToCollectionMenu(
-                                                clip: result.clip,
-                                                model: model,
-                                                label: "Move to Collection"
-                                            )
-                                            Button("Delete", role: .destructive) {
-                                                pendingDeleteClip = result.clip
-                                            }
-                                        }
-                                        .accessibilityAddTraits(model.selectedClipID == result.clip.id ? .isSelected : [])
-                                    }
+                                    ClipWorkspaceRowView(
+                                        model: model,
+                                        clipID: result.id,
+                                        showsSelectionControl: selectionMode.showsSelectionControls,
+                                        pendingDeleteClip: $pendingDeleteClip
+                                    )
+                                    .id(result.id)
                                 }
                             }
                         }
@@ -145,10 +104,6 @@ struct ClipListView: View {
         }
     }
 
-    private func rowBackground(for clip: Clip) -> Color {
-        model.selectedClipID == clip.id ? Color.accentColor.opacity(0.14) : Color.clear
-    }
-
     private var emptyDescription: String {
         if !model.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return "Try a different search or collection."
@@ -160,35 +115,6 @@ struct ClipListView: View {
             return "Matching clips appear here automatically."
         }
         return "Drag a clip here or use Move to Collection."
-    }
-
-    @ViewBuilder
-    private func draggableClipRow<Content: View>(
-        clip: Clip,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        if let payload = ClipMovePayload(clipID: clip.id) {
-            content()
-                .draggable(payload) {
-                    HStack(spacing: 8) {
-                        Image(systemName: ClipVaultDesign.icon(for: clip.kind))
-                            .foregroundStyle(ClipVaultDesign.tint(for: clip.kind))
-                        Text(clip.title)
-                            .font(.callout.weight(.medium))
-                            .lineLimit(1)
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .fixedSize(horizontal: true, vertical: false)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(.separator.opacity(0.7), lineWidth: 1)
-                    }
-                }
-        } else {
-            content()
-        }
     }
 
     private func moveSelection(_ direction: MoveCommandDirection) {
@@ -283,15 +209,89 @@ private struct SelectedClipCopyKeyModifier: ViewModifier {
     }
 }
 
+// Resolve mutable clip data inside the row's observation scope. Stable IDs preserve
+// row identity while captures and edits update the display and every action.
+private struct ClipWorkspaceRowView: View {
+    @Bindable var model: ClipVaultViewModel
+    let clipID: String
+    let showsSelectionControl: Bool
+    @Binding var pendingDeleteClip: Clip?
+
+    var body: some View {
+        if let clip = model.clip(id: clipID) {
+            draggableClipRow(clip: clip) {
+                ClipRowView(
+                    clip: clip,
+                    showsSelectionControl: showsSelectionControl,
+                    isSelectedForAI: model.selectedClipIDs.contains(clipID),
+                    toggleAISelection: { model.select(clip) }
+                )
+                .padding(.horizontal, 8)
+                .padding(.vertical, 2)
+                .contentShape(Rectangle())
+                .background {
+                    RoundedRectangle(
+                        cornerRadius: ClipVaultDesign.rowRadius,
+                        style: .continuous
+                    )
+                    .fill(model.selectedClipID == clipID ? Color.accentColor.opacity(0.14) : Color.clear)
+                    .padding(.horizontal, 4)
+                }
+                .onTapGesture(count: 2) { model.selectAndCopy(clip) }
+                .onTapGesture { model.selectedClipID = clipID }
+                .contextMenu {
+                    Button("Copy") { model.copyToClipboard(clip) }
+                    Button(model.selectedClipIDs.contains(clipID) ? "Remove from AI Selection" : "Add to AI Selection") {
+                        model.select(clip)
+                    }
+                    Button(clip.isPinned ? "Unpin" : "Pin") { model.togglePinned(clip) }
+                    MoveToCollectionMenu(clip: clip, model: model, label: "Move to Collection")
+                    Button("Delete", role: .destructive) { pendingDeleteClip = clip }
+                }
+                .accessibilityAddTraits(model.selectedClipID == clipID ? .isSelected : [])
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func draggableClipRow<Content: View>(
+        clip: Clip,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        if let payload = ClipMovePayload(clipID: clip.id) {
+            content()
+                .draggable(payload) {
+                    HStack(spacing: 8) {
+                        Image(systemName: ClipVaultDesign.icon(for: clip.kind))
+                            .foregroundStyle(ClipVaultDesign.tint(for: clip.kind))
+                        Text(clip.title)
+                            .font(.callout.weight(.medium))
+                            .lineLimit(1)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(.separator.opacity(0.7), lineWidth: 1)
+                    }
+                }
+        } else {
+            content()
+        }
+    }
+}
+
 struct ClipRowView: View {
-    var result: SearchResult
+    var clip: Clip
     var showsSelectionControl: Bool
     var isSelectedForAI: Bool
     var toggleAISelection: () -> Void
 
     var body: some View {
-        let presentation = ClipRowPresentation(clip: result.clip)
-        let timeLabel = ClipTimeFormatter.listRowLabel(for: result.clip.createdAt)
+        let presentation = ClipRowPresentation(clip: clip)
+        let timeLabel = ClipTimeFormatter.listRowLabel(for: clip.createdAt)
 
         HStack(alignment: .top, spacing: 10) {
             if showsSelectionControl {
@@ -315,7 +315,7 @@ struct ClipRowView: View {
                 if let eyebrow = presentation.eyebrow {
                     Text(eyebrow)
                         .font(.caption2.weight(.semibold))
-                        .foregroundStyle(ClipVaultDesign.tint(for: result.clip.kind))
+                        .foregroundStyle(ClipVaultDesign.tint(for: clip.kind))
                         .lineLimit(1)
                 }
 
@@ -358,7 +358,7 @@ struct ClipRowView: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 8)
         .frame(minHeight: 62, alignment: .top)
-        .help(result.clip.preview.isEmpty ? result.clip.title : result.clip.preview)
+        .help(clip.preview.isEmpty ? clip.title : clip.preview)
     }
 
     private func metadataLine(_ metadata: [String]) -> some View {
@@ -373,11 +373,11 @@ struct ClipRowView: View {
 
     @ViewBuilder
     private var thumbnail: some View {
-        if result.clip.kind == .image,
-           let data = result.clip.previewData {
+        if clip.kind == .image,
+           let data = clip.previewData {
             CachedClipImageView(
                 data: data,
-                cacheKey: result.clip.previewImageCacheKey,
+                cacheKey: clip.previewImageCacheKey,
                 contentMode: .fill,
                 placeholderSystemImage: "photo"
             )
@@ -385,17 +385,17 @@ struct ClipRowView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 6))
         } else {
             Image(systemName: icon)
-                .foregroundStyle(ClipVaultDesign.tint(for: result.clip.kind))
+                .foregroundStyle(ClipVaultDesign.tint(for: clip.kind))
                 .frame(width: 38, height: 38)
                 .background(
-                    ClipVaultDesign.tint(for: result.clip.kind).opacity(0.11),
+                    ClipVaultDesign.tint(for: clip.kind).opacity(0.11),
                     in: RoundedRectangle(cornerRadius: 8, style: .continuous)
                 )
         }
     }
 
     private var icon: String {
-        ClipVaultDesign.icon(for: result.clip.kind)
+        ClipVaultDesign.icon(for: clip.kind)
     }
 }
 
