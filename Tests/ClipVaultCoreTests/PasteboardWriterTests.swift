@@ -5,6 +5,33 @@ import Testing
 @Suite("Pasteboard writer")
 struct PasteboardWriterTests {
     @MainActor
+    @Test("copy emits standard formats without replaying remote origin or privacy markers")
+    func copyDoesNotReplayOriginMarkers() throws {
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        let writer = ClipPayloadPasteboardWriter(pasteboard: pasteboard)
+        let remoteType = NSPasteboard.PasteboardType("com.apple.is-remote-clipboard")
+        let concealedType = NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")
+        pasteboard.clearContents()
+        pasteboard.setData(Data([1]), forType: remoteType)
+        pasteboard.setData(Data([1]), forType: concealedType)
+        let attributed = NSAttributedString(string: "Device-neutral rich text 📋")
+        let data = try #require(attributed.rtf(from: NSRange(location: 0, length: attributed.length)))
+        try writer.write(ClipPayload(
+            kind: .richText,
+            displayText: attributed.string,
+            extractedText: attributed.string,
+            previewData: data,
+            uniformTypeIdentifiers: [remoteType.rawValue, concealedType.rawValue, NSPasteboard.PasteboardType.rtf.rawValue]
+        ))
+
+        #expect(pasteboard.string(forType: .string) == attributed.string)
+        #expect(pasteboard.data(forType: .rtf) == data)
+        #expect(pasteboard.data(forType: remoteType) == nil)
+        #expect(pasteboard.data(forType: concealedType) == nil)
+    }
+
+    @MainActor
     @Test("writes text payloads back as strings")
     func writesText() throws {
         let pasteboard = NSPasteboard(name: NSPasteboard.Name("ClipVaultTextWriterTest"))

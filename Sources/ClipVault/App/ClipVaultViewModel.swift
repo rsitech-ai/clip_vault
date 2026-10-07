@@ -82,6 +82,9 @@ final class ClipVaultViewModel {
     private var promptEnhancementTask: Task<Void, Never>?
     private var promptEnhancementTaskID: UUID?
     private var store: (any ClipStoring)?
+    private var dockTileUpdater: ([Clip], Bool, String) -> Void = { clips, isCapturing, status in
+        DockTileController.shared.update(clips: clips, isCapturing: isCapturing, captureStatus: status)
+    }
     private static var initialCaptureConsent: Bool {
         #if CLIPVAULT_E2E_PROBE
         true
@@ -110,6 +113,18 @@ final class ClipVaultViewModel {
             return "Capturing"
         }
         return hasCaptureConsent ? "Paused" : "Consent required"
+    }
+
+    init(container: ModelContainer, store: (any ClipStoring)?) {
+        self.container = container
+        self.store = store
+        storageStartupError = nil
+        shouldMigrateLegacyKey = false
+        encryptionBootstrap = LocalPayloadEncryptionBootstrap()
+        promptEnhancementRunner = PromptEnhancementBatchRunner(
+            enhancer: FoundationModelsPromptEnhancer()
+        )
+        dockTileUpdater = { _, _, _ in }
     }
 
     init(
@@ -161,6 +176,13 @@ final class ClipVaultViewModel {
             return
         }
 
+        guard storageStartupError == nil else {
+            stopCapture()
+            captureStatus = storageStartupError ?? "Persistent storage unavailable"
+            updateDockTile()
+            return
+        }
+
         Self.logger.info("Bootstrapping ClipVault view model")
         let context = ModelContext(container)
         let encryptor: LocalPayloadEncryptor
@@ -182,7 +204,7 @@ final class ClipVaultViewModel {
         }
         let screenshotHotKeyRegistered = ScreenshotCaptureController.shared.configure { [weak self] didCapture, status in
             self?.captureStatus = status
-            if !didCapture {
+            if !didCapture && status != "Screenshot cancelled" {
                 Self.logger.error("Screenshot capture failed: \(status, privacy: .public)")
             }
             self?.updateDockTile()
@@ -378,8 +400,13 @@ final class ClipVaultViewModel {
     }
 
     func updateNote(for clip: Clip, note: String) {
+        guard let store else {
+            captureStatus = "Storage is not ready. Try again."
+            updateDockTile()
+            return
+        }
         do {
-            try store?.updateNote(id: clip.id, note: note)
+            try store.updateNote(id: clip.id, note: note)
             if let index = clips.firstIndex(where: { $0.id == clip.id }) {
                 clips[index].userNote = note
                 clips[index].updatedAt = Date()
@@ -394,10 +421,21 @@ final class ClipVaultViewModel {
     }
 
     func updateTitle(for clip: Clip, title: String) {
+        guard let store else {
+            captureStatus = "Storage is not ready. Try again."
+            updateDockTile()
+            return
+        }
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            captureStatus = "A clip title can’t be empty."
+            updateDockTile()
+            return
+        }
         do {
-            try store?.updateTitle(id: clip.id, title: title)
+            try store.updateTitle(id: clip.id, title: trimmed)
             if let index = clips.firstIndex(where: { $0.id == clip.id }) {
-                clips[index].title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+                clips[index].title = trimmed
                 clips[index].updatedAt = Date()
             }
             captureStatus = "Title saved"
@@ -410,13 +448,18 @@ final class ClipVaultViewModel {
     }
 
     func updateTags(for clip: Clip, tagsText: String) {
+        guard let store else {
+            captureStatus = "Storage is not ready. Try again."
+            updateDockTile()
+            return
+        }
         let tags = tagsText
             .split(separator: ",")
             .map(String.init)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
         do {
-            try store?.updateTags(id: clip.id, tags: tags)
+            try store.updateTags(id: clip.id, tags: tags)
             if let index = clips.firstIndex(where: { $0.id == clip.id }) {
                 clips[index].tags = Array(Set(tags)).sorted()
                 clips[index].updatedAt = Date()
@@ -431,8 +474,13 @@ final class ClipVaultViewModel {
     }
 
     func delete(_ clip: Clip) {
+        guard let store else {
+            captureStatus = "Storage is not ready. Try again."
+            updateDockTile()
+            return
+        }
         do {
-            try store?.delete(id: clip.id)
+            try store.delete(id: clip.id)
             clips.removeAll { $0.id == clip.id }
             selectedClipIDs.remove(clip.id)
             selectFirstVisibleResultIfNeeded()
@@ -446,11 +494,14 @@ final class ClipVaultViewModel {
     }
 
     func clearUnpinnedClips() {
+        guard let store else {
+            captureStatus = "Storage is not ready. Try again."
+            updateDockTile()
+            return
+        }
         do {
             let removable = clips.filter { !$0.isPinned }
-            for clip in removable {
-                try store?.delete(id: clip.id)
-            }
+            try store.delete(ids: removable.map(\.id))
             clips.removeAll { !$0.isPinned }
             selectedClipIDs = selectedClipIDs.intersection(Set(clips.map(\.id)))
             selectFirstVisibleResultIfNeeded()
@@ -486,9 +537,14 @@ final class ClipVaultViewModel {
     }
 
     func deleteCleanupCandidates(for filter: CleanupFilter) {
+        guard let store else {
+            captureStatus = "Storage is not ready. Try again."
+            updateDockTile()
+            return
+        }
         let candidates = cleanupCandidates(for: filter)
         do {
-            try store?.delete(ids: candidates.map(\.id))
+            try store.delete(ids: candidates.map(\.id))
             let ids = Set(candidates.map(\.id))
             clips.removeAll { ids.contains($0.id) }
             selectedClipIDs.subtract(ids)
@@ -564,6 +620,11 @@ final class ClipVaultViewModel {
     }
 
     func createCollection(title: String, parentFolderID: String?) {
+        guard let store else {
+            captureStatus = "Storage is not ready. Try again."
+            updateDockTile()
+            return
+        }
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             return
@@ -578,7 +639,7 @@ final class ClipVaultViewModel {
         collections.append(collection)
         let folder = CollectionFolder(title: trimmed, collectionID: id)
         do {
-            try store?.saveFolder(folder, parentID: parentFolderID, sortOrder: collections.count)
+            try store.saveFolder(folder, parentID: parentFolderID, sortOrder: collections.count)
             insert(folder, under: parentFolderID)
             captureStatus = "Created collection"
         } catch {
@@ -589,32 +650,23 @@ final class ClipVaultViewModel {
         updateDockTile()
     }
 
-    func addSelectedClips(toCollectionID collectionID: String) {
+    func moveSelectedClips(toCollectionID collectionID: String) {
         let ids = selectedClipIDs.isEmpty ? selectedClip.map { [$0.id] } ?? [] : Array(selectedClipIDs)
-        guard !ids.isEmpty else {
-            captureStatus = "Select clips first"
-            return
-        }
-        guard let store else {
-            captureStatus = "Storage is not ready. Try again."
-            updateDockTile()
-            return
-        }
-
-        do {
-            let updatedClips = try store.addClips(ids: ids, toCollectionID: collectionID)
-            mergeUpdatedClips(updatedClips)
-            captureStatus = "Added \(ids.count) clips to collection"
-            updateDockTile()
-        } catch {
-            Self.logFailure(operation: "assign_custom_collection", error: error)
-            captureStatus = error.localizedDescription
-            updateDockTile()
-        }
+        _ = moveClips(ids: ids, toCollectionID: collectionID)
     }
 
     @discardableResult
     func moveClip(id: String, toCollectionID collectionID: String) -> Bool {
+        moveClips(ids: [id], toCollectionID: collectionID)
+    }
+
+    @discardableResult
+    private func moveClips(ids: [String], toCollectionID collectionID: String) -> Bool {
+        guard !ids.isEmpty else {
+            captureStatus = "Select clips first"
+            updateDockTile()
+            return false
+        }
         guard let destination = flatten(moveDestinationFolders).first(where: {
             $0.collectionID == collectionID
         }), let destinationID = destination.collectionID else {
@@ -633,9 +685,10 @@ final class ClipVaultViewModel {
         }
 
         do {
-            let updatedClips = try store.moveClips(ids: [id], toCollectionID: destinationID)
+            let updatedClips = try store.moveClips(ids: ids, toCollectionID: destinationID)
+            selectedClipIDs.subtract(ids)
             mergeUpdatedClips(updatedClips)
-            captureStatus = "Moved to \(destination.title)"
+            captureStatus = "Moved \(updatedClips.count == 1 ? "clip" : "\(updatedClips.count) clips") to \(destination.title)"
             updateDockTile()
             return true
         } catch {
@@ -651,6 +704,11 @@ final class ClipVaultViewModel {
     }
 
     func createFolder(title: String, parentFolderID: String?) {
+        guard let store else {
+            captureStatus = "Storage is not ready. Try again."
+            updateDockTile()
+            return
+        }
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             return
@@ -661,7 +719,7 @@ final class ClipVaultViewModel {
         }
         let folder = CollectionFolder(title: trimmed)
         do {
-            try store?.saveFolder(folder, parentID: parentFolderID, sortOrder: folders.count)
+            try store.saveFolder(folder, parentID: parentFolderID, sortOrder: folders.count)
             insert(folder, under: parentFolderID)
             captureStatus = "Created folder"
         } catch {
@@ -672,8 +730,13 @@ final class ClipVaultViewModel {
     }
 
     func updateFolder(id: String, title: String, parentFolderID: String?) {
+        guard let store else {
+            captureStatus = "Storage is not ready. Try again."
+            updateDockTile()
+            return
+        }
         do {
-            try store?.updateFolder(id: id, title: title, parentID: parentFolderID)
+            try store.updateFolder(id: id, title: title, parentID: parentFolderID)
             reload()
             captureStatus = "Updated workspace item"
         } catch {
@@ -684,9 +747,14 @@ final class ClipVaultViewModel {
     }
 
     func deleteFolder(_ folder: CollectionFolder) {
+        guard let store else {
+            captureStatus = "Storage is not ready. Try again."
+            updateDockTile()
+            return
+        }
         do {
             let removedCollectionIDs = Set(flatten([folder]).compactMap(\.collectionID))
-            try store?.deleteFolder(id: folder.id)
+            try store.deleteFolder(id: folder.id)
             if removedCollectionIDs.contains(selectedCollectionID) {
                 selectedCollectionID = "all"
             }
@@ -910,11 +978,7 @@ final class ClipVaultViewModel {
     }
 
     private func updateDockTile() {
-        DockTileController.shared.update(
-            clips: clips,
-            isCapturing: isCapturing,
-            captureStatus: captureStatus
-        )
+        dockTileUpdater(clips, isCapturing, captureStatus)
     }
 
     private var configuredRetentionDays: Int {

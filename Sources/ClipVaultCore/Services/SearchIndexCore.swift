@@ -129,6 +129,8 @@ public struct ClipSearchProjection {
 
     private let searcher: any ClipSearching
     private var rankingExpiresAt = Date.distantPast
+    private var sourceClips: [Clip] = []
+    private var sourceSearchText: String?
 
     public init(searcher: any ClipSearching = ClipSearcher()) {
         self.searcher = searcher
@@ -140,6 +142,8 @@ public struct ClipSearchProjection {
         workspaceCollectionID: String,
         now: Date = Date()
     ) {
+        sourceClips = clips
+        sourceSearchText = searchText
         menuBarResults = searcher.search(
             clips,
             query: MenuBarPresentationPolicy.searchQuery(
@@ -148,17 +152,7 @@ public struct ClipSearchProjection {
             )
         )
 
-        guard workspaceCollectionID != "all" else {
-            workspaceResults = menuBarResults
-            rankingExpiresAt = now.addingTimeInterval(Self.rankingRefreshInterval)
-            return
-        }
-
-        refreshWorkspace(
-            clips: clips,
-            searchText: searchText,
-            workspaceCollectionID: workspaceCollectionID
-        )
+        filterWorkspace(collectionID: workspaceCollectionID)
         rankingExpiresAt = now.addingTimeInterval(Self.rankingRefreshInterval)
     }
 
@@ -187,10 +181,16 @@ public struct ClipSearchProjection {
         searchText: String,
         workspaceCollectionID: String
     ) {
-        let collectionID = workspaceCollectionID == "all" ? nil : workspaceCollectionID
-        workspaceResults = searcher.search(
-            clips,
-            query: SearchQuery(text: searchText, collectionID: collectionID)
-        )
+        guard clips == sourceClips, searchText == sourceSearchText else {
+            refreshAll(clips: clips, searchText: searchText, workspaceCollectionID: workspaceCollectionID)
+            return
+        }
+        filterWorkspace(collectionID: workspaceCollectionID)
+    }
+
+    private mutating func filterWorkspace(collectionID: String) {
+        workspaceResults = collectionID == "all"
+            ? menuBarResults
+            : menuBarResults.filter { $0.clip.collectionIDs.contains(collectionID) }
     }
 }

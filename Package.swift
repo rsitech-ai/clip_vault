@@ -28,6 +28,10 @@ let package = Package(
         .testTarget(
             name: "ClipVaultCoreTests",
             dependencies: ["ClipVaultCore"]
+        ),
+        .testTarget(
+            name: "ClipVaultAppTests",
+            dependencies: ["ClipVault", "ClipVaultCore"]
         )
     ]
 )

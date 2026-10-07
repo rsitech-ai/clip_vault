@@ -5,6 +5,161 @@ import Testing
 @Suite("Clipboard capture service")
 struct ClipboardCaptureServiceTests {
     @MainActor
+    @Test("capture retries declared content fulfilled after its ownership change")
+    func capturesDelayedPasteboardFulfillment() async throws {
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        let service = ClipboardCaptureService(pasteboard: pasteboard)
+        var capturedTexts: [String] = []
+        service.onClipCaptured = { payload, _ in capturedTexts.append(payload.displayText) }
+        service.start(interval: 60)
+        defer { service.stop() }
+
+        pasteboard.declareTypes([.string], owner: nil)
+        let changeCount = pasteboard.changeCount
+        let now = Date()
+        service.poll(now: now)
+        try await Task.sleep(for: .milliseconds(50))
+        let text = "Delayed external clipboard fulfillment"
+        pasteboard.setString(text, forType: .string)
+        #expect(pasteboard.changeCount == changeCount)
+        service.poll(now: now.addingTimeInterval(0.3))
+        for _ in 0..<100 where capturedTexts.isEmpty {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(capturedTexts == [text])
+    }
+
+    @MainActor
+    @Test("initially absent types or empty text can be fulfilled under the same ownership", arguments: [true, false])
+    func capturesInitiallyEmptyContent(noTypes: Bool) async throws {
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        let service = ClipboardCaptureService(pasteboard: pasteboard)
+        var capturedTexts: [String] = []
+        service.onClipCaptured = { payload, _ in capturedTexts.append(payload.displayText) }
+        service.start(interval: 60)
+        defer { service.stop() }
+        pasteboard.clearContents()
+        if !noTypes { pasteboard.setString("", forType: .string) }
+        let changeCount = pasteboard.changeCount
+        let now = Date()
+        service.poll(now: now)
+        pasteboard.setString("Fulfilled after empty content", forType: .string)
+        #expect(pasteboard.changeCount == changeCount)
+        service.poll(now: now.addingTimeInterval(0.3))
+        for _ in 0..<100 where capturedTexts.isEmpty {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(capturedTexts == ["Fulfilled after empty content"])
+    }
+
+    @MainActor
+    @Test("the timer captures delayed content once without a second ownership change")
+    func timerCapturesDelayedContentOnce() async throws {
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        let service = ClipboardCaptureService(pasteboard: pasteboard)
+        var capturedTexts: [String] = []
+        service.onClipCaptured = { payload, _ in capturedTexts.append(payload.displayText) }
+        service.start(interval: 0.025)
+        defer { service.stop() }
+        pasteboard.declareTypes([.string], owner: nil)
+        service.poll()
+        let changeCount = pasteboard.changeCount
+        try await Task.sleep(for: .milliseconds(50))
+        pasteboard.setString("Delayed timer content", forType: .string)
+        #expect(pasteboard.changeCount == changeCount)
+        for _ in 0..<100 where capturedTexts.isEmpty {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(capturedTexts == ["Delayed timer content"])
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(capturedTexts.count == 1)
+    }
+
+    @MainActor
+    @Test("a superseded unfulfilled copy cannot block the next valid capture")
+    func supersededDeferredReadDoesNotBlock() async throws {
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        let service = ClipboardCaptureService(pasteboard: pasteboard)
+        var capturedTexts: [String] = []
+        service.onClipCaptured = { payload, _ in capturedTexts.append(payload.displayText) }
+        service.start(interval: 60)
+        defer { service.stop() }
+        pasteboard.declareTypes([.string], owner: nil)
+        service.poll()
+        pasteboard.clearContents()
+        pasteboard.setString("New ownership", forType: .string)
+        service.poll()
+        for _ in 0..<100 where capturedTexts.isEmpty {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(capturedTexts == ["New ownership"])
+    }
+
+    @MainActor
+    @Test("consuming or restarting capture cancels deferred reads")
+    func deferredReadInvalidation() async throws {
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        let service = ClipboardCaptureService(pasteboard: pasteboard)
+        var capturedTexts: [String] = []
+        service.onClipCaptured = { payload, _ in capturedTexts.append(payload.displayText) }
+        service.start(interval: 60)
+        defer { service.stop() }
+        let now = Date()
+        pasteboard.declareTypes([.string], owner: nil)
+        service.poll(now: now)
+        pasteboard.setString("Self copy", forType: .string)
+        service.consumeCurrentPasteboardChange()
+        service.poll(now: now.addingTimeInterval(10))
+        pasteboard.declareTypes([.string], owner: nil)
+        service.poll(now: now.addingTimeInterval(20))
+        service.stop()
+        pasteboard.setString("Fulfilled while paused", forType: .string)
+        service.start(interval: 60)
+        service.poll(now: now.addingTimeInterval(30))
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(capturedTexts.isEmpty)
+    }
+
+    @MainActor
+    @Test("capture observes externally supplied clipboard content without rewriting it")
+    func captureDoesNotRewriteExternalClipboard() async throws {
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        let service = ClipboardCaptureService(pasteboard: pasteboard)
+        var capturedPayload: ClipPayload?
+        service.onClipCaptured = { payload, _ in capturedPayload = payload }
+        service.start(interval: 60)
+        defer { service.stop() }
+
+        let text = "External device text 📱 — zażółć gęślą jaźń\nSecond line"
+        let originType = NSPasteboard.PasteboardType("com.apple.is-remote-clipboard")
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+        pasteboard.setData(Data([1]), forType: originType)
+        let changeCount = pasteboard.changeCount
+        let types = pasteboard.types
+        service.poll()
+        for _ in 0..<100 where capturedPayload == nil {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        #expect(capturedPayload?.displayText == text)
+        #expect(pasteboard.changeCount == changeCount)
+        #expect(pasteboard.types == types)
+        #expect(pasteboard.string(forType: .string) == text)
+        #expect(pasteboard.data(forType: originType) == Data([1]))
+        service.consumeCurrentPasteboardChange()
+        service.stop()
+        #expect(pasteboard.changeCount == changeCount)
+        #expect(pasteboard.string(forType: .string) == text)
+    }
+
+    @MainActor
     @Test("default monitoring captures full copied text promptly")
     func defaultMonitoringCapturesExactTextPromptly() async throws {
         let pasteboard = NSPasteboard(

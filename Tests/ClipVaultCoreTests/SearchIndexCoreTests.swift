@@ -31,7 +31,7 @@ struct SearchIndexCoreTests {
             workspaceCollectionID: "code"
         )
 
-        #expect(searcher.callCount == 2)
+        #expect(searcher.callCount == 1)
         #expect(projection.workspaceResults.map(\.id) == [code.id])
         #expect(projection.menuBarResults.map(\.id) == [code.id, image.id])
 
@@ -39,16 +39,63 @@ struct SearchIndexCoreTests {
             _ = projection.workspaceResults
             _ = projection.menuBarResults
         }
-        #expect(searcher.callCount == 2)
+        #expect(searcher.callCount == 1)
 
         projection.refreshWorkspace(
             clips: [code, image],
             searchText: "",
             workspaceCollectionID: "images"
         )
-        #expect(searcher.callCount == 3)
+        #expect(searcher.callCount == 1)
         #expect(projection.workspaceResults.map(\.id) == [image.id])
         #expect(projection.menuBarResults.map(\.id) == [code.id, image.id])
+    }
+
+    @Test("workspace filtering keeps matching order and refreshes changed source inputs")
+    func workspaceFilteringRefreshesInputs() {
+        var first = Clip(
+            id: "first", kind: .text, title: "First", preview: "First", extractedText: "First",
+            collectionIDs: ["source"]
+        )
+        let second = Clip(
+            id: "second", kind: .text, title: "Second", preview: "Second", extractedText: "Second",
+            collectionIDs: ["source"]
+        )
+        let searcher = CountingClipSearcher()
+        var projection = ClipSearchProjection(searcher: searcher)
+        projection.refreshAll(clips: [second, first], searchText: "", workspaceCollectionID: "source")
+        #expect(projection.workspaceResults.map(\.id) == [second.id, first.id])
+        first.collectionIDs = ["destination"]
+        projection.refreshWorkspace(clips: [second, first], searchText: "", workspaceCollectionID: "source")
+        #expect(projection.workspaceResults.map(\.id) == [second.id])
+        #expect(projection.menuBarResults.last?.clip.collectionIDs == ["destination"])
+        #expect(searcher.callCount == 2)
+        projection.refreshWorkspace(clips: [second, first], searchText: "changed", workspaceCollectionID: "destination")
+        #expect(searcher.callCount == 3)
+        #expect(projection.workspaceResults.map(\.id) == [first.id])
+    }
+
+    @Test("release workload for repeated collection switching")
+    func collectionSwitchBenchmark() {
+        guard ProcessInfo.processInfo.environment["CLIPVAULT_BENCHMARK"] == "1" else { return }
+        let clips = (0..<2_000).map { index in
+            Clip(
+                id: "fixture-\(index)", kind: .text, title: "Research \(index)",
+                preview: "Collection switching performance fixture",
+                extractedText: "Research notes for collection switching performance fixture \(index)",
+                collectionIDs: ["collection-\(index % 5)"]
+            )
+        }
+        var projection = ClipSearchProjection()
+        projection.refreshAll(clips: clips, searchText: "research", workspaceCollectionID: "all")
+        let start = ContinuousClock.now
+        for index in 0..<100 {
+            projection.refreshWorkspace(
+                clips: clips, searchText: "research", workspaceCollectionID: "collection-\(index % 5)"
+            )
+        }
+        print("CLIPVAULT_BENCHMARK collection_switches=100 clips=2000 duration=\(start.duration(to: .now))")
+        #expect(projection.workspaceResults.count == 400)
     }
 
     @Test("all-clips workspace reuses the menu projection")

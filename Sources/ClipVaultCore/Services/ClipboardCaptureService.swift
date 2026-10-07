@@ -18,6 +18,7 @@ public final class ClipboardCaptureService {
     private var nextCaptureSequence: UInt = 0
     private var nextDeliverySequence: UInt = 0
     private var completedCaptures: [UInt: CompletedCapture] = [:]
+    private var deferredRead: DeferredPasteboardRead?
 
     public convenience init(pasteboard: NSPasteboard = .general) {
         self.init(pasteboard: pasteboard) { snapshot in
@@ -43,6 +44,7 @@ public final class ClipboardCaptureService {
         nextCaptureSequence = 0
         nextDeliverySequence = 0
         completedCaptures.removeAll()
+        deferredRead = nil
         isRunning = true
         timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             Task { @MainActor in
@@ -57,19 +59,44 @@ public final class ClipboardCaptureService {
         isRunning = false
         lifecycleGeneration &+= 1
         completedCaptures.removeAll()
+        deferredRead = nil
     }
 
     public func consumeCurrentPasteboardChange() {
         lastChangeCount = pasteboard.changeCount
+        deferredRead = nil
     }
 
-    public func poll() {
-        guard isRunning, pasteboard.changeCount != lastChangeCount else {
+    public func poll(now: Date = Date()) {
+        guard isRunning else { return }
+        let changeCount = pasteboard.changeCount
+        let ownershipChanged = changeCount != lastChangeCount
+        guard ownershipChanged || deferredRead?.isDue(changeCount: changeCount, now: now) == true else {
             return
         }
 
-        lastChangeCount = pasteboard.changeCount
+        if ownershipChanged { deferredRead = nil }
+        lastChangeCount = changeCount
         let snapshot = Self.snapshot(from: pasteboard)
+        guard pasteboard.changeCount == changeCount else {
+            deferredRead = nil
+            return
+        }
+        if !snapshot.hasReadableContent {
+            // Ownership can change before a promised/remote representation is fulfilled.
+            // A clear may also precede type declaration under the same ownership.
+            if snapshot.hasSupportedRepresentation || snapshot.uniformTypeIdentifiers.isEmpty {
+                deferredRead = DeferredPasteboardRead(
+                    changeCount: changeCount,
+                    attempt: (deferredRead?.attempt ?? -1) + 1,
+                    now: now
+                )
+            } else {
+                deferredRead = nil
+            }
+            return
+        }
+        deferredRead = nil
         let sourceApp = NSWorkspace.shared.frontmostApplication?.localizedName
         let generation = lifecycleGeneration
         let sequence = nextCaptureSequence
@@ -284,6 +311,22 @@ private struct CompletedCapture {
     var sourceApp: String?
 }
 
+private struct DeferredPasteboardRead {
+    let changeCount: Int
+    let attempt: Int
+    let nextAttemptAt: Date
+
+    init(changeCount: Int, attempt: Int, now: Date) {
+        self.changeCount = changeCount
+        self.attempt = min(attempt, 3)
+        nextAttemptAt = now.addingTimeInterval(0.25 * pow(2, Double(self.attempt)))
+    }
+
+    func isDue(changeCount: Int, now: Date) -> Bool {
+        self.changeCount == changeCount && now >= nextAttemptAt
+    }
+}
+
 struct PasteboardSnapshot: Sendable {
     var uniformTypeIdentifiers: [String]
     var string: String?
@@ -293,4 +336,17 @@ struct PasteboardSnapshot: Sendable {
     var pngData: Data?
     var objectImageData: Data?
     var filePaths: [String]
+
+    var hasReadableContent: Bool {
+        string?.isEmpty == false || urlString?.isEmpty == false || !filePaths.isEmpty
+            || [rtfData, tiffData, pngData, objectImageData].contains { $0?.isEmpty == false }
+    }
+
+    var hasSupportedRepresentation: Bool {
+        uniformTypeIdentifiers.contains { rawType in
+            guard let type = UTType(rawType) else { return false }
+            return type.conforms(to: .plainText) || type.conforms(to: .rtf)
+                || type.conforms(to: .url) || type.conforms(to: .image)
+        }
+    }
 }

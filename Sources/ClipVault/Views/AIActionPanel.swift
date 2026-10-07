@@ -315,7 +315,7 @@ struct InlineAIResultView: View {
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
                 if !result.citedClipIDs.isEmpty {
-                    Text("\(result.citedClipIDs.count) \(result.citedClipIDs.count == 1 ? "clip" : "clips") cited")
+                    Text("\(result.citedClipIDs.count) source \(result.citedClipIDs.count == 1 ? "clip" : "clips")")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

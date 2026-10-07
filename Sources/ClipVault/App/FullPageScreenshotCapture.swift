@@ -121,7 +121,7 @@ enum FullPageScreenshotCapture {
                             ?? "Could not capture window \(target.windowID) (\(target.ownerName))."
                     )
                 }
-                break
+                return .failure(lastCaptureError ?? "Scrolling capture stopped before the page was complete.")
             }
 
             // Crop browser chrome so tab bars are not duplicated while stitching.

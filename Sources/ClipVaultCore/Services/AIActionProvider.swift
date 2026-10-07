@@ -104,25 +104,40 @@ public struct LocalClipAIActionProvider: AIActionProviding {
 
     private func fallbackResult(for request: AIActionRequest) -> AIActionResult {
         let content: String
+        let sourceIDs: [String]
         switch request.kind {
         case .ask:
             content = answerQuestion(for: request)
+            let evidence = rankedEvidence(for: trimmedQuestion(for: request), clips: request.clips)
+            sourceIDs = evidence.isEmpty
+                ? request.clips.prefix(3).map(\.id)
+                : usedSourceIDs(in: evidence, clips: request.clips)
         case .summarize:
             content = summarize(request.clips)
+            sourceIDs = request.clips.prefix(5).map(\.id)
         case .explain:
             content = explain(request.clips)
+            sourceIDs = request.clips.prefix(5).map(\.id)
         case .email:
             content = draftEmail(from: request.clips)
+            sourceIDs = request.clips.prefix(3).map(\.id)
         case .todos:
             content = todos(from: request.clips)
+            let evidence = rankedEvidence(for: "todo task action next follow up deadline owner", clips: request.clips)
+            sourceIDs = usedSourceIDs(in: evidence, clips: request.clips)
         }
 
         return AIActionResult(
             title: request.kind == .ask ? "Ask" : "\(request.kind.title) local",
             content: prefixed(content),
-            citedClipIDs: request.clips.map(\.id),
+            citedClipIDs: sourceIDs,
             isFallback: true
         )
+    }
+
+    private func usedSourceIDs(in evidence: [EvidenceLine], clips: [Clip]) -> [String] {
+        let usedIndexes = Set(evidence.map(\.clipIndex))
+        return clips.enumerated().compactMap { usedIndexes.contains($0.offset) ? $0.element.id : nil }
     }
 
     private func answerQuestion(for request: AIActionRequest) -> String {

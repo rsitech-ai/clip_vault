@@ -494,7 +494,7 @@ public final class SwiftDataClipStore: ClipStoring {
     private let sensitiveRules: SensitiveRuleEngine
     private let index: any SearchIndexing
     private let retentionPolicy: RetentionPolicy
-    private let saveFolderContext: (ModelContext) throws -> Void
+    private let saveContext: (ModelContext) throws -> Void
     private let previewTransformer: (Data) -> Data?
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
@@ -511,7 +511,7 @@ public final class SwiftDataClipStore: ClipStoring {
         self.sensitiveRules = sensitiveRules
         self.index = index
         self.retentionPolicy = retentionPolicy
-        self.saveFolderContext = { try $0.save() }
+        self.saveContext = { try $0.save() }
         self.previewTransformer = ClipPreviewThumbnailer.thumbnailData
     }
 
@@ -526,19 +526,21 @@ public final class SwiftDataClipStore: ClipStoring {
         self.sensitiveRules = .default
         self.index = RustSearchIndexCore()
         self.retentionPolicy = .default
-        self.saveFolderContext = saveContext
+        self.saveContext = saveContext
         self.previewTransformer = previewTransformer
     }
 
     public func allClips() throws -> [Clip] {
-        let descriptor = FetchDescriptor<ClipRecord>(
-            sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
-        )
-        let clips = try context.fetch(descriptor).compactMap(recordToClip)
-        if context.hasChanges {
-            try context.save()
+        try withRollback {
+            let descriptor = FetchDescriptor<ClipRecord>(
+                sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
+            )
+            let clips = try context.fetch(descriptor).compactMap(recordToClip)
+            if context.hasChanges {
+                try saveContext(context)
+            }
+            return clips
         }
-        return clips
     }
 
     public func folders() throws -> [CollectionFolder] {
@@ -554,7 +556,7 @@ public final class SwiftDataClipStore: ClipStoring {
     }
 
     public func reconcileWorkspaceDefaults() throws {
-        try withFolderRollback {
+        try withRollback {
             let records = try context.fetch(FetchDescriptor<FolderRecord>())
             let reconciliation = try WorkspacePromptsReconciliation.plan(
                 for: folderTree(from: records, parentID: nil)
@@ -600,7 +602,7 @@ public final class SwiftDataClipStore: ClipStoring {
             }
 
             if didChange {
-                try saveFolderContext(context)
+                try saveContext(context)
             }
         }
     }
@@ -621,63 +623,72 @@ public final class SwiftDataClipStore: ClipStoring {
     }
 
     public func save(payload: ClipPayload, sourceApp: String? = nil) throws -> Clip? {
-        let classification = sensitiveRules.classify(payload.extractedText)
-        guard !classification.isExcluded else {
-            return nil
-        }
+        try withRollback {
+            let classification = sensitiveRules.classify(payload.extractedText)
+            guard !classification.isExcluded else {
+                return nil
+            }
 
-        let fingerprint = index.fingerprint(payload.searchableText)
-        let existingDescriptor = FetchDescriptor<ClipRecord>(
-            predicate: #Predicate { record in record.fingerprintValue == fingerprint }
-        )
-        let existing = try context.fetch(existingDescriptor).first
+            let identity = ClipDuplicateIdentity(payload: payload, index: index)
+            let fingerprint = identity.fingerprint
+            let legacyFingerprint = identity.legacyFingerprint
+            let existingDescriptor = FetchDescriptor<ClipRecord>(
+                predicate: #Predicate { record in
+                    record.fingerprintValue == fingerprint || record.fingerprintValue == legacyFingerprint
+                }
+            )
+            let existing = try context.fetch(existingDescriptor).first { record in
+                try identity.matches(self.payload(from: record))
+            }
 
-        if let existing {
-            var details = try details(from: existing)
-            let capturedAt = Date()
-            existing.copyCount = (existing.copyCount ?? 1) + 1
-            existing.createdAt = capturedAt
-            existing.updatedAt = capturedAt
+            if let existing {
+                var details = try details(from: existing)
+                let capturedAt = Date()
+                existing.fingerprintValue = fingerprint
+                existing.copyCount = (existing.copyCount ?? 1) + 1
+                existing.createdAt = capturedAt
+                existing.updatedAt = capturedAt
+                let data = try encoder.encode(payload)
+                existing.encryptedPayload = try encryptor.encrypt(data)
+                details.listPayload = listPayload(for: payload)
+                existing.encryptedListPayload = try encryptedDetailsPayload(details)
+                clearPlaintextDetails(on: existing)
+                try saveContext(context)
+                return try recordToClip(existing)
+            }
+
+            let listPayload = listPayload(for: payload)
+            let clip = Clip(
+                kind: listPayload.kind,
+                title: title(for: listPayload),
+                preview: listPayload.displayText,
+                extractedText: listPayload.extractedText,
+                collectionIDs: BuiltInCollectionAssignment.ids(for: listPayload.kind),
+                sourceApp: sourceApp,
+                fingerprint: fingerprint,
+                previewData: listPayload.previewData,
+                metadata: listPayload.metadata
+            )
+
             let data = try encoder.encode(payload)
-            existing.encryptedPayload = try encryptor.encrypt(data)
-            details.listPayload = listPayload(for: payload)
-            existing.encryptedListPayload = try encryptedDetailsPayload(details)
-            clearPlaintextDetails(on: existing)
-            try context.save()
-            return try recordToClip(existing)
+            let encrypted = try encryptor.encrypt(data)
+            let encryptedDetails = try encryptedDetailsPayload(EncryptedClipDetails(
+                listPayload: listPayload,
+                title: clip.title,
+                userNote: clip.userNote,
+                tags: clip.tags,
+                sourceApp: clip.sourceApp
+            ))
+            let record = ClipRecord(
+                clip: clip,
+                encryptedPayload: encrypted,
+                encryptedListPayload: encryptedDetails
+            )
+            clearPlaintextDetails(on: record)
+            context.insert(record)
+            try saveContext(context)
+            return clip
         }
-
-        let listPayload = listPayload(for: payload)
-        let clip = Clip(
-            kind: listPayload.kind,
-            title: title(for: listPayload),
-            preview: listPayload.displayText,
-            extractedText: listPayload.extractedText,
-            collectionIDs: BuiltInCollectionAssignment.ids(for: listPayload.kind),
-            sourceApp: sourceApp,
-            fingerprint: fingerprint,
-            previewData: listPayload.previewData,
-            metadata: listPayload.metadata
-        )
-
-        let data = try encoder.encode(payload)
-        let encrypted = try encryptor.encrypt(data)
-        let encryptedDetails = try encryptedDetailsPayload(EncryptedClipDetails(
-            listPayload: listPayload,
-            title: clip.title,
-            userNote: clip.userNote,
-            tags: clip.tags,
-            sourceApp: clip.sourceApp
-        ))
-        let record = ClipRecord(
-            clip: clip,
-            encryptedPayload: encrypted,
-            encryptedListPayload: encryptedDetails
-        )
-        clearPlaintextDetails(on: record)
-        context.insert(record)
-        try context.save()
-        return clip
     }
 
     public func saveGeneratedPrompts(_ drafts: [GeneratedPromptDraft]) throws -> [Clip] {
@@ -730,7 +741,7 @@ public final class SwiftDataClipStore: ClipStoring {
                 ))
             }
             do {
-                try saveFolderContext(context)
+                try saveContext(context)
             } catch {
                 throw GeneratedPromptStoreError.batchSaveFailed(prepared.map(\.sourceClipID))
             }
@@ -743,7 +754,7 @@ public final class SwiftDataClipStore: ClipStoring {
 
     @discardableResult
     public func addClips(ids: [String], toCollectionID collectionID: String) throws -> [Clip] {
-        try withFolderRollback {
+        try withRollback {
             let destination = collectionID.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !destination.isEmpty else {
                 return []
@@ -767,14 +778,14 @@ public final class SwiftDataClipStore: ClipStoring {
                 }
             }
             let updatedClips = try records.compactMap(recordToClip)
-            try saveFolderContext(context)
+            try saveContext(context)
             return updatedClips
         }
     }
 
     @discardableResult
     public func moveClips(ids: [String], toCollectionID collectionID: String) throws -> [Clip] {
-        try withFolderRollback {
+        try withRollback {
             let requestedIDs = Set(ids)
             guard !requestedIDs.isEmpty else { throw ClipCollectionMoveError.noClips }
 
@@ -802,80 +813,90 @@ public final class SwiftDataClipStore: ClipStoring {
                 record.updatedAt = Date()
             }
             let updatedClips = try records.compactMap(recordToClip)
-            try saveFolderContext(context)
+            try saveContext(context)
             return updatedClips
         }
     }
 
     @discardableResult
     public func togglePinned(id: String) throws -> Clip? {
-        let descriptor = FetchDescriptor<ClipRecord>(
-            predicate: #Predicate { record in record.id == id }
-        )
-        guard let record = try context.fetch(descriptor).first else {
-            return nil
-        }
+        try withRollback {
+            let descriptor = FetchDescriptor<ClipRecord>(
+                predicate: #Predicate { record in record.id == id }
+            )
+            guard let record = try context.fetch(descriptor).first else {
+                return nil
+            }
 
-        record.isPinned.toggle()
-        record.updatedAt = Date()
-        try context.save()
-        return try recordToClip(record)
+            record.isPinned.toggle()
+            record.updatedAt = Date()
+            let updated = try recordToClip(record)
+            try saveContext(context)
+            return updated
+
+        }
     }
 
     public func updateNote(id: String, note: String) throws {
-        let descriptor = FetchDescriptor<ClipRecord>(
-            predicate: #Predicate { record in record.id == id }
-        )
-        guard let record = try context.fetch(descriptor).first else {
-            return
-        }
+        try withRollback {
+            let descriptor = FetchDescriptor<ClipRecord>(
+                predicate: #Predicate { record in record.id == id }
+            )
+            guard let record = try context.fetch(descriptor).first else {
+                return
+            }
 
-        var details = try details(from: record)
-        details.userNote = note
-        record.encryptedListPayload = try encryptedDetailsPayload(details)
-        clearPlaintextDetails(on: record)
-        record.updatedAt = Date()
-        try context.save()
+            var details = try details(from: record)
+            details.userNote = note
+            record.encryptedListPayload = try encryptedDetailsPayload(details)
+            clearPlaintextDetails(on: record)
+            record.updatedAt = Date()
+            try saveContext(context)
+        }
     }
 
     public func updateTitle(id: String, title: String) throws {
-        let descriptor = FetchDescriptor<ClipRecord>(
-            predicate: #Predicate { record in record.id == id }
-        )
-        guard let record = try context.fetch(descriptor).first else {
-            return
-        }
+        try withRollback {
+            let descriptor = FetchDescriptor<ClipRecord>(
+                predicate: #Predicate { record in record.id == id }
+            )
+            guard let record = try context.fetch(descriptor).first else {
+                return
+            }
 
-        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            return
+            let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                return
+            }
+            var details = try details(from: record)
+            details.title = trimmed
+            record.encryptedListPayload = try encryptedDetailsPayload(details)
+            clearPlaintextDetails(on: record)
+            record.updatedAt = Date()
+            try saveContext(context)
         }
-        var details = try details(from: record)
-        details.title = trimmed
-        record.encryptedListPayload = try encryptedDetailsPayload(details)
-        clearPlaintextDetails(on: record)
-        record.updatedAt = Date()
-        try context.save()
     }
 
     public func updateTags(id: String, tags: [String]) throws {
-        let descriptor = FetchDescriptor<ClipRecord>(
-            predicate: #Predicate { record in record.id == id }
-        )
-        guard let record = try context.fetch(descriptor).first else {
-            return
-        }
+        try withRollback {
+            let descriptor = FetchDescriptor<ClipRecord>(
+                predicate: #Predicate { record in record.id == id }
+            )
+            guard let record = try context.fetch(descriptor).first else {
+                return
+            }
 
-        var details = try details(from: record)
-        details.tags = normalizedTags(tags)
-        record.encryptedListPayload = try encryptedDetailsPayload(details)
-        clearPlaintextDetails(on: record)
-        record.updatedAt = Date()
-        try context.save()
+            var details = try details(from: record)
+            details.tags = normalizedTags(tags)
+            record.encryptedListPayload = try encryptedDetailsPayload(details)
+            clearPlaintextDetails(on: record)
+            record.updatedAt = Date()
+            try saveContext(context)
+        }
     }
 
     public func saveFolder(_ folder: CollectionFolder, parentID: String?, sortOrder: Int) throws {
-        try withFolderRollback {
+        try withRollback {
             try seedDefaultFoldersIfNeeded()
             let records = try context.fetch(FetchDescriptor<FolderRecord>())
             let parent = records.first(where: { $0.id == parentID }).map(folder(from:))
@@ -886,12 +907,12 @@ public final class SwiftDataClipStore: ClipStoring {
                 existingIDs: Set(records.map(\.id))
             )
             context.insert(FolderRecord(folder: validatedFolder, parentID: parentID, sortOrder: sortOrder))
-            try saveFolderContext(context)
+            try saveContext(context)
         }
     }
 
     public func updateFolder(id: String, title: String, parentID: String?) throws {
-        try withFolderRollback {
+        try withRollback {
             let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else {
                 throw FolderStoreError.emptyTitle
@@ -922,12 +943,12 @@ public final class SwiftDataClipStore: ClipStoring {
             if didMove {
                 record.sortOrder = nextSortOrder(parentID: parentID, in: records)
             }
-            try saveFolderContext(context)
+            try saveContext(context)
         }
     }
 
     public func deleteFolder(id: String) throws {
-        try withFolderRollback {
+        try withRollback {
             let records = try context.fetch(FetchDescriptor<FolderRecord>())
             guard let record = records.first(where: { $0.id == id }) else {
                 throw FolderStoreError.notFound
@@ -956,36 +977,31 @@ public final class SwiftDataClipStore: ClipStoring {
                 }
             }
 
-            try saveFolderContext(context)
+            try saveContext(context)
         }
     }
 
     public func delete(id: String) throws {
-        let descriptor = FetchDescriptor<ClipRecord>(
-            predicate: #Predicate { record in record.id == id }
-        )
-        for record in try context.fetch(descriptor) {
-            context.delete(record)
-        }
-        try context.save()
+        try delete(ids: [id])
     }
 
     public func delete(ids: [String]) throws {
-        for id in ids {
-            try delete(id: id)
-        }
-    }
-
-    public func pruneExpired(now: Date = Date()) throws {
-        for clip in try allClips() where retentionPolicy.shouldExpire(clip, now: now) {
+        let requestedIDs = Array(Set(ids))
+        guard !requestedIDs.isEmpty else { return }
+        try withRollback {
             let descriptor = FetchDescriptor<ClipRecord>(
-                predicate: #Predicate { record in record.id == clip.id }
+                predicate: #Predicate { requestedIDs.contains($0.id) }
             )
             for record in try context.fetch(descriptor) {
                 context.delete(record)
             }
+            try saveContext(context)
         }
-        try context.save()
+    }
+
+    public func pruneExpired(now: Date = Date()) throws {
+        let expiredIDs = try allClips().filter { retentionPolicy.shouldExpire($0, now: now) }.map(\.id)
+        try delete(ids: expiredIDs)
     }
 
     private func recordToClip(_ record: ClipRecord) throws -> Clip? {
@@ -1014,11 +1030,11 @@ public final class SwiftDataClipStore: ClipStoring {
     }
 
     private func seedDefaultFolders() throws {
-        try withFolderRollback {
+        try withRollback {
             for (index, folder) in CollectionFolder.defaults.enumerated() {
                 insertFolderTree(folder, parentID: nil, sortOrder: index)
             }
-            try saveFolderContext(context)
+            try saveContext(context)
         }
     }
 
@@ -1065,7 +1081,7 @@ public final class SwiftDataClipStore: ClipStoring {
         )
     }
 
-    private func withFolderRollback<Result>(_ operation: () throws -> Result) throws -> Result {
+    private func withRollback<Result>(_ operation: () throws -> Result) throws -> Result {
         do {
             return try operation()
         } catch {
@@ -1197,6 +1213,7 @@ public final class SwiftDataClipStore: ClipStoring {
     }
 
     private func clearPlaintextDetails(on record: ClipRecord) {
+        guard hasLegacyPlaintextDetails(record) else { return }
         record.title = ""
         record.preview = ""
         record.sourceApp = nil
@@ -1349,9 +1366,14 @@ public final class InMemoryClipStore: ClipStoring {
         guard !sensitiveRules.classify(payload.extractedText).isExcluded else {
             return nil
         }
-        let fingerprint = index.fingerprint(payload.searchableText)
-        if let existingIndex = clips.firstIndex(where: { $0.fingerprint == fingerprint }) {
+        let identity = ClipDuplicateIdentity(payload: payload, index: index)
+        let fingerprint = identity.fingerprint
+        if let existingIndex = clips.firstIndex(where: {
+            ($0.fingerprint == fingerprint || $0.fingerprint == identity.legacyFingerprint)
+                && payloads[$0.id].map(identity.matches) == true
+        }) {
             let capturedAt = Date()
+            clips[existingIndex].fingerprint = fingerprint
             clips[existingIndex].copyCount += 1
             clips[existingIndex].createdAt = capturedAt
             clips[existingIndex].updatedAt = capturedAt
