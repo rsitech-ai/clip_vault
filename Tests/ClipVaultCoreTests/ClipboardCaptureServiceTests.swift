@@ -5,13 +5,44 @@ import Testing
 @Suite("Clipboard capture service")
 struct ClipboardCaptureServiceTests {
     @MainActor
+    @Test("a stalled payload cannot prevent a later completed capture from being saved")
+    func stalledPayloadDoesNotBlockLaterCapture() async throws {
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        let gate = OrderedPayloadBuilderGate()
+        let service = ClipboardCaptureService(pasteboard: pasteboard) { snapshot in
+            await gate.build(snapshot)
+        }
+        var capturedTexts: [String] = []
+        service.onClipCaptured = { payload, _, _ in capturedTexts.append(payload.displayText) }
+        service.start(interval: 60)
+        defer { service.stop() }
+
+        pasteboard.clearContents()
+        pasteboard.setString("stalled OCR", forType: .string)
+        service.poll()
+        await gate.waitUntilStarted("stalled OCR")
+        pasteboard.clearContents()
+        pasteboard.setString("fresh incoming text", forType: .string)
+        service.poll()
+        await gate.waitUntilStarted("fresh incoming text")
+        await gate.finish("fresh incoming text")
+        for _ in 0..<50 where capturedTexts.isEmpty {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(capturedTexts == ["fresh incoming text"])
+        service.stop()
+        await gate.finish("stalled OCR")
+    }
+
+    @MainActor
     @Test("capture retries declared content fulfilled after its ownership change")
     func capturesDelayedPasteboardFulfillment() async throws {
         let pasteboard = NSPasteboard.withUniqueName()
         defer { pasteboard.releaseGlobally() }
         let service = ClipboardCaptureService(pasteboard: pasteboard)
         var capturedTexts: [String] = []
-        service.onClipCaptured = { payload, _ in capturedTexts.append(payload.displayText) }
+        service.onClipCaptured = { payload, _, _ in capturedTexts.append(payload.displayText) }
         service.start(interval: 60)
         defer { service.stop() }
 
@@ -37,7 +68,7 @@ struct ClipboardCaptureServiceTests {
         defer { pasteboard.releaseGlobally() }
         let service = ClipboardCaptureService(pasteboard: pasteboard)
         var capturedTexts: [String] = []
-        service.onClipCaptured = { payload, _ in capturedTexts.append(payload.displayText) }
+        service.onClipCaptured = { payload, _, _ in capturedTexts.append(payload.displayText) }
         service.start(interval: 60)
         defer { service.stop() }
         pasteboard.clearContents()
@@ -61,7 +92,7 @@ struct ClipboardCaptureServiceTests {
         defer { pasteboard.releaseGlobally() }
         let service = ClipboardCaptureService(pasteboard: pasteboard)
         var capturedTexts: [String] = []
-        service.onClipCaptured = { payload, _ in capturedTexts.append(payload.displayText) }
+        service.onClipCaptured = { payload, _, _ in capturedTexts.append(payload.displayText) }
         service.start(interval: 0.025)
         defer { service.stop() }
         pasteboard.declareTypes([.string], owner: nil)
@@ -85,7 +116,7 @@ struct ClipboardCaptureServiceTests {
         defer { pasteboard.releaseGlobally() }
         let service = ClipboardCaptureService(pasteboard: pasteboard)
         var capturedTexts: [String] = []
-        service.onClipCaptured = { payload, _ in capturedTexts.append(payload.displayText) }
+        service.onClipCaptured = { payload, _, _ in capturedTexts.append(payload.displayText) }
         service.start(interval: 60)
         defer { service.stop() }
         pasteboard.declareTypes([.string], owner: nil)
@@ -106,7 +137,7 @@ struct ClipboardCaptureServiceTests {
         defer { pasteboard.releaseGlobally() }
         let service = ClipboardCaptureService(pasteboard: pasteboard)
         var capturedTexts: [String] = []
-        service.onClipCaptured = { payload, _ in capturedTexts.append(payload.displayText) }
+        service.onClipCaptured = { payload, _, _ in capturedTexts.append(payload.displayText) }
         service.start(interval: 60)
         defer { service.stop() }
         let now = Date()
@@ -132,7 +163,7 @@ struct ClipboardCaptureServiceTests {
         defer { pasteboard.releaseGlobally() }
         let service = ClipboardCaptureService(pasteboard: pasteboard)
         var capturedPayload: ClipPayload?
-        service.onClipCaptured = { payload, _ in capturedPayload = payload }
+        service.onClipCaptured = { payload, _, _ in capturedPayload = payload }
         service.start(interval: 60)
         defer { service.stop() }
 
@@ -172,7 +203,7 @@ struct ClipboardCaptureServiceTests {
         Third line must not be truncated when the payload is captured.
         """
         var capturedPayload: ClipPayload?
-        service.onClipCaptured = { payload, _ in
+        service.onClipCaptured = { payload, _, _ in
             capturedPayload = payload
         }
         service.start()
@@ -194,7 +225,7 @@ struct ClipboardCaptureServiceTests {
         let pasteboard = NSPasteboard(name: NSPasteboard.Name("ClipVaultStartBaselineTest"))
         let service = ClipboardCaptureService(pasteboard: pasteboard)
         var capturedPayloads: [ClipPayload] = []
-        service.onClipCaptured = { payload, _ in
+        service.onClipCaptured = { payload, _, _ in
             capturedPayloads.append(payload)
         }
 
@@ -217,7 +248,7 @@ struct ClipboardCaptureServiceTests {
             await gate.build()
         }
         var capturedPayloads: [ClipPayload] = []
-        service.onClipCaptured = { payload, _ in
+        service.onClipCaptured = { payload, _, _ in
             capturedPayloads.append(payload)
         }
         service.start(interval: 60)
@@ -238,8 +269,8 @@ struct ClipboardCaptureServiceTests {
     }
 
     @MainActor
-    @Test("captures are delivered in clipboard change order when payload work completes out of order")
-    func deliversCapturesInClipboardOrder() async throws {
+    @Test("completed captures make progress independently and retain their observation times")
+    func deliversCompletedCapturesWithObservationTimes() async throws {
         let pasteboard = NSPasteboard(
             name: NSPasteboard.Name("ClipVaultCaptureOrderingTest-\(UUID().uuidString)")
         )
@@ -248,30 +279,38 @@ struct ClipboardCaptureServiceTests {
             await gate.build(snapshot)
         }
         var capturedTexts: [String] = []
-        service.onClipCaptured = { payload, _ in
+        var capturedDates: [Date] = []
+        service.onClipCaptured = { payload, _, date in
             capturedTexts.append(payload.displayText)
+            capturedDates.append(date)
         }
         service.start(interval: 60)
         defer { service.stop() }
+        let firstDate = Date(timeIntervalSince1970: 100)
+        let secondDate = firstDate.addingTimeInterval(1)
 
         pasteboard.clearContents()
         pasteboard.setString("first", forType: .string)
-        service.poll()
+        service.poll(now: firstDate)
         await gate.waitUntilStarted("first")
 
         pasteboard.clearContents()
         pasteboard.setString("second", forType: .string)
-        service.poll()
+        service.poll(now: secondDate)
         await gate.waitUntilStarted("second")
 
         await gate.finish("second")
-        await Task.yield()
+        for _ in 0..<50 where capturedTexts.isEmpty {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(capturedTexts == ["second"])
         await gate.finish("first")
         for _ in 0..<20 where capturedTexts.count < 2 {
             try await Task.sleep(for: .milliseconds(10))
         }
 
-        #expect(capturedTexts == ["first", "second"])
+        #expect(capturedTexts == ["second", "first"])
+        #expect(capturedDates == [secondDate, firstDate])
     }
 
     @MainActor
@@ -285,7 +324,7 @@ struct ClipboardCaptureServiceTests {
             await gate.build(snapshot)
         }
         var capturedTexts: [String] = []
-        service.onClipCaptured = { payload, _ in
+        service.onClipCaptured = { payload, _, _ in
             capturedTexts.append(payload.displayText)
         }
         service.start(interval: 60)
@@ -302,8 +341,10 @@ struct ClipboardCaptureServiceTests {
         await gate.waitUntilStarted("kept")
 
         await gate.finish("kept")
-        await Task.yield()
-        #expect(capturedTexts.isEmpty)
+        for _ in 0..<50 where capturedTexts.isEmpty {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(capturedTexts == ["kept"])
 
         await gate.finishWithoutPayload("ignored")
         for _ in 0..<20 where capturedTexts.isEmpty {

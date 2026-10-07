@@ -199,8 +199,8 @@ final class ClipVaultViewModel {
             return
         }
         store = SwiftDataClipStore(context: context, encryptor: encryptor)
-        captureService.onClipCaptured = { [weak self] payload, sourceApp in
-            self?.ingest(payload: payload, sourceApp: sourceApp)
+        captureService.onClipCaptured = { [weak self] payload, sourceApp, capturedAt in
+            self?.ingest(payload: payload, sourceApp: sourceApp, capturedAt: capturedAt)
         }
         let screenshotHotKeyRegistered = ScreenshotCaptureController.shared.configure { [weak self] didCapture, status in
             self?.captureStatus = status
@@ -953,15 +953,18 @@ final class ClipVaultViewModel {
         selectedClipIDs = restored.selectedClipIDs
     }
 
-    private func ingest(payload: ClipPayload, sourceApp: String?) {
+    func ingest(payload: ClipPayload, sourceApp: String?, capturedAt: Date) {
         do {
-            if let clip = try store?.save(payload: payload, sourceApp: sourceApp) {
+            if let clip = try store?.save(payload: payload, sourceApp: sourceApp, capturedAt: capturedAt) {
                 if let existingIndex = clips.firstIndex(where: { $0.id == clip.id }) {
                     clips[existingIndex] = clip
                 } else {
                     clips.insert(clip, at: 0)
                 }
-                selectedClipID = clip.id
+                clips.sort { $0.createdAt > $1.createdAt }
+                if clip.id == clips.first?.id {
+                    selectedClipID = clip.id
+                }
                 selectFirstVisibleResultIfNeeded()
                 Self.logger.info("Captured clipboard item")
                 captureStatus = "Added to \(payload.kind.title)"

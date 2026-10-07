@@ -6,6 +6,34 @@ import Testing
 @Suite("Payload deduplication", .serialized)
 @MainActor
 struct ClipDeduplicationTests {
+    @Test("late payload completion preserves observation time and cannot regress a newer duplicate")
+    func lateCompletionPreservesHistory() throws {
+        for store in try stores() {
+            let earlier = Date(timeIntervalSince1970: 100)
+            let later = earlier.addingTimeInterval(10)
+            let newest = ClipPayload(kind: .text, displayText: "LATEST case", extractedText: "LATEST case")
+            let oldest = ClipPayload(kind: .text, displayText: "latest case", extractedText: "latest case")
+            let first = try #require(try store.save(payload: newest, sourceApp: "Tests", capturedAt: later))
+            try store.updateNote(id: first.id, note: "Preserve annotation")
+            let lastUpdated = try #require(try store.allClips().first).updatedAt
+            let duplicate = try #require(try store.save(payload: oldest, sourceApp: "Tests", capturedAt: earlier))
+            #expect(duplicate.id == first.id)
+            #expect(duplicate.copyCount == 2)
+            #expect(duplicate.createdAt == later)
+            #expect(duplicate.updatedAt == lastUpdated)
+            #expect(duplicate.userNote == "Preserve annotation")
+            #expect(try store.payload(for: first.id) == newest)
+
+            let oldDistinct = try #require(try store.save(
+                payload: ClipPayload(kind: .text, displayText: "Earlier distinct copy", extractedText: "Earlier distinct copy"),
+                sourceApp: "Tests", capturedAt: earlier
+            ))
+            #expect(oldDistinct.createdAt == earlier)
+            #expect(oldDistinct.updatedAt == earlier)
+            #expect(try store.allClips().map(\.id) == [first.id, oldDistinct.id])
+        }
+    }
+
     @Test("different binary payloads with identical extracted text remain separate", arguments: [ClipKind.image, .richText])
     func preservesBinaryFidelity(kind: ClipKind) throws {
         for store in try stores() {

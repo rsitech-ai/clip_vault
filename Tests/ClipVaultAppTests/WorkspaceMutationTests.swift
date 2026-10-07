@@ -1,4 +1,5 @@
 import ClipVaultCore
+import Foundation
 import SwiftData
 import Testing
 @testable import ClipVault
@@ -6,6 +7,30 @@ import Testing
 @Suite("Workspace mutations")
 @MainActor
 struct WorkspaceMutationTests {
+    @Test("late capture completion preserves visible order and the newest selection")
+    func lateCapturePreservesWorkspaceOrder() throws {
+        let (model, store, initial) = try fixture()
+        let earlier = initial.createdAt.addingTimeInterval(1)
+        let later = earlier.addingTimeInterval(1)
+        model.ingest(
+            payload: ClipPayload(kind: .text, displayText: "Newest capture", extractedText: "Newest capture"),
+            sourceApp: "Tests", capturedAt: later
+        )
+        let newest = try #require(model.selectedClipID)
+        model.ingest(
+            payload: ClipPayload(kind: .text, displayText: "Older delayed capture", extractedText: "Older delayed capture"),
+            sourceApp: "Tests", capturedAt: earlier
+        )
+        #expect(model.selectedClipID == newest)
+        #expect(model.clips.map(\.createdAt) == [later, earlier, initial.createdAt])
+        #expect(model.visibleResults.first?.id == newest)
+        #expect(model.menuBarResults.first?.id == newest)
+        #expect(try store.allClips().map(\.createdAt) == [later, earlier, initial.createdAt])
+        #expect(model.reload())
+        #expect(model.selectedClipID == newest)
+        #expect(model.clips.first?.id == newest)
+    }
+
     @Test("sidebar assignment removes the clip from the source collection immediately")
     func sidebarMoveRefreshesSourceAndDestination() throws {
         let (model, store, clip) = try fixture()
