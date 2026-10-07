@@ -33,6 +33,11 @@ excluded from fixtures and public evidence.
   is handled without logging an error.
 - Local AI source counts now describe the inputs actually used by each action.
   The UI calls these source clips; it does not claim verified citations.
+- Capture previously settled an ownership change while promised content was
+  absent. It now retries empty/supported declared representations under the same
+  ownership, backing off from 250 ms to two seconds. A newer ownership, pause,
+  restart or self-copy clears the pending read. Data already submitted for OCR
+  retains its original delivery order. Clipboard contents are never rewritten.
 
 No persistent schema changes, cloud AI enablement, permission expansion or Rust
 FFI changes were introduced.
@@ -41,7 +46,7 @@ FFI changes were introduced.
 
 Failing regressions were observed before repairs for sidebar movement, unavailable
 storage and blank titles, binary deduplication, mutation rollback, and AI source
-counts. The final Swift run passed 221 core tests in 25 suites and four app tests
+counts. The final Swift run passed 226 core tests in 25 suites and four app tests
 in one suite. Rust passed four unit tests; shell integration tests passed.
 
 Required local checks:
@@ -62,6 +67,10 @@ Additional tests cover forced fingerprint collisions, distinct images/RTF with
 identical searchable text, exact repeats, legacy candidate mismatches, save
 failure rollback, atomic batch deletion, selection reconciliation, title
 validation, store absence, source-count accuracy and search cache invalidation.
+Deferred capture tests reproduce same-count fulfillment from declared string,
+absent types and empty text; verify automatic timer retry and one-time delivery;
+and check superseded copies and lifecycle invalidation. The original delayed
+fulfillment regression failed before repair.
 
 ## Native workflow evidence
 
@@ -113,8 +122,15 @@ The receiving iPhone/Mac does not require ClipVault for Apple's ordinary
 copy/paste. Devices need Apple's supported configuration: nearby, same Apple
 Account, Wi-Fi, Bluetooth and Handoff enabled. ClipVault history and collections
 remain local to each Mac; this change does not add history synchronization.
-Physical iPhone-to-Mac and Mac-to-Mac checks are PENDING and will be recorded
-separately from the local integration tests.
+Physical results supplied by the tester: Mac-to-iPhone copy/paste works;
+iPhone-to-Mac paste fails in ordinary Mac apps as well as ClipVault. The incoming
+failure was reproduced with ClipVault fully stopped, excluding the running app
+from that failure. The Mac's user-level Continuity services were restarted
+without resetting preferences, permissions, pairing or the clipboard; the
+tester reported the incoming failure still persists. Wi-Fi, Bluetooth and the
+Handoff switch were verified enabled. Physical transfer remains FAILED on this
+host, and exact second-Mac direction receipts are incomplete. The separate local
+deferred-content defect does not establish the cause of that physical failure.
 
 ## Review and limits
 
@@ -131,6 +147,10 @@ canvas limits; sticky elements, lazy loading and browser behavior can affect it.
 Foundation Models output remains nondeterministic: an observed enhanced prompt
 introduced unsupported examples and references. Generated text needs review;
 successful generation is not a factual-accuracy guarantee.
+Unfulfilled supported clipboard content is retried at most once every two
+seconds after backoff; pasteboard reads still occur on the main actor and may
+wait for an external provider. Physical transfer and remote-provider latency
+remain separate integration boundaries.
 
 ## Official references used
 
