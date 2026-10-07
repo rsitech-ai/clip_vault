@@ -279,7 +279,7 @@ struct ClipManagementTests {
                 displayText: "Updated preview",
                 extractedText: "stable OCR text",
                 metadata: ["revision": "2"],
-                previewData: Data([2])
+                previewData: Data([1])
             ),
             sourceApp: "Tests"
         ))
@@ -288,6 +288,6 @@ struct ClipManagementTests {
         #expect(duplicate.preview == "Updated preview")
         #expect(duplicate.extractedText == "stable OCR text")
         #expect(duplicate.metadata == ["revision": "2"])
-        #expect(duplicate.previewData == Data([2]))
+        #expect(duplicate.previewData == Data([1]))
     }
 }

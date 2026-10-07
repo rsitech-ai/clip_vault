@@ -15,9 +15,9 @@ struct ClipListView: View {
 
             if model.visibleResults.isEmpty {
                 ContentUnavailableView(
-                    "No Clips",
+                    model.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "No Clips" : "No Matches",
                     systemImage: "doc.on.clipboard",
-                    description: Text(model.searchText.isEmpty ? "Copy something to begin." : "No matching clips.")
+                    description: Text(emptyDescription)
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -104,6 +104,17 @@ struct ClipListView: View {
                     }
                 }
             }
+
+            Divider()
+            Text(model.captureStatus)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .help(model.captureStatus)
+                .accessibilityLabel("Workspace status: \(model.captureStatus)")
         }
         .background(.regularMaterial)
         .confirmationDialog(
@@ -136,6 +147,19 @@ struct ClipListView: View {
 
     private func rowBackground(for clip: Clip) -> Color {
         model.selectedClipID == clip.id ? Color.accentColor.opacity(0.14) : Color.clear
+    }
+
+    private var emptyDescription: String {
+        if !model.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return "Try a different search or collection."
+        }
+        if model.selectedCollectionID == "all" {
+            return "Copy something to begin."
+        }
+        if model.selectedCollection?.isSmart == true {
+            return "Matching clips appear here automatically."
+        }
+        return "Drag a clip here or use Move to Collection."
     }
 
     @ViewBuilder

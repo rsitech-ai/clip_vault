@@ -5,6 +5,40 @@ import Testing
 @Suite("Clipboard capture service")
 struct ClipboardCaptureServiceTests {
     @MainActor
+    @Test("capture observes externally supplied clipboard content without rewriting it")
+    func captureDoesNotRewriteExternalClipboard() async throws {
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        let service = ClipboardCaptureService(pasteboard: pasteboard)
+        var capturedPayload: ClipPayload?
+        service.onClipCaptured = { payload, _ in capturedPayload = payload }
+        service.start(interval: 60)
+        defer { service.stop() }
+
+        let text = "External device text 📱 — zażółć gęślą jaźń\nSecond line"
+        let originType = NSPasteboard.PasteboardType("com.apple.is-remote-clipboard")
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+        pasteboard.setData(Data([1]), forType: originType)
+        let changeCount = pasteboard.changeCount
+        let types = pasteboard.types
+        service.poll()
+        for _ in 0..<100 where capturedPayload == nil {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        #expect(capturedPayload?.displayText == text)
+        #expect(pasteboard.changeCount == changeCount)
+        #expect(pasteboard.types == types)
+        #expect(pasteboard.string(forType: .string) == text)
+        #expect(pasteboard.data(forType: originType) == Data([1]))
+        service.consumeCurrentPasteboardChange()
+        service.stop()
+        #expect(pasteboard.changeCount == changeCount)
+        #expect(pasteboard.string(forType: .string) == text)
+    }
+
+    @MainActor
     @Test("default monitoring captures full copied text promptly")
     func defaultMonitoringCapturesExactTextPromptly() async throws {
         let pasteboard = NSPasteboard(

@@ -174,6 +174,7 @@ private struct FolderNodeView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityLabel(folder.title)
                 .accessibilityHint(rowAccessibilityHint)
+                .accessibilityAddTraits(isSelectedCollection ? .isSelected : [])
             }
 
             if showsManagementMenu {
@@ -194,7 +195,16 @@ private struct FolderNodeView: View {
                 .accessibilityHint(managementAccessibilityHint)
             }
         }
+        .padding(.vertical, 3)
+        .background(
+            isSelectedCollection ? Color.accentColor.opacity(0.12) : Color.clear,
+            in: RoundedRectangle(cornerRadius: 6)
+        )
         .accessibilityElement(children: .contain)
+    }
+
+    private var isSelectedCollection: Bool {
+        folder.collectionID == model.selectedCollectionID
     }
 
     private var showsManagementMenu: Bool {
@@ -266,6 +276,9 @@ private struct FolderNodeView: View {
 
     private var rowAccessibilityHint: String {
         if folder.collectionID != nil {
+            if model.collections.first(where: { $0.id == folder.collectionID })?.isSmart == true {
+                return "Show automatically grouped clips. Moving a clip keeps its automatic categories."
+            }
             return "Show clips in this collection"
         }
         return isExpanded ? "Collapse this folder" : "Expand this folder"
@@ -278,7 +291,7 @@ private struct FolderNodeView: View {
         if folder.collectionID == nil {
             return "Opens actions to add, edit, or remove this folder."
         }
-        return "Opens actions to add clips, edit, or remove this collection."
+            return "Opens actions to move clips, edit, or remove this collection."
     }
 
     @ViewBuilder
@@ -293,9 +306,10 @@ private struct FolderNodeView: View {
         }
         if model.canManageWorkspaceFolder(folder),
            let collectionID = folder.collectionID {
-            Button("Add Selected Clips Here") {
-                model.addSelectedClips(toCollectionID: collectionID)
+            Button("Move Selected Clips Here") {
+                model.moveSelectedClips(toCollectionID: collectionID)
             }
+            .disabled(model.selectedClipIDs.isEmpty && model.selectedClip == nil)
         }
         if model.canManageWorkspaceFolder(folder) {
             Divider()

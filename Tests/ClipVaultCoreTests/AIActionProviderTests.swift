@@ -3,6 +3,15 @@ import Testing
 
 @Suite("AI action provider")
 struct AIActionProviderTests {
+    @Test("local summary and email attribute only clips actually used", arguments: [AIActionKind.summarize, .explain, .email])
+    func localActionsReportUsedSources(kind: AIActionKind) async throws {
+        let clips = (0..<7).map { index in
+            Clip(id: "clip-\(index)", kind: .text, title: "Fixture \(index)", preview: "Fixture \(index)", extractedText: "Fixture \(index)")
+        }
+        let result = try await LocalClipAIActionProvider().perform(AIActionRequest(kind: kind, clips: clips))
+        #expect(result.citedClipIDs == clips.prefix(kind == .email ? 3 : 5).map(\.id))
+    }
+
     @Test("local Ask answers customer questions from selected clip evidence")
     func localAskAnswersCustomerQuestion() async throws {
         let provider = LocalClipAIActionProvider()

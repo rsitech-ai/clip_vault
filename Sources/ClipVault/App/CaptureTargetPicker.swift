@@ -91,7 +91,7 @@ final class CaptureTargetPicker {
     }
 
     private func confirm() {
-        guard let target = lastTarget ?? Self.window(under: NSEvent.mouseLocation) else {
+        guard let target = Self.window(under: NSEvent.mouseLocation) else {
             return
         }
         finish(target)
