@@ -1,5 +1,7 @@
 import ClipVaultCore
 import Foundation
+import Observation
+import Synchronization
 import SwiftData
 import Testing
 @testable import ClipVault
@@ -29,6 +31,42 @@ struct WorkspaceMutationTests {
         #expect(model.reload())
         #expect(model.selectedClipID == newest)
         #expect(model.clips.first?.id == newest)
+    }
+
+    @Test("stable clip IDs expose fresh observed values after duplicate captures and edits")
+    func stableRowObservesCurrentClip() throws {
+        let (model, store, initial) = try fixture()
+        let invalidated = Mutex(false)
+        withObservationTracking {
+            #expect(model.clip(id: initial.id)?.copyCount == initial.copyCount)
+        } onChange: {
+            invalidated.withLock { $0 = true }
+        }
+        let capturedAt = initial.createdAt.addingTimeInterval(10)
+        model.ingest(
+            payload: ClipPayload(kind: .text, displayText: "Audit fixture", extractedText: "Audit fixture"),
+            sourceApp: "Recopy", capturedAt: capturedAt
+        )
+        let current = try #require(model.clip(id: initial.id))
+        #expect(invalidated.withLock { $0 })
+        #expect(current.id == initial.id)
+        #expect(current.copyCount == initial.copyCount + 1)
+        #expect(current.createdAt == capturedAt)
+        #expect(model.workspaceSections.flatMap(\.results).first?.clip == current)
+        #expect(model.menuBarResults.first?.clip == current)
+        #expect(model.selectedClip == current)
+        #expect(try store.allClips().first == current)
+
+        model.updateTitle(for: current, title: "Updated row title")
+        let renamed = try #require(model.clip(id: initial.id))
+        #expect(renamed.title == "Updated row title")
+        model.togglePinned(renamed)
+        #expect(model.clip(id: initial.id)?.isPinned == true)
+        #expect(model.clip(id: "missing") == nil)
+        #expect(model.clip(id: nil) == nil)
+        #expect(model.reload())
+        #expect(model.clip(id: initial.id)?.copyCount == current.copyCount)
+        #expect(model.clip(id: initial.id)?.isPinned == true)
     }
 
     @Test("sidebar assignment removes the clip from the source collection immediately")

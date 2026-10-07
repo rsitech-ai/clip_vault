@@ -238,7 +238,11 @@ final class ClipVaultViewModel {
     }
 
     var selectedClip: Clip? {
-        workspaceProjection.clip(id: selectedClipID)
+        clip(id: selectedClipID)
+    }
+
+    func clip(id: String?) -> Clip? {
+        workspaceProjection.clip(id: id)
     }
 
     var selectedClips: [Clip] {
