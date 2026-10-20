@@ -112,15 +112,15 @@ Product source commit: `b68e618631f0c6fcc0258985b580ccd8eb9b185e`. The scoped in
 | Artifact | SHA-256 | Observed state |
 | --- | --- | --- |
 | Mac build 9 executable | `2a730e84c0e5c12f10c2f372d944a459a2f095aa93ece379753cb33bcd3389ea` | Canonical signed app installed and launched; designated requirement unchanged. Live UI showed 903 accumulated clips and the original 895-clip/12-folder preservation receipt, cleanup hold and pairing. |
-| Ubuntu preview2 AMD64 package | `585e2c5848855df21a5daca70750c9ffa001b92d655f846152d96792bb7ee4dc` | Built and extracted/inspected; package version `0.2.0~preview2`, ELF x86-64. Update awaits local sudo authentication. |
+| Ubuntu preview2 AMD64 package | `585e2c5848855df21a5daca70750c9ffa001b92d655f846152d96792bb7ee4dc` | Installed with local sudo authentication; package version `0.2.0~preview2`, ELF x86-64. Root-owned executable hash matches the frozen build. |
 | Packaged Linux executable | `4eb6a47f36733358482220fd994998ec3c0dd21bbbaa71db260da02e94ca1f09` | Mode 755 and byte-equal to the final AMD64 release build. |
 | File-capable relay executable | `0cce005f9406f1898bc61e0185f345ed77b4ce55b54038207277dd328ee02799` | ELF x86-64, frozen with the package for the private relay update. |
 
 The final Linux app/policy tests passed (8 binary tests, 4 policy tests), as did workspace strict Clippy, release build, formatting, shell syntax and extension syntax. The complete workspace suite passed the 100 MiB local round trip before the last source-open flag; all eight attachment integration tests then passed natively, and a separate Linux FIFO test passed after the flag. The final GTK smoke covered native Add/Save, exact text/PNG Copy and the URI/consent boundaries. The deliberately ignored large HTTP/restart and real 256 MiB quota tests have the separate receipts already described above.
 
-The remote archive hash and unprivileged APT simulation passed: only ClipVault is upgraded, with no additional packages installed or removed. The root updater verifies the archive and current installed hashes, freezes a root-only copy, stops only ClipVault components, preserves stopped SQLite/WAL state, existing configuration/secret and old binaries/package, then updates and checks health. A real desktop terminal is waiting for local sudo input; the password is never requested in chat. Installation success is not yet claimed.
+The remote archive hash and unprivileged APT simulation passed: only ClipVault is upgraded, with no additional packages installed or removed. The root updater verifies the archive and current installed hashes, freezes a root-only copy, stops only ClipVault components, preserves stopped SQLite/WAL state, existing configuration/secret and old binaries/package, then updates and checks health. Local desktop sudo authentication completed, the updater exited 0, and installed hashes and active services were independently checked. The password was never requested in chat. The later proxy-buffer correction and file-delivery evidence are recorded below.
 
-PR #27 remains draft. Both hosted checks were in progress at the last inspection of `b68e618`; final hosted outcomes, installed file transfer/Save/reconnect in both directions and the blocked genuine GNOME user-session capture remain merge gates. `main` is unchanged.
+PR #27 remains draft. At documentation head `0751ae6`, hosted Linux passed; hosted Mac verification is still in progress. Final hosted outcomes, installed file Save/hash and reconnect in both directions, and the blocked genuine GNOME user-session capture remain merge gates. `main` is unchanged.
 
 ## Recovery and preservation
 
@@ -134,3 +134,48 @@ Only this task's isolated processes, containers and remote temporary roots were 
 - [Mutter 51 bounded selection transfer](https://gnome.pages.gitlab.gnome.org/mutter/meta/method.Selection.transfer_async.html), [finish](https://gnome.pages.gitlab.gnome.org/mutter/meta/method.Selection.transfer_finish.html), and [Mutter 51 source](https://gitlab.gnome.org/GNOME/mutter/-/tree/51.0). Runtime evidence is recorded separately above.
 - [Apple nonwritable model configuration](https://developer.apple.com/documentation/swiftdata/modelconfiguration/allowssave), [external storage](https://developer.apple.com/documentation/swiftdata/schema/attribute/option/externalstorage), [ModelContainer migration](https://developer.apple.com/documentation/swiftdata/modelcontainer), and [SQLite online backup](https://www.sqlite.org/backup.html). Apple does not publish a stable external-asset backup layout; the store-copy tests and actual app comparison qualify this version.
 - [Axum route-specific body limits](https://docs.rs/axum/0.8.9/axum/extract/struct.DefaultBodyLimit.html), [GNOME extension enablement](https://help.gnome.org/system-admin-guide/extensions-enable.html), and [Tailscale Serve](https://tailscale.com/kb/1312/serve).
+
+
+## Installed preview2 continuation: proxy buffer ownership
+
+The Ubuntu update completed with exit 0. Independently read hashes match the
+frozen preview2 app and relay above; both relay units are active with zero
+restart counters and the client is active. The update preserved its existing
+secret and stopped database backup. The small 89-byte attachment reached the
+actual Ubuntu client in ready state. The 100 MiB manifest arrived, but chunk
+uploads returned HTTP 500; full file success is not claimed.
+
+The proxy journal reproduced EACCES opening its body buffer path. A root-level
+nginx configuration preflight had created nested buffer directories as `nobody:clipvault-relay` with mode `0700`,
+while the already-correct service-owned parent caused systemd's parent-only
+ownership optimization to leave them unchanged. The corrected proxy unit names
+all five buffer children explicitly in StateDirectory, retaining the same service
+user and 0700 mode. The target's systemd-analyze verify and project shell checks
+pass; independent source review passes. A pinned, rollback-protected one-unit
+repair completed with local authentication. Its first one-shot health check raced
+startup and rolled back the unit while leaving the corrected child ownership in
+place. The corrected bounded readiness check then completed with exit 0: all five
+children are `clipvault-relay:clipvault-relay` mode `0700`, the installed unit is
+byte-equal to the reviewed unit (SHA-256
+`75c4298a852d7a221f4eb52f787c38d9eece4b44a26e6780e56789159fbe1d96`),
+and local and normal-certificate HTTPS health return `ok`. Both services have
+zero restarts and exit status 0. The actual Ubuntu encrypted transfer metadata
+now reports both incoming fixtures ready: 89 and 104857600 bytes. The canonical
+Mac UI reports Up to date. Explicit Save/hash and the reverse direction remain
+pending. Expected nginx temporary-body buffering warnings are present; the
+previous permission error is resolved, so no claim of warning-free logs is made.
+
+Primary references: [nginx request buffering](https://nginx.org/en/docs/http/ngx_http_core_module.html#client_body_buffer_size)
+and [systemd directory ownership](https://www.freedesktop.org/software/systemd/man/260/systemd.exec.html#RuntimeDirectory=).
+
+
+The final private GNOME 51 harness started the genuine shell and installed client
+on an isolated bus/display, but did not reach authenticated capture assertions.
+The extracted private dbus-daemon served the session bus; AT-SPI's launcher still
+required the absent absolute `/usr/bin/dbus-daemon`, GTK rejected the selected
+accessibility backend, and the fixture extension did not load. Thus stale-token,
+unauthorized-caller and authenticated file-ingress runtime assertions remain
+unverified in this continuation. This is a harness ceiling, not a demonstrated
+production capture failure. All four isolated process IDs were confirmed stopped;
+the actual desktop session and its data were untouched. Receipt:
+`dist/linux-deployment/20261020/gnome-capturefiles-headless-runtime-result.txt`.

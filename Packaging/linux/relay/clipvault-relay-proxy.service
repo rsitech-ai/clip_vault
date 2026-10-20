@@ -11,7 +11,11 @@ User=clipvault-relay
 Group=clipvault-relay
 ExecStartPre=/usr/local/libexec/clipvault-relay-nginx -t -p /var/lib/clipvault-relay-proxy/ -c /etc/clipvault-relay/nginx.conf
 ExecStart=/usr/local/libexec/clipvault-relay-nginx -p /var/lib/clipvault-relay-proxy/ -c /etc/clipvault-relay/nginx.conf -g "daemon off;"
+# Manage each nginx buffer directory explicitly so systemd repairs ownership
+# even if a root configuration check created a child before service startup.
 StateDirectory=clipvault-relay-proxy
+StateDirectory=clipvault-relay-proxy/body clipvault-relay-proxy/proxy
+StateDirectory=clipvault-relay-proxy/fastcgi clipvault-relay-proxy/uwsgi clipvault-relay-proxy/scgi
 StateDirectoryMode=0700
 RuntimeDirectory=clipvault-relay-proxy
 RuntimeDirectoryMode=0700

@@ -62,3 +62,12 @@ this copied executable. Check upstream/distro security updates and replace it
 through a reviewed maintenance operation; record its version and digest. The
 client preview and relay likewise need explicit updates. Back up the relay
 database consistently (stop the service or use SQLite's backup API).
+
+The proxy unit manages its body, proxy, FastCGI, uWSGI and SCGI buffer directories
+individually with `StateDirectory=` and mode `0700`. Keep these entries together
+with the configured nginx temporary paths. A root-level `nginx -t` can create
+children owned by nginx's default user; managing only the parent would not
+correct those children when the parent already has the right owner. Run configuration checks through
+the service's `ExecStartPre` context, and verify a request larger than the memory
+buffer when qualifying an installed proxy. A health request alone does not test
+request or response temporary-file permissions.

@@ -44,11 +44,11 @@
     },
     {
       "path": "Packaging/linux/relay/README.md",
-      "sha256": "86c4d1ec26ef7493dd377d7b44f9068a14da5d57ef6110ee356158e8bc76f91b"
+      "sha256": "45abc5d7b218e79bfe2580c8a1d00fbe7e19402f3ad227128aed72fac9ecfd05"
     },
     {
       "path": "Packaging/linux/relay/clipvault-relay-proxy.service",
-      "sha256": "8eb9b4e2ad4e2da21c8ca4ce49bd2c99d1fa53e20bf6ea1ad151c6ecbc08ad3e"
+      "sha256": "75c4298a852d7a221f4eb52f787c38d9eece4b44a26e6780e56789159fbe1d96"
     },
     {
       "path": "Packaging/linux/relay/clipvault-relay.service",
