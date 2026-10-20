@@ -179,3 +179,43 @@ unverified in this continuation. This is a harness ceiling, not a demonstrated
 production capture failure. All four isolated process IDs were confirmed stopped;
 the actual desktop session and its data were untouched. Receipt:
 `dist/linux-deployment/20261020/gnome-capturefiles-headless-runtime-result.txt`.
+
+
+## Three-device acceptance continuation
+
+The third requested host, `sii`, is a second Apple Silicon Mac. Before this
+continuation it had no ClipVault bundle in either Applications folder and no
+running client. The signed build 9 bundle was transferred through the existing
+SSH connection, archive checksum checked, signature verified on the target,
+installed and launched. Its executable SHA-256 matches the canonical Mac build
+above. This is installation/startup evidence, not pairing or transfer evidence.
+
+`sii` has no Tailscale client yet, cannot resolve the private relay hostname and
+has no working connection to its private HTTPS address. The official stable
+Tailscale 1.104.2 installer was staged and opened there after checking the
+publisher checksum, trusted Tailscale Inc. installer signature and notarization
+on both Macs. Local macOS approval and account sign-in remain required. No
+credentials, existing device identities or private history were copied between
+devices. The canonical Mac's live roster still contains two devices and reports
+Up to date. Razer's installed client and both relay services remain active.
+
+The new `relay/tests/three_devices.rs` integration test passes all six directed
+core-client text and file transfers through an isolated HTTP relay, verifies
+receiver Save bytes and authenticated ready outcomes, and reopens all three
+encrypted stores to check identities and duplicate-free history. It models the
+platform's successful import callback before ACK; it does not exercise actual
+SwiftData/GTK import or native clipboard capture. File provenance uses the signed
+roster display name, while ordinary clips retain their encrypted source label.
+The initial test harness assumptions about ACK completion and display-label
+equality were corrected; they were not production transfer failures. An explicit
+fixture assertion distinguishes local names from signed roster names. The scoped
+independent source review found no remaining correctness issues.
+
+Validation: `cargo fmt --manifest-path rust/DeviceSync/Cargo.toml --all -- --check`,
+`cargo clippy --manifest-path rust/DeviceSync/Cargo.toml -p clipvault-sync-relay --test three_devices --locked -- -D warnings`,
+and `cargo test --manifest-path rust/DeviceSync/Cargo.toml -p clipvault-sync-relay --locked --test three_devices --test stale_membership`
+passed (two integration tests; final fan-out test 6.94 seconds). Evidence is retained
+under `dist/three-device-validation/20261020/`. All three installed-device
+pairing/clipboard/file directions remain unproven until `sii` connects and the
+physical checks complete; automatic Ubuntu capture still needs the previously
+deferred fresh GNOME session. PR #27 remains draft and main remains unchanged.

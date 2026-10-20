@@ -399,6 +399,10 @@
       "sha256": "2e5eb5f53e3990c5cac1efbc647824891964e51c2653ab859674c6be54b7d039"
     },
     {
+      "path": "rust/DeviceSync/relay/tests/three_devices.rs",
+      "sha256": "2998a288ac0b86f82c6b0c5c328b0f6e3fd8a5c293f69e5d71b0e63006f0930b"
+    },
+    {
       "path": "script/build_and_run.sh",
       "sha256": "5df1ff3a80f22e3a13f7554c057516116463456007908e7161be2e305b070196"
     },
