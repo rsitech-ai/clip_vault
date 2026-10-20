@@ -105,6 +105,23 @@ The Mac update exposed an upgrade-order regression: capability advertisement aga
 
 The hosted Mac check at `8207974` failed in Swift 6.3.3 IR generation (`SmallVector unable to grow`, actor/Bool reabstraction in DevicesSharingSettingsTab). This is an observed toolchain failure, classified INFRA_FAILURE, not a test assertion. The local Swift 6.4 full suite passes. An explicit Binding setter closure avoids the problematic method-reference conversion; hosted confirmation remains required. The same revision's Linux check passed.
 
+## Frozen file-capable artifacts and installation gate
+
+Product source commit: `b68e618631f0c6fcc0258985b580ccd8eb9b185e`. The scoped independent source reviews passed after the recorded corrections; this does not replace installed-device or CI acceptance.
+
+| Artifact | SHA-256 | Observed state |
+| --- | --- | --- |
+| Mac build 9 executable | `2a730e84c0e5c12f10c2f372d944a459a2f095aa93ece379753cb33bcd3389ea` | Canonical signed app installed and launched; designated requirement unchanged. Live UI showed 903 accumulated clips and the original 895-clip/12-folder preservation receipt, cleanup hold and pairing. |
+| Ubuntu preview2 AMD64 package | `585e2c5848855df21a5daca70750c9ffa001b92d655f846152d96792bb7ee4dc` | Built and extracted/inspected; package version `0.2.0~preview2`, ELF x86-64. Update awaits local sudo authentication. |
+| Packaged Linux executable | `4eb6a47f36733358482220fd994998ec3c0dd21bbbaa71db260da02e94ca1f09` | Mode 755 and byte-equal to the final AMD64 release build. |
+| File-capable relay executable | `0cce005f9406f1898bc61e0185f345ed77b4ce55b54038207277dd328ee02799` | ELF x86-64, frozen with the package for the private relay update. |
+
+The final Linux app/policy tests passed (8 binary tests, 4 policy tests), as did workspace strict Clippy, release build, formatting, shell syntax and extension syntax. The complete workspace suite passed the 100 MiB local round trip before the last source-open flag; all eight attachment integration tests then passed natively, and a separate Linux FIFO test passed after the flag. The final GTK smoke covered native Add/Save, exact text/PNG Copy and the URI/consent boundaries. The deliberately ignored large HTTP/restart and real 256 MiB quota tests have the separate receipts already described above.
+
+The remote archive hash and unprivileged APT simulation passed: only ClipVault is upgraded, with no additional packages installed or removed. The root updater verifies the archive and current installed hashes, freezes a root-only copy, stops only ClipVault components, preserves stopped SQLite/WAL state, existing configuration/secret and old binaries/package, then updates and checks health. A real desktop terminal is waiting for local sudo input; the password is never requested in chat. Installation success is not yet claimed.
+
+PR #27 remains draft. Both hosted checks were in progress at the last inspection of `b68e618`; final hosted outcomes, installed file transfer/Save/reconnect in both directions and the blocked genuine GNOME user-session capture remain merge gates. `main` is unchanged.
+
 ## Recovery and preservation
 
 The old Mac app, archive/signature receipt, private upgrade snapshot and original Keychain keys are retained. Do not assume restoring only the old app reverses a SwiftData schema change; database recovery must preserve the complete snapshot and external assets. Protected history was accessed by the signed app itself; CLI TCC denial was not bypassed. Local deletion later does not erase the recovery snapshot.
