@@ -1,0 +1,11 @@
+.git
+.build
+.swiftpm
+.superpowers
+.codex
+.cursor
+.worktrees
+dist
+rust/**/target
+AppStore
+Resources

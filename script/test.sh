@@ -7,4 +7,5 @@ cd "$ROOT_DIR"
 ./script/test_shell.sh
 cargo test --manifest-path rust/SearchIndexCore/Cargo.toml
 cargo build --manifest-path rust/SearchIndexCore/Cargo.toml --release
+./script/build_sync_bridge.sh
 swift test

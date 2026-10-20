@@ -50,6 +50,12 @@ public final class ClipPayloadPasteboardWriter {
         }
     }
 
+    public func writePrivateText(_ text: String) {
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+        pasteboard.setData(Data(), forType: .init("org.nspasteboard.ConcealedType"))
+    }
+
     private func writeImage(_ payload: ClipPayload) throws {
         guard let data = payload.previewData, let image = NSImage(data: data) else {
             throw PasteboardWriterError.missingImageData

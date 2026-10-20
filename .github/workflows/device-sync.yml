@@ -1,0 +1,24 @@
+name: Device sharing preview
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install native GTK and credential-service build libraries
+        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev libadwaita-1-dev libdbus-1-dev pkg-config gjs
+      - name: Install stable Rust
+        run: rustup update stable --no-self-update && rustup default stable && rustup component add clippy rustfmt
+      - name: Check protocol, relay and Linux client
+        run: ./script/test_device_sync.sh
+      - name: Check bounded GNOME clipboard reads
+        run: gjs -m script/test_gnome_selection.js

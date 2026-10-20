@@ -98,14 +98,23 @@ jobs:
       - name: Audit Rust dependencies
         run: cargo audit --file rust/SearchIndexCore/Cargo.lock
 
+      - name: Audit encrypted sharing dependencies
+        run: cargo audit --file rust/DeviceSync/Cargo.lock
+
       - name: Install pinned cargo-deny
         run: cargo install cargo-deny --version "$CARGO_DENY_VERSION" --locked
 
       - name: Enforce Rust dependency policy
         run: cargo deny --manifest-path rust/SearchIndexCore/Cargo.toml check
 
+      - name: Enforce encrypted sharing dependency policy
+        run: cargo deny --manifest-path rust/DeviceSync/Cargo.toml check
+
       - name: Build Rust release library
         run: cargo build --manifest-path rust/SearchIndexCore/Cargo.toml --release
+
+      - name: Build encrypted sync bridge
+        run: ./script/build_sync_bridge.sh
 
       - name: Run full Swift tests
         run: swift test

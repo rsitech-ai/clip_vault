@@ -1,0 +1,3 @@
+[D-BUS Service]
+Name=com.rsitech.ClipVault.Capture
+Exec=/usr/bin/clipvault-linux

@@ -1,0 +1,9 @@
+# Runtime-only package validation for the requested Ubuntu version.
+# This virtual X11 desktop does not exercise GNOME Shell or Wayland.
+FROM ubuntu:26.10
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    libgtk-4-1 libadwaita-1-0 libdbus-1-3 dbus-user-session gnome-keyring \
+    xvfb dbus-x11 x11-utils xdotool imagemagick xclip fonts-dejavu-core ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /workspace
+ENV GTK_A11Y=none GSK_RENDERER=cairo CLIPVAULT_LINUX_BINARY=/usr/bin/clipvault-linux

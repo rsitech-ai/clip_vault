@@ -1,0 +1,8 @@
+{
+  "uuid": "clipvault-capture@rsitech.ai",
+  "name": "ClipVault Clipboard Capture",
+  "description": "Push clipboard changes to the installed ClipVault client after its capture consent is enabled. No network access or clipboard-read RPC.",
+  "shell-version": ["51"],
+  "version": 1,
+  "url": "https://github.com/rsitech-ai/clip_vault"
+}

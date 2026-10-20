@@ -17,8 +17,12 @@ let package = Package(
             linkerSettings: [
                 .unsafeFlags([
                     "-L", "rust/SearchIndexCore/target/release",
-                    "-lsearch_index_core"
-                ])
+                    "-lsearch_index_core",
+                    "-L", "rust/DeviceSync/target/release",
+                    "-lclipvault_sync_bridge", "-lresolv"
+                ]),
+                .linkedFramework("Security"),
+                .linkedFramework("SystemConfiguration")
             ]
         ),
         .executableTarget(

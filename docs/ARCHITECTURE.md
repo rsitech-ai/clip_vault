@@ -50,3 +50,11 @@ Existing stored records are migrated only when a persistent store existed before
 ## Release boundaries
 
 A successful source build does not prove signing, notarization, App Store provisioning, GitHub settings, or runtime interaction. [RELEASING.md](RELEASING.md) records the separate gates.
+
+## Optional encrypted device sharing
+
+`rust/DeviceSync` is a separate Cargo workspace: `core` owns authenticated HPKE envelopes, signed membership, bounded encrypted queues and relay transport; `relay` stores authenticated opaque mailboxes; `bridge` exposes the bounded synchronous JSON C ABI used on a Swift background queue; `linux` provides a GTK/libadwaita client and clipboard adapters. The original Rust search library keeps its existing build paths.
+
+Mac capture creates a SwiftData export record in the same transaction as a local clip. Export preparation failures retain retryable references to local content. Rust queue submission uses a stable event identifier. Remote import uses its own SwiftData method and receipt, without increasing local copy counts or producing another export. Only after the SwiftData import commits does the controller mark that event applied for acknowledgement. Invalid platform payloads create durable negative acknowledgements; storage failures remain retryable.
+
+The Linux client uses encrypted SQLite payloads and GNOME Secret Service credentials. GNOME Wayland capture uses a push-only, consent-gated Shell bridge; X11 capture uses bounded clipboard streams. Both clients retain local history while offline. HTTPS is required outside explicit loopback tests, and disabled sharing starts no relay connection. See [Linux and sync](LINUX_AND_SYNC.md) and the [design](design/linux-encrypted-sync.md) for trust and compatibility boundaries.
