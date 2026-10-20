@@ -5,6 +5,30 @@ import Testing
 @Suite("Clipboard capture service")
 struct ClipboardCaptureServiceTests {
     @MainActor
+    @Test("oversized file selections report an error without delivering partial capture")
+    func rejectsOversizedSelectionBeforeCapture() throws {
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        let service = ClipboardCaptureService(pasteboard: pasteboard)
+        var captures = 0
+        var errors: [String] = []
+        service.onFilesCaptured = { _, _, _ in captures += 1 }
+        service.onClipCaptured = { _, _, _ in captures += 1 }
+        service.onFileCaptureError = { errors.append($0) }
+        service.start(interval: 60)
+        defer { service.stop() }
+        let urls = (0..<32).map { URL(fileURLWithPath: "/tmp/ClipVault-bounded-selection-\($0).txt") as NSURL }
+        let previous = pasteboard.changeCount
+        pasteboard.clearContents()
+        #expect(pasteboard.writeObjects(urls))
+        #expect(pasteboard.changeCount != previous)
+        service.poll()
+        service.poll()
+        #expect(captures == 0)
+        #expect(errors == ["Choose up to 10 files at a time."])
+    }
+
+    @MainActor
     @Test("a stalled payload cannot prevent a later completed capture from being saved")
     func stalledPayloadDoesNotBlockLaterCapture() async throws {
         let pasteboard = NSPasteboard.withUniqueName()
@@ -476,7 +500,6 @@ struct ClipboardCaptureServiceTests {
         #expect(payload.metadata["host"] == "rsitech.ai")
     }
 }
-
 private actor PayloadBuilderGate {
     private var started = false
     private var startWaiters: [CheckedContinuation<Void, Never>] = []

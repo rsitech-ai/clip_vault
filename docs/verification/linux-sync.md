@@ -4,6 +4,89 @@ Date: 2026-10-20
 
 **Verdict: HOLD merge and file-sharing readiness.** The earlier clipboard-sync review passed, but the new 100 MiB attachment and Ubuntu UI scope is under validation and independent review. The canonical Mac app has been upgraded locally and its complete prior history verified. The audited Ubuntu client and relay are installed, and the actual Mac and Ubuntu apps are paired after a user-confirmed comparison code. Mac-to-Ubuntu Unicode text/Copy, client-offline catch-up and image display are verified. The genuine active Ubuntu GNOME capture path and Ubuntu-to-Mac automatic clipboard delivery still require acceptance. This report does not claim a published release, long-term uptime, or an error-free environment.
 
+## Audit continuation, 2026-10-21
+
+Merge remains **HOLD**. The source audit found and repaired additional recovery
+and consent defects; earlier receipts below qualify their stated revisions.
+The source manifest is refreshed with this audit. No claim of flawless behavior
+or completed three-device installed acceptance is made.
+
+### Findings resolved
+
+- A corrupt Mac export is quarantined per row, preserving its ciphertext and
+  failure receipt while healthy exports/imports continue. Explicit Share can
+  rebuild a quarantined file descriptor from valid local history under the same
+  event identity and queue cap.
+- Linux persists the staged file intent before capture. Replay is idempotent;
+  cancellation atomically hides the known event and removes chunks/jobs before
+  removing the intent. Injected marker-write failures do not resurrect shares.
+- Ordinary text HTTP507 backpressure now defers only that recipient, durably,
+  allowing healthy peers, ACKs and inbound delivery to continue.
+- File first-attempt time is separate from short capacity deadlines. Expired
+  frames whose relay records were pruned cannot restart their lifetime. Legacy
+  databases migrate conservatively and retain local Save bytes.
+- Overflow retains one encrypted local history copy and requires **Retry local
+  shares** in Devices; it does not silently become automatic work. Logical
+  automatic outbox bytes remain capped. Legacy migration reserves already active
+  deliveries before classifying deferred rows, including interleaved ordering.
+- Workspace creation durably records a pending transaction before POST and
+  commits owner/configuration together. Lost responses and local write failures
+  recover the same workspace; exact relay bootstrap retries are idempotent.
+- Mac file URL selections are count-bounded before AppKit materialization while
+  valid URLs keep their authorized AppKit representation. Linux backlog status
+  no longer hides Add/Save operation failures.
+
+### Current validation and runtime boundary
+
+- `./script/test.sh`: PASS, **266 core and 18 app tests**, original Rust search
+  tests and required linked libraries. Final log: `mac-final-tests.log`.
+- `./script/test_device_sync.sh`: PASS, workspace tests, formatting and strict
+  all-target Clippy. Linux-only GTK paths are checked separately on AMD64.
+- AMD64 full workspace tests: PASS. The subsequent lint caught test-module
+  placement; corrected; final Linux tests, strict workspace Clippy and optimized app/relay
+  builds PASS in `linux-final-lint-build.log`.
+- Explicit real256MiB quota/ACK release: PASS. Explicit100MiB HTTP receiver
+  restart, byte-exact Save hash and authenticated sender-ready outcome: PASS
+  in **159.12s**,23 resume ticks under debug/load. The old16tick assertion failed
+  with steady progress because production drain also has a2second work budget;
+  the test now uses bounded readiness (300seconds/128ticks), retaining hash and
+  sender-outcome assertions. This is not a device throughput benchmark.
+- Signed isolated Macbuild10 native launch, Add71B with capture off, Save exact
+  `cmp`, chooser cancellation, keyboard search, reset cancellation and restart
+  persistence: PASS. Canonicalbuild10 is installed with the same DeveloperID
+  designated requirement and a verified build9 rollback. Fresh General UI shows
+  **904clips**,original **895clips/12folders** preserved and cleanup still paused.
+- Current installed Ubuntu preview2 relay/proxy are active,zero restart counters;
+  warning-priority journal for the inspected30minutes has no entries. Earlier
+  expected nginx disk-buffer warnings and the disclosed Tailscale CLI/daemon
+  version mismatch remain environment observations. No blanket clean-log claim.
+- `sii` now runs the matching signed build10 (verified executable hash and live process), with build9 retained for rollback, and is unpaired. Tailscale installer remains open;
+  local administrator approval/sign-in and private-relay reachability are pending.
+  The actual Ubuntu GNOME session has not refreshed; genuine automatic capture
+  and all three installed-device directions remain acceptance gates.
+
+- Ubuntu26.10 disposable installed preview3 startup and repeated activation:
+  PASS; process stayed alive and retained its GApplication session name. This
+  final check does not claim interactive Save/Copy or actual Wayland acceptance.
+  Mesa reported missing virtual DRI3 acceleration; the initial test harness
+  mistakenly required unavailable Python and was corrected to use the available
+  log classifier. No product change was made for that harness failure.
+- Release artifacts: Macbuild10 executableSHA256
+  `15b8f9ea28c58c5cd7ed3debc2c6c8d5d03702d88e8302d03142f900580aab37`;
+  Ubuntupreview3deb `8f85bbc524781e89cf108d40948e7f400edc892797150d26a765d2805821e50e`;
+  Linuxclient `e8e37f336aebc31d6e6b5672057f9cd6475d3c937beeaa0bf2fee2852d208e7f`;
+  relay `e39f9bedd6d90191f4d4e21284914dc464f9b3e16eb7f98cede819a4387d4b44`.
+  Preview3 uses the existing package layout/dependencies with the version raised
+  from preview2; its build/check commands and metadata are in `linux-package.log`.
+  The root-frozen Ubuntu update is staged for local administrator authentication;
+  installed Ubuntu remains preview2 until the update receipt is verified.
+
+Independent scoped source re-reviews passed after both final P2 corrections
+(legacy active-delivery preservation and visible Linux operation messages).
+Reviewers ran no builds or installed-device checks. Local logs and artifacts
+are retained under `dist/final-audit/20261020/`; these are not committed private
+runtime data. Rollbacks,keys and history snapshots remain preserved.
+
 ## Source, authority and scope
 
 - Branch `feat/andrzej_linux_encrypted_sync`, base `ea4edf1`; canonical repository `rsitech-ai/clip_vault`.

@@ -36,9 +36,13 @@ impl DeviceStore {
             CREATE TABLE IF NOT EXISTS events (id TEXT PRIMARY KEY, origin TEXT NOT NULL, sequence INTEGER NOT NULL, digest BLOB NOT NULL, payload BLOB, outgoing INTEGER NOT NULL DEFAULT 0, applied INTEGER NOT NULL DEFAULT 0, UNIQUE(origin,sequence));
             CREATE TABLE IF NOT EXISTS receipts (cursor INTEGER PRIMARY KEY, event TEXT, applied INTEGER NOT NULL DEFAULT 0, acknowledged INTEGER NOT NULL DEFAULT 0);
             CREATE TABLE IF NOT EXISTS targets (event TEXT NOT NULL, recipient TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', attempted_at INTEGER, PRIMARY KEY(event,recipient));")?;
+        db.execute(
+            "CREATE INDEX IF NOT EXISTS events_outgoing ON events(outgoing)",
+            [],
+        )?;
         db.execute_batch("CREATE TABLE IF NOT EXISTS file_transfers (id TEXT PRIMARY KEY, payload BLOB NOT NULL, direction TEXT NOT NULL, state TEXT NOT NULL, committed INTEGER NOT NULL DEFAULT 0, event_id TEXT, transferred INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS file_chunks (transfer TEXT NOT NULL REFERENCES file_transfers(id) ON DELETE CASCADE, idx INTEGER NOT NULL, payload BLOB NOT NULL, PRIMARY KEY(transfer,idx));
-            CREATE TABLE IF NOT EXISTS file_jobs (transfer TEXT NOT NULL, recipient TEXT NOT NULL, idx INTEGER NOT NULL, frame_event TEXT NOT NULL, sequence INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'pending', attempted_at INTEGER, PRIMARY KEY(transfer,recipient,idx), UNIQUE(frame_event,recipient));
+            CREATE TABLE IF NOT EXISTS file_jobs (transfer TEXT NOT NULL, recipient TEXT NOT NULL, idx INTEGER NOT NULL, frame_event TEXT NOT NULL, sequence INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'pending', attempted_at INTEGER, first_attempted_at INTEGER, PRIMARY KEY(transfer,recipient,idx), UNIQUE(frame_event,recipient));
             CREATE TABLE IF NOT EXISTS file_targets (transfer TEXT NOT NULL, recipient TEXT NOT NULL, status TEXT NOT NULL, PRIMARY KEY(transfer,recipient));
             CREATE TABLE IF NOT EXISTS file_tombstones (transfer TEXT PRIMARY KEY, origin TEXT NOT NULL, deleted_at INTEGER NOT NULL);")?;
         let has_attempted: bool = db.query_row(
@@ -48,6 +52,23 @@ impl DeviceStore {
         )?;
         if !has_attempted {
             db.execute("ALTER TABLE targets ADD COLUMN attempted_at INTEGER", [])?;
+        }
+        let has_file_first_attempt: bool = db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('file_jobs') WHERE name='first_attempted_at')",
+            [],
+            |row| row.get(0),
+        )?;
+        if !has_file_first_attempt {
+            let tx = db.unchecked_transaction()?;
+            tx.execute(
+                "ALTER TABLE file_jobs ADD COLUMN first_attempted_at INTEGER",
+                [],
+            )?;
+            // Earlier previews did not distinguish first send from capacity
+            // retry deadlines. Creation time is a conservative lower bound;
+            // do not give an old frame another relay lifetime on upgrade.
+            tx.execute("UPDATE file_jobs SET first_attempted_at=(SELECT created_at FROM file_transfers WHERE id=file_jobs.transfer) WHERE status='pending'", [])?;
+            tx.commit()?;
         }
         let mut store = Self {
             db,
@@ -144,6 +165,20 @@ impl DeviceStore {
         self.db.execute("DELETE FROM state WHERE name=?1", [name])?;
         Ok(())
     }
+    pub(crate) fn commit_bootstrap<T: Serialize>(
+        &mut self,
+        owner: &crate::OwnerIdentity,
+        configuration: &T,
+    ) -> Result<()> {
+        let owner = self.seal("owner", owner)?;
+        let configuration = self.seal("configuration", configuration)?;
+        let tx = self.db.transaction()?;
+        tx.execute("INSERT INTO state(name,value) VALUES('owner',?1) ON CONFLICT(name) DO UPDATE SET value=excluded.value", [owner])?;
+        tx.execute("INSERT INTO state(name,value) VALUES('configuration',?1) ON CONFLICT(name) DO UPDATE SET value=excluded.value", [configuration])?;
+        tx.execute("DELETE FROM state WHERE name='pending-bootstrap'", [])?;
+        tx.commit()?;
+        Ok(())
+    }
     pub(crate) fn reset_pairing(&mut self, identity: &crate::DeviceIdentity) -> Result<usize> {
         let identity_blob = self.seal("identity", identity)?;
         let failure_blob = self.seal("delivery-failure", &"cancelled by disconnect")?;
@@ -162,12 +197,12 @@ impl DeviceStore {
         )?;
         tx.execute("UPDATE file_transfers SET state='failed',committed=0 WHERE direction='outgoing' AND state NOT IN ('ready','failed','unsupported')", [])?;
         tx.execute(
-            "UPDATE events SET outgoing=0,applied=1 WHERE outgoing IN (1,2) OR outgoing=0",
+            "UPDATE events SET outgoing=0,applied=1 WHERE outgoing IN (0,1,2,3)",
             [],
         )?;
         tx.execute("UPDATE receipts SET applied=1,acknowledged=1", [])?;
         tx.execute(
-            "DELETE FROM state WHERE name IN ('configuration','owner','invite','pending-join','pending-approval','join-words','retry-backoff')",
+            "DELETE FROM state WHERE name IN ('configuration','owner','invite','pending-join','pending-approval','pending-bootstrap','join-words','retry-backoff','recipient-capacity-retries')",
             [],
         )?;
         tx.execute(
@@ -207,26 +242,78 @@ impl DeviceStore {
     pub fn set_queue_limit(&mut self, bytes: u64) {
         self.queue_limit = bytes.min(MAX_QUEUE_BYTES);
     }
-    pub fn defer_capture(&mut self, event: &ClipEvent, recipients: &[String]) -> Result<bool> {
-        self.insert(event, 2, None, recipients)
+    /// Keep the single encrypted local-history copy, with an explicit-retry
+    /// flag rather than another automatic outbox entry or payload copy.
+    pub fn defer_capture(&mut self, event: &ClipEvent, _recipients: &[String]) -> Result<bool> {
+        self.insert(event, 3, None, &[])
     }
     pub fn promote_deferred(&mut self) -> Result<()> {
         let tx = self.db.transaction()?;
-        let mut used: u64 = tx.query_row(
-            "SELECT COALESCE(SUM(LENGTH(payload)),0) FROM events WHERE outgoing=1",
+        let legacy: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM events WHERE outgoing=2)",
             [],
             |r| r.get(0),
         )?;
-        let deferred=tx.prepare("SELECT id,LENGTH(payload) FROM events WHERE outgoing=2 AND payload IS NOT NULL ORDER BY rowid")?.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,u64>(1)?)))?.collect::<std::result::Result<Vec<_>,_>>()?;
-        for (id, size) in deferred {
-            if used.saturating_add(size) > self.queue_limit {
-                break;
-            }
-            tx.execute("UPDATE events SET outgoing=1 WHERE id=?1", [id])?;
-            used += size;
+        if legacy {
+            // Existing active deliveries may already be on the relay. Preserve
+            // them even when older deferred rows precede them in local history.
+            // Only the deferred queue consumes the remaining migration budget.
+            let active: u64 = tx.query_row(
+                "SELECT COALESCE(SUM(LENGTH(payload)),0) FROM events WHERE outgoing=1",
+                [],
+                |row| row.get(0),
+            )?;
+            tx.execute("UPDATE events SET outgoing=3 WHERE id IN (SELECT id FROM (SELECT id,SUM(LENGTH(payload)) OVER (ORDER BY rowid) AS used FROM events WHERE outgoing=2) WHERE used>?1)", [self.queue_limit.saturating_sub(active)])?;
+            tx.execute("UPDATE events SET outgoing=1 WHERE outgoing=2", [])?;
         }
         tx.commit()?;
         Ok(())
+    }
+    pub fn overflow_count(&self) -> Result<usize> {
+        Ok(self.db.query_row(
+            "SELECT COUNT(*) FROM events WHERE outgoing=3 AND payload IS NOT NULL",
+            [],
+            |r| r.get(0),
+        )?)
+    }
+    pub fn retry_overflow_with_targets(&mut self, recipients: &[String]) -> Result<usize> {
+        if recipients.is_empty() {
+            return Err(SyncError::Membership);
+        }
+        let events = self.events("outgoing=3", "ASC")?;
+        let mut queued = 0;
+        for event in events {
+            let tx = self.db.transaction()?;
+            let used: u64 = tx.query_row(
+                "SELECT COALESCE(SUM(LENGTH(payload)),0) FROM events WHERE outgoing IN (1,2)",
+                [],
+                |r| r.get(0),
+            )?;
+            let size: u64 = tx.query_row(
+                "SELECT LENGTH(payload) FROM events WHERE id=?1 AND outgoing=3",
+                [&event.id],
+                |r| r.get(0),
+            )?;
+            if used.saturating_add(size) > self.queue_limit {
+                break;
+            }
+            tx.execute(
+                "UPDATE events SET outgoing=1 WHERE id=?1 AND outgoing=3",
+                [&event.id],
+            )?;
+            for recipient in recipients {
+                tx.execute(
+                    "INSERT OR IGNORE INTO targets(event,recipient) VALUES(?1,?2)",
+                    params![event.id, recipient],
+                )?;
+            }
+            tx.commit()?;
+            queued += 1;
+        }
+        if queued == 0 && self.overflow_count()? > 0 {
+            return Err(SyncError::Capacity);
+        }
+        Ok(queued)
     }
     pub fn contains(&self, event: &str) -> Result<bool> {
         Ok(self.db.query_row(
@@ -324,7 +411,7 @@ impl DeviceStore {
                 return Err(SyncError::Authentication);
             }
             let used: u64 = tx.query_row(
-                "SELECT COALESCE(SUM(LENGTH(payload)),0) FROM events WHERE outgoing=1",
+                "SELECT COALESCE(SUM(LENGTH(payload)),0) FROM events WHERE outgoing IN (1,2)",
                 [],
                 |r| r.get(0),
             )?;
@@ -436,7 +523,7 @@ impl DeviceStore {
     }
     pub fn pending_count(&self) -> Result<usize> {
         Ok(self.db.query_row(
-            "SELECT COUNT(*) FROM events WHERE outgoing IN (1,2)",
+            "SELECT COUNT(*) FROM events WHERE outgoing IN (1,2,3)",
             [],
             |r| r.get(0),
         )?)

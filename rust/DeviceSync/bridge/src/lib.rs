@@ -126,6 +126,7 @@ fn execute(bytes: &[u8]) -> Result<Value> {
         }
         "file_transfers" => Ok(serde_json::to_value(client.file_transfers()?)?),
         "tick" => Ok(serde_json::to_value(client.tick(false)?)?),
+        "retry_overflow" => Ok(serde_json::to_value(client.retry_overflow()?)?),
         "imports" => Ok(serde_json::to_value(client.store.unapplied()?)?),
         "applied" => {
             client.store.mark_applied(text(b, "id")?)?;

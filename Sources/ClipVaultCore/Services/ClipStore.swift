@@ -1329,7 +1329,30 @@ public final class SwiftDataClipStore: ClipStoring {
             // identity after export so repeated Share gestures cannot bind the
             // same transfer to a second event and strand a new retry marker.
             let existing = try context.fetch(FetchDescriptor<ClipSyncExportRecord>(predicate: #Predicate { $0.clipID == clipID && !$0.cancelled }))
-            if !existing.isEmpty { return }
+            if let record = existing.first {
+                // An explicit Share action can recover a quarantined transfer from
+                // its intact local clip while preserving the event/transfer ID.
+                // Healthy pending and already-exported rows remain idempotent.
+                guard record.failure != nil else { return }
+                do {
+                    let portable = try ClipSyncPortable(payload: payload, sourceApp: sourceApp, capturedAt: capturedAt)
+                    let encoded = try encoder.encode(portable)
+                    let encrypted = try encryptor.encrypt(encoded)
+                    let allPending = try context.fetch(FetchDescriptor<ClipSyncExportRecord>(predicate: #Predicate { $0.encryptedPayload != nil }))
+                    let otherPendingBytes = allPending.reduce(0) { total, candidate in
+                        total + (candidate.id == record.id ? 0 : (candidate.encryptedPayload?.count ?? 0))
+                    }
+                    guard otherPendingBytes + encrypted.count <= syncQueueByteLimit else { return }
+                    record.encryptedPayload = encrypted
+                    record.failure = nil
+                    record.retryable = false
+                } catch is ClipSyncError {
+                    // Preserve the existing marker and its failure when the local
+                    // clip cannot be converted into a shareable portable payload.
+                    return
+                }
+                return
+            }
         }
         let portable: ClipSyncPortable
         do { portable = try ClipSyncPortable(payload: payload, sourceApp: sourceApp, capturedAt: capturedAt) }
@@ -1348,19 +1371,36 @@ public final class SwiftDataClipStore: ClipStoring {
     }
 
     public func pendingSyncExports() throws -> [ClipSyncExport] {
-        var descriptor = FetchDescriptor<ClipSyncExportRecord>(predicate: #Predicate { !$0.cancelled && $0.encryptedPayload != nil })
+        var descriptor = FetchDescriptor<ClipSyncExportRecord>(
+            predicate: #Predicate { !$0.cancelled && $0.encryptedPayload != nil && $0.failure == nil },
+            sortBy: [SortDescriptor(\.id)]
+        )
         descriptor.fetchLimit = 16
-        var bytes = 0
-        return try context.fetch(descriptor).compactMap { record in
-            guard bytes + (record.encryptedPayload?.count ?? 0) <= 20 * 1024 * 1024 else { return nil }
-            bytes += record.encryptedPayload?.count ?? 0
-            guard !record.cancelled, let data = record.encryptedPayload else { return nil }
-            var payload = try decoder.decode(ClipSyncPortable.self, from: encryptor.decrypt(data))
-            // Earlier file previews persisted the capture app in the outbox.
-            // Typed file frames omit it; normalize on read without changing
-            // the event identity or the original local history metadata.
-            if payload.kind == "attachment" { payload.sourceApp = nil }
-            return ClipSyncExport(id: record.id, clipID: record.clipID, payload: payload)
+        return try withRollback {
+            var bytes = 0
+            var quarantined = false
+            let exports = try context.fetch(descriptor).compactMap { record -> ClipSyncExport? in
+                guard let data = record.encryptedPayload else { return nil }
+                guard bytes + data.count <= 20 * 1024 * 1024 else { return nil }
+                do {
+                    var payload = try decoder.decode(ClipSyncPortable.self, from: encryptor.decrypt(data))
+                    // Earlier file previews persisted the capture app in the outbox.
+                    // Typed file frames omit it; normalize on read without changing
+                    // the event identity or the original local history metadata.
+                    if payload.kind == "attachment" { payload.sourceApp = nil }
+                    bytes += data.count
+                    return ClipSyncExport(id: record.id, clipID: record.clipID, payload: payload)
+                } catch {
+                    // Keep the encrypted bytes for diagnosis or explicit repair, but
+                    // exclude this record from automatic scans after recording failure.
+                    record.failure = "Unable to read queued share: \(error.localizedDescription)"
+                    record.retryable = false
+                    quarantined = true
+                    return nil
+                }
+            }
+            if quarantined { try saveContext(context) }
+            return exports
         }
     }
 

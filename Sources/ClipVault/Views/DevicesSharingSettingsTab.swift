@@ -20,6 +20,11 @@ struct DevicesSharingSettingsTab: View {
                 Button("Disconnect and reset pairing…", role: .destructive) { disconnecting = true }
                     .disabled(sync.busy)
                 if let message = sync.message { Text(message).foregroundStyle(.orange).textSelection(.enabled) }
+                if sync.status.enabled && sync.status.state.contains("Sharing backlog full") {
+                    Button("Retry local shares", action: sync.retryOverflow)
+                        .disabled(sync.busy)
+                        .help("Explicitly retry locally stored shares now that encrypted sharing has capacity")
+                }
                 Text("Received clips appear in history. Use Copy for text and images, or Save File for attachments up to 100 MiB. Notes, folders, pins and old file references stay local. File contents are not screened for secrets.")
                     .font(.caption).foregroundStyle(.secondary)
             }

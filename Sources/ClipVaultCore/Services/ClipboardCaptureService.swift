@@ -10,6 +10,7 @@ public final class ClipboardCaptureService {
 
     public var onClipCaptured: (@MainActor (ClipPayload, String?, Date) -> Void)?
     public var onFilesCaptured: (@MainActor ([URL], String?, Date) -> Void)?
+    public var onFileCaptureError: (@MainActor (String) -> Void)?
     public private(set) var isRunning = false
 
     private let pasteboard: NSPasteboard
@@ -88,6 +89,11 @@ public final class ClipboardCaptureService {
             deferredRead = nil
             return
         }
+        if let error = snapshot.fileSelectionError {
+            deferredRead = nil
+            onFileCaptureError?(error)
+            return
+        }
         if !snapshot.hasReadableContent {
             // Ownership can change before a promised/remote representation is fulfilled.
             // A clear may also precede type declaration under the same ownership.
@@ -140,6 +146,15 @@ public final class ClipboardCaptureService {
 
     private static func snapshot(from pasteboard: NSPasteboard) -> PasteboardSnapshot {
         let types = pasteboard.types?.map(\.rawValue) ?? []
+        if types.contains(NSPasteboard.PasteboardType.fileURL.rawValue),
+           let count = pasteboard.pasteboardItems?.count, count > 10 {
+            // Reject the selection using item metadata before asking AppKit to
+            // materialize every promised URL. Keep AppKit's security-scoped URL
+            // reader for selections within the limit.
+            return PasteboardSnapshot(uniformTypeIdentifiers: types, string: nil, urlString: nil,
+                rtfData: nil, tiffData: nil, pngData: nil, objectImageData: nil,
+                filePaths: [], fileSelectionError: "Choose up to 10 files at a time.")
+        }
         let urls = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL] ?? []
         // Keep one extra URL so the controller can report the ten-file limit
         // without building path metadata for an unbounded selection.
@@ -360,6 +375,7 @@ struct PasteboardSnapshot: Sendable {
     var objectImageData: Data?
     var filePaths: [String]
     var fileURLs: [URL] = []
+    var fileSelectionError: String? = nil
 
     var hasReadableContent: Bool {
         string?.isEmpty == false || urlString?.isEmpty == false || !filePaths.isEmpty

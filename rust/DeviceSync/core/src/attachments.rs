@@ -146,6 +146,7 @@ pub(crate) struct FileJob {
     pub index: i64,
     pub event: String,
     pub sequence: u64,
+    pub first_attempted_at: Option<i64>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -726,13 +727,36 @@ impl DeviceStore {
     }
 
     pub fn delete_file(&mut self, id: &str) -> Result<()> {
+        self.delete_file_inner(id, None)
+    }
+
+    /// Atomically hide a staged attachment's known history event and remove its
+    /// bytes/jobs. Before commit_file, the transfer has no stored event_id yet.
+    pub fn delete_file_with_event(&mut self, id: &str, event_id: &str) -> Result<()> {
+        if uuid::Uuid::parse_str(event_id).is_err() {
+            return Err(SyncError::Invalid);
+        }
+        if let Some(event) = self.event(event_id)?
+            && (event.clip.kind != "attachment"
+                || event.clip.metadata.get("file_id").map(String::as_str) != Some(id))
+        {
+            return Err(SyncError::Authentication);
+        }
+        self.delete_file_inner(id, Some(event_id))
+    }
+
+    fn delete_file_inner(&mut self, id: &str, staged_event: Option<&str>) -> Result<()> {
         if uuid::Uuid::parse_str(id).is_err() {
             return Err(SyncError::Invalid);
         }
         let transfer = match self.stored_transfer(id) {
             Ok(transfer) => transfer,
-            Err(SyncError::Attachment) if self.is_file_tombstoned(id)? => return Ok(()),
-            Err(SyncError::Attachment) => return Ok(()),
+            Err(SyncError::Attachment) => {
+                if let Some(event) = staged_event {
+                    self.delete_local(event)?;
+                }
+                return Ok(());
+            }
             Err(error) => return Err(error),
         };
         let now = crate::unix_time();
@@ -766,14 +790,14 @@ impl DeviceStore {
             params![id, transfer.descriptor.origin, now],
         )?;
         tx.execute("UPDATE file_jobs SET status='cancelled' WHERE transfer=?1 AND status IN ('pending','retry')", [id])?;
-        if let Some(event) = event {
+        for event in event.as_deref().into_iter().chain(staged_event) {
             tx.execute(
                 "UPDATE events SET outgoing=0,payload=NULL,applied=1 WHERE id=?1",
-                [&event],
+                [event],
             )?;
             tx.execute(
                 "UPDATE targets SET status='cancelled' WHERE event=?1 AND status='pending'",
-                [&event],
+                [event],
             )?;
         }
         tx.execute("DELETE FROM file_transfers WHERE id=?1", [id])?;
@@ -791,7 +815,7 @@ impl DeviceStore {
     }
 
     pub(crate) fn pending_file_jobs(&self, limit: usize) -> Result<Vec<FileJob>> {
-        let mut query = self.db.prepare("SELECT transfer,recipient,idx,frame_event,sequence FROM file_jobs WHERE status='pending' AND (attempted_at IS NULL OR attempted_at<=?1) ORDER BY rowid LIMIT ?2")?;
+        let mut query = self.db.prepare("SELECT transfer,recipient,idx,frame_event,sequence,first_attempted_at FROM file_jobs WHERE status='pending' AND (attempted_at IS NULL OR attempted_at<=?1 OR attempted_at>?1+2) ORDER BY rowid LIMIT ?2")?;
         Ok(query
             .query_map(params![crate::unix_time(), limit as i64], |r| {
                 Ok(FileJob {
@@ -800,9 +824,18 @@ impl DeviceStore {
                     index: r.get(2)?,
                     event: r.get(3)?,
                     sequence: r.get(4)?,
+                    first_attempted_at: r.get(5)?,
                 })
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?)
+    }
+
+    pub(crate) fn mark_file_job_attempted(&mut self, job: &FileJob, now: i64) -> Result<()> {
+        self.db.execute(
+            "UPDATE file_jobs SET first_attempted_at=COALESCE(first_attempted_at,?4) WHERE transfer=?1 AND recipient=?2 AND idx=?3",
+            params![job.transfer, job.recipient, job.index, now],
+        )?;
+        Ok(())
     }
 
     pub(crate) fn defer_file_jobs_for_recipient(

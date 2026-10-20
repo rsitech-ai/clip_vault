@@ -176,13 +176,13 @@ fn build(app: &adw::Application) {
                 } else {
                     "Sharing off"
                 };
-                status.set_text(&snapshot.message.clone().unwrap_or_else(|| {
-                    format!(
-                        "{capture_state} · {sharing_state} · {} clip{}",
-                        snapshot.history.len(),
-                        if snapshot.history.len() == 1 { "" } else { "s" }
-                    )
-                }));
+                status.set_text(&main_status_text(
+                    &snapshot.status.state,
+                    snapshot.message.as_deref(),
+                    capture_state,
+                    sharing_state,
+                    snapshot.history.len(),
+                ));
                 let _bridge_seen =
                     (unix_time() as u64).saturating_sub(bridge_state.load(Ordering::Relaxed)) < 15;
                 let _platform_is_x11 = x11;
@@ -437,6 +437,27 @@ fn render(list: &gtk::ListBox, snapshot: &Snapshot, query: &str, tx: &Sender<Wor
     }
     shown
 }
+
+fn main_status_text(
+    state: &str,
+    message: Option<&str>,
+    capture_state: &str,
+    sharing_state: &str,
+    clip_count: usize,
+) -> String {
+    if state.contains("Sharing backlog full") {
+        return match message {
+            Some(message) if !message.is_empty() => format!("{state} · {message}"),
+            _ => state.to_string(),
+        };
+    }
+    message.map(str::to_string).unwrap_or_else(|| {
+        format!(
+            "{capture_state} · {sharing_state} · {clip_count} clip{}",
+            if clip_count == 1 { "" } else { "s" }
+        )
+    })
+}
 fn format_bytes(bytes: u64) -> String {
     if bytes >= 1024 * 1024 {
         format!("{:.1} MB", bytes as f64 / (1024. * 1024.))
@@ -470,6 +491,7 @@ fn file_status_label(state: &FileTransferStatus, size: u64, sharing: bool) -> St
         _ => format!("{size} · Transfer status unavailable"),
     }
 }
+
 fn show_code(parent: &adw::ApplicationWindow, code: &str) {
     let dialog = gtk::Window::builder()
         .title("Pair ClipVault devices")
@@ -642,6 +664,22 @@ fn devices(
     }
     body.append(&enabled);
 
+    let retry_overflow = gtk::Button::with_label("Retry local shares");
+    retry_overflow.set_tooltip_text(Some(
+        "Explicitly retry locally stored shares when encrypted sharing has capacity",
+    ));
+    retry_overflow.update_property(&[gtk::accessible::Property::Label("Retry local shares")]);
+    retry_overflow.set_visible(false);
+    {
+        let tx = tx.clone();
+        let retry_button = retry_overflow.clone();
+        retry_overflow.connect_clicked(move |_| {
+            retry_button.set_sensitive(false);
+            let _ = tx.send(Work::RetryOverflow);
+        });
+    }
+    body.append(&retry_overflow);
+
     let paired_box = gtk::Box::new(gtk::Orientation::Vertical, 8);
     paired_box.set_visible(initial_paired);
     let setup_choices = gtk::Box::new(gtk::Orientation::Vertical, 8);
@@ -793,6 +831,7 @@ fn devices(
         let snapshot = snapshot.clone();
         let cancelled = cancelled.clone();
         let enabled = enabled.clone();
+        let retry_overflow = retry_overflow.clone();
         let restoring_enabled = restoring_enabled.clone();
         let setup_choices = setup_choices.clone();
         let join_form = join_form.clone();
@@ -823,6 +862,9 @@ fn devices(
                 });
                 let paused = cancelled.load(Ordering::Acquire);
                 let sharing = snapshot.status.enabled && !paused;
+                let overflow = snapshot.status.state.contains("Sharing backlog full");
+                retry_overflow.set_visible(sharing && overflow);
+                retry_overflow.set_sensitive(sharing && overflow);
                 if snapshot.status.enabled != paused
                     && enabled.is_active() != snapshot.status.enabled
                 {
@@ -918,4 +960,55 @@ fn devices(
         });
     }
     dialog.present();
+}
+
+#[cfg(test)]
+mod status_text_tests {
+    use super::main_status_text;
+
+    #[test]
+    fn backlog_state_remains_visible_with_operation_error() {
+        assert_eq!(
+            main_status_text(
+                "Sharing backlog full; retry local clips in Devices",
+                Some("Could not add file: disk is full"),
+                "Capturing",
+                "Sharing on",
+                12,
+            ),
+            "Sharing backlog full; retry local clips in Devices · Could not add file: disk is full"
+        );
+    }
+
+    #[test]
+    fn backlog_state_remains_visible_with_retry_success() {
+        assert_eq!(
+            main_status_text(
+                "Sharing backlog full; retry local clips in Devices",
+                Some("Queued 4 local shares for sending."),
+                "Capturing",
+                "Sharing on",
+                12,
+            ),
+            "Sharing backlog full; retry local clips in Devices · Queued 4 local shares for sending."
+        );
+    }
+
+    #[test]
+    fn normal_state_uses_operation_message_or_capture_summary() {
+        assert_eq!(
+            main_status_text(
+                "Sharing on",
+                Some("File saved."),
+                "Capturing",
+                "Sharing on",
+                2
+            ),
+            "File saved."
+        );
+        assert_eq!(
+            main_status_text("Sharing on", None, "Capturing", "Sharing on", 2),
+            "Capturing · Sharing on · 2 clips"
+        );
+    }
 }

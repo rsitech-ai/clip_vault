@@ -76,11 +76,11 @@
     },
     {
       "path": "Sources/ClipVault/App/ClipVaultSyncController.swift",
-      "sha256": "968af2a3713226c2b96ce0c82bcc4e494b062da4157cd7c49273a94faa5f3d71"
+      "sha256": "7f543f75bb171abb5cc3ce45c682f9b4d6c6ae9049b3f1ca42f07be01dcb1243"
     },
     {
       "path": "Sources/ClipVault/App/ClipVaultViewModel.swift",
-      "sha256": "0254cbec89ce4841fc62d7565941f24ea3e704adcd3b9e5d59459d77df4ee48d"
+      "sha256": "904363f822d59bec19603decce04d4bfccec95299ee761298fab6029221c56b6"
     },
     {
       "path": "Sources/ClipVault/Views/ClipDetailView.swift",
@@ -96,7 +96,7 @@
     },
     {
       "path": "Sources/ClipVault/Views/DevicesSharingSettingsTab.swift",
-      "sha256": "1e113eae93351c6ec86027d76c09926de9df4604ca46426949829f0b064755cf"
+      "sha256": "0d0dd7c68444ee85610e50db5c9d9d74f0350d18632875129dda58ac10f579b0"
     },
     {
       "path": "Sources/ClipVault/Views/MenuBarView.swift",
@@ -136,7 +136,7 @@
     },
     {
       "path": "Sources/ClipVaultCore/Services/ClipStore.swift",
-      "sha256": "6a1dd767907ecdc143b524ea549110d643ea55fe1e59ef5c75d92cb35650dd63"
+      "sha256": "4b5376d5b1525d35598e6d740905d3366cbc8fa8f94ab5b80b92897a68fe97f9"
     },
     {
       "path": "Sources/ClipVaultCore/Services/ClipStoreMigrationBackup.swift",
@@ -144,7 +144,7 @@
     },
     {
       "path": "Sources/ClipVaultCore/Services/ClipSyncService.swift",
-      "sha256": "25af4d7e8192c8352cf464fbf5636505d9d1f7f0de71af8990d753ea8943c388"
+      "sha256": "a9fd41cf24f6e942ba8e5feb54adb1841cbc91259b463785b7068381a0140425"
     },
     {
       "path": "Sources/ClipVaultCore/Services/ClipSyncStore.swift",
@@ -152,7 +152,7 @@
     },
     {
       "path": "Sources/ClipVaultCore/Services/ClipboardCaptureService.swift",
-      "sha256": "10e27ed57c4a4e2ab6c702470ef60416a56c325fa7e34d8748c5d1357765db3c"
+      "sha256": "a84a280d372d46d3e96aed0a377d63858d989325b5fe85d8d2758fbce21766be"
     },
     {
       "path": "Sources/ClipVaultCore/Services/SensitiveRuleEngine.swift",
@@ -169,6 +169,14 @@
     {
       "path": "Tests/ClipVaultAppTests/ClipVaultSyncControllerTests.swift",
       "sha256": "6555fa16174f77a189022fe2674930b54eaa407e66e258e5bd4a30897c8573ae"
+    },
+    {
+      "path": "Tests/ClipVaultAppTests/ClipVaultSyncOverflowRetryTests.swift",
+      "sha256": "07e7ea15350e84b2f0c0b7817b0a555f007e6a3b734330e5ec3adc25567c152c"
+    },
+    {
+      "path": "Tests/ClipVaultAppTests/ClipVaultSyncPoisonedOutboxTests.swift",
+      "sha256": "a83155c610dbc5b60e9a97266e197401d5c76e625187154538a85478f2a37906"
     },
     {
       "path": "Tests/ClipVaultAppTests/ClipVaultSyncResilienceTests.swift",
@@ -196,11 +204,11 @@
     },
     {
       "path": "Tests/ClipVaultCoreTests/ClipSyncStoreTests.swift",
-      "sha256": "8cc250a873e62928adfd50bb2ad3e5fb2c407ae9731512710591f46ba86289da"
+      "sha256": "b70a23929ac7baccb6c359c29a2f43ed756325e4a5064d7a3b93385182b5f6f5"
     },
     {
       "path": "Tests/ClipVaultCoreTests/ClipboardCaptureServiceTests.swift",
-      "sha256": "7c005ea5098d36215475b38b885031c0949f27ac22c8aa0cafb86f6037e14559"
+      "sha256": "f8ba5dbf67f37e1280434cbaff00b35e945ca0fae86eadccf33490ca1480b120"
     },
     {
       "path": "docs/ARCHITECTURE.md",
@@ -232,7 +240,7 @@
     },
     {
       "path": "rust/DeviceSync/bridge/src/lib.rs",
-      "sha256": "bec119db0fb1ad91808242a92fafa2971968fd3c85299694b9bc070720b4a0e2"
+      "sha256": "90b37a8ea69cb298b4633f152e1adfdd24609b13b44454d94d93af0b4e69856b"
     },
     {
       "path": "rust/DeviceSync/core/Cargo.toml",
@@ -240,11 +248,11 @@
     },
     {
       "path": "rust/DeviceSync/core/src/attachments.rs",
-      "sha256": "bdddc8ee1f32658751d003a5c8e0376d32effa3060cf846e951e9d94db9227f8"
+      "sha256": "aed6bdd6d410f3a7319712d0eeee509eb7d972c87b4a2b059a5474979e4e15ec"
     },
     {
       "path": "rust/DeviceSync/core/src/client.rs",
-      "sha256": "2f3faee4f708b83c1b9e9a5ae0a380a5bd26bf10cf457fc1c90aab0ce456df23"
+      "sha256": "98e4e2a2b672c6d89a0ac835c4583d6a7ec635743bddac26436273fd02c11114"
     },
     {
       "path": "rust/DeviceSync/core/src/credentials.rs",
@@ -272,7 +280,7 @@
     },
     {
       "path": "rust/DeviceSync/core/src/store.rs",
-      "sha256": "b8e9df3d1493830ec4a0f2898fab0e4b02bee34844b7da7027829f9facd7f719"
+      "sha256": "a001478e3b2d9f04f7461124d10fccd314b8a82cf9a27959c8f09df1833b4f01"
     },
     {
       "path": "rust/DeviceSync/core/tests/attachments.rs",
@@ -280,7 +288,7 @@
     },
     {
       "path": "rust/DeviceSync/core/tests/delivery.rs",
-      "sha256": "505db170199d5f3b66ffe7194ec7c245cdf61b2d3fe375d06f26a043affd70e7"
+      "sha256": "727212b54d92c0fc926c3711a8b8b976d05ff803cdd9f8ace46ac0d6f4e546f9"
     },
     {
       "path": "rust/DeviceSync/core/tests/fixtures/clip.png",
@@ -301,6 +309,10 @@
     {
       "path": "rust/DeviceSync/core/tests/protocol.rs",
       "sha256": "72ab91a91dd3593efa93384d20c6e449f90025ead4114ef0ad820744239cae11"
+    },
+    {
+      "path": "rust/DeviceSync/core/tests/staged_cancellation.rs",
+      "sha256": "9f2ce0607fb831d13ab19a3aaad998c8d36c20422bb756de4868b777a2f5b737"
     },
     {
       "path": "rust/DeviceSync/core/tests/transport.rs",
@@ -348,11 +360,11 @@
     },
     {
       "path": "rust/DeviceSync/linux/src/ui.rs",
-      "sha256": "846901b2ad9253d7edf98af720bd035760c1da6ff369da87976c061c627243c6"
+      "sha256": "f7b04bcef0ed632c91d3eda120b574d6ccfa1fa2ce390ca30f8d607872bc8a81"
     },
     {
       "path": "rust/DeviceSync/linux/src/worker.rs",
-      "sha256": "260bd62d19d19bcf16bebda49309e0a97f4221d31eda3463b20062d86dc3de6c"
+      "sha256": "2019a176922cb0bd27d6ab12ed4902aecc657a957c9968bafbb8d0b710075db8"
     },
     {
       "path": "rust/DeviceSync/linux/tests/policy.rs",
@@ -376,19 +388,27 @@
     },
     {
       "path": "rust/DeviceSync/relay/src/store.rs",
-      "sha256": "5560f03b7e6e53def020de81bdc4421d45315725dae6d9a6d96670fc4e32468e"
+      "sha256": "2f6e87796e0bb9145b8b2dcc44d00d53226dd68bc2e76ff9df88184891d5ccff"
     },
     {
       "path": "rust/DeviceSync/relay/tests/body_limits.rs",
       "sha256": "a04a519a3b15b38d42891352026c02a51d2c6b70d83bb67f58cd2b685be1eb5f"
     },
     {
+      "path": "rust/DeviceSync/relay/tests/bootstrap_recovery.rs",
+      "sha256": "aae434b84990108a13b4ae858e0369f15de11ca330a363a2034bec9293fc0a92"
+    },
+    {
       "path": "rust/DeviceSync/relay/tests/client_e2e.rs",
       "sha256": "554ef50064f10454b1a84f2c45864edf33cb9ad25b42a1cea8d2ba5f46e6bf5e"
     },
     {
+      "path": "rust/DeviceSync/relay/tests/file_expiry.rs",
+      "sha256": "43edbfdd50ab84ef9e4c862fd81551b0c000ddeac776138acfabfbf1ce3cb697"
+    },
+    {
       "path": "rust/DeviceSync/relay/tests/relay.rs",
-      "sha256": "2092271e841b68f91044c400cff36d9bca25a6edc87b9f56dac2ce19818d3d51"
+      "sha256": "c25d91524716a4a7bc451a77f94f125c2fc4c09cf92772e409f54770547f66d6"
     },
     {
       "path": "rust/DeviceSync/relay/tests/retry.rs",
@@ -397,6 +417,10 @@
     {
       "path": "rust/DeviceSync/relay/tests/stale_membership.rs",
       "sha256": "2e5eb5f53e3990c5cac1efbc647824891964e51c2653ab859674c6be54b7d039"
+    },
+    {
+      "path": "rust/DeviceSync/relay/tests/text_capacity.rs",
+      "sha256": "5a610e22f71f0be61b07caee5eddb3b258938ee97b58cd8c05f5d945acf9f003"
     },
     {
       "path": "rust/DeviceSync/relay/tests/three_devices.rs",

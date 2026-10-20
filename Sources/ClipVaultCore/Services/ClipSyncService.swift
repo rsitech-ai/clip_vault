@@ -41,6 +41,7 @@ public struct ClipSyncStatus: Codable, Sendable {
 }
 public struct ClipSyncServiceError: Error, LocalizedError, Sendable {
     public let message: String
+    public init(message: String) { self.message = message }
     public var errorDescription: String? { message }
 }
 
@@ -61,6 +62,13 @@ public protocol ClipSyncServicing: Sendable {
     func approve(id: String, words: String) async throws
     func remove(id: String) async throws
     func disconnect() async throws -> Int
+    func retryOverflow() async throws -> Int
+}
+
+public extension ClipSyncServicing {
+    func retryOverflow() async throws -> Int {
+        throw ClipSyncServiceError(message: "Retrying local shares is unavailable in this sync engine.")
+    }
 }
 
 /// Serial background execution keeps SQLite, Keychain, and blocking HTTP off the UI actor.
@@ -127,6 +135,9 @@ public final class ClipSyncService: ClipSyncServicing, @unchecked Sendable {
     }
     public func remove(id: String) async throws {
         _ = try await call("remove", payload: ["id": id], as: Bool.self)
+    }
+    public func retryOverflow() async throws -> Int {
+        try await call("retry_overflow", payload: [String: String](), as: Int.self)
     }
 }
 

@@ -19,6 +19,7 @@ const FILE_JOB_MAX_SENDS_PER_TICK: usize = 16;
 const FILE_JOB_MAX_CHECKS_PER_TICK: usize = 128;
 const FILE_JOB_TIME_BUDGET: Duration = Duration::from_secs(2);
 const FILE_QUEUE_RETRY_DELAY_SECS: i64 = 2;
+const RECIPIENT_CAPACITY_RETRIES: &str = "recipient-capacity-retries";
 
 #[derive(Clone, Serialize, Deserialize)]
 struct Configuration {
@@ -63,6 +64,11 @@ struct PendingApproval {
     device: String,
     token_hash: String,
     roster: SignedRoster,
+}
+#[derive(Clone, Serialize, Deserialize)]
+struct PendingBootstrap {
+    owner: OwnerIdentity,
+    configuration: Configuration,
 }
 impl Drop for Configuration {
     fn drop(&mut self) {
@@ -260,24 +266,49 @@ impl SyncClient {
         if self.configuration.is_some() || name.is_empty() || name.len() > 128 {
             return Err(SyncError::Invalid);
         }
-        let owner = OwnerIdentity::generate();
-        let workspace = uuid::Uuid::new_v4().to_string();
-        let credential = secret_string();
-        let roster =
-            SignedRoster::sign(&workspace, 1, vec![self.identity.member("Device")], &owner)?;
-        let _:bool=self.request(relay,Method::POST,"/v1/workspaces",Some(registration),Some(&serde_json::json!({"roster":roster,"owner_key":owner.public_key(),"owner_device":self.identity.id,"token_hash":credential_hash(&credential)})))?;
-        self.store.put("owner", &owner)?;
-        self.configuration = Some(Configuration {
-            workspace,
-            relay: relay.into(),
-            owner_key: owner.public_key(),
-            credential,
-            roster: Some(roster),
-            enabled: true,
-            awaiting_approval: false,
-            name: name.into(),
-        });
-        self.persist()
+        let pending = match self.store.get::<PendingBootstrap>("pending-bootstrap")? {
+            Some(pending) => {
+                // An ambiguous remote commit must reuse its exact identity and
+                // credential. Switching relays requires an explicit reset.
+                if pending.configuration.relay != relay {
+                    return Err(SyncError::Invalid);
+                }
+                pending
+            }
+            None => {
+                let owner = OwnerIdentity::generate();
+                let workspace = uuid::Uuid::new_v4().to_string();
+                let roster = SignedRoster::sign(
+                    &workspace,
+                    1,
+                    vec![self.identity.member("Device")],
+                    &owner,
+                )?;
+                let pending = PendingBootstrap {
+                    configuration: Configuration {
+                        workspace,
+                        relay: relay.into(),
+                        owner_key: owner.public_key(),
+                        credential: secret_string(),
+                        roster: Some(roster),
+                        enabled: true,
+                        awaiting_approval: false,
+                        name: name.into(),
+                    },
+                    owner,
+                };
+                // The provisioning secret is never persisted.
+                self.store.put("pending-bootstrap", &pending)?;
+                pending
+            }
+        };
+        let cfg = &pending.configuration;
+        let _: bool = self.request(relay, Method::POST, "/v1/workspaces", Some(registration), Some(&serde_json::json!({
+            "roster":cfg.roster,"owner_key":cfg.owner_key,"owner_device":self.identity.id,"token_hash":credential_hash(&cfg.credential)
+        })))?;
+        self.store.commit_bootstrap(&pending.owner, cfg)?;
+        self.configuration = Some(pending.configuration.clone());
+        Ok(())
     }
     pub fn join(&mut self, code: &str, name: &str) -> Result<String> {
         if name.is_empty() || name.len() > 128 {
@@ -723,6 +754,26 @@ impl SyncClient {
     pub fn file_transfers(&self) -> Result<Vec<FileTransferStatus>> {
         self.store.file_transfers()
     }
+    /// User action only: resume a bounded batch of clips held locally when the
+    /// automatic outbox filled. Enabling sharing never invokes this method.
+    pub fn retry_overflow(&mut self) -> Result<usize> {
+        if !self.sharing_enabled() || self.cancelled.load(Ordering::Acquire) {
+            return Err(SyncError::Paused);
+        }
+        self.refresh_membership()?;
+        let roster = self
+            .configuration
+            .as_ref()
+            .and_then(|c| c.roster.as_ref())
+            .ok_or(SyncError::Membership)?;
+        let recipients: Vec<_> = roster
+            .members
+            .iter()
+            .filter(|m| m.id != self.identity.id)
+            .map(|m| m.id.clone())
+            .collect();
+        self.store.retry_overflow_with_targets(&recipients)
+    }
     pub fn status(&self) -> Result<ClientStatus> {
         let retry = self
             .store
@@ -734,6 +785,8 @@ impl SyncClient {
                 "Sharing off"
             } else if (1..=60).contains(&retry.retry_at.saturating_sub(unix_time())) {
                 "Retry scheduled; local history retained"
+            } else if self.store.overflow_count()? > 0 {
+                "Sharing backlog full; retry local clips in Devices"
             } else {
                 "Ready"
             }
@@ -823,6 +876,22 @@ impl SyncClient {
             capabilities_published?;
         }
         self.store.promote_deferred()?;
+        // A full recipient mailbox must not turn into a workspace-wide outage.
+        // Persist only current-member deadlines so reopening the FFI client
+        // cannot bypass backpressure, and revoked peers cannot grow this map.
+        let mut capacity_retries: std::collections::BTreeMap<String, i64> = self
+            .store
+            .get(RECIPIENT_CAPACITY_RETRIES)?
+            .unwrap_or_default();
+        let previous_count = capacity_retries.len();
+        capacity_retries.retain(|recipient, deadline| {
+            roster.member(recipient).is_ok()
+                && (1..=FILE_QUEUE_RETRY_DELAY_SECS).contains(&deadline.saturating_sub(unix_time()))
+        });
+        if capacity_retries.len() != previous_count {
+            self.store
+                .put(RECIPIENT_CAPACITY_RETRIES, &capacity_retries)?;
+        }
         for event in self.store.pending()?.into_iter().take(16) {
             for recipient_id in self.store.targets(&event.id)? {
                 let Ok(recipient) = roster.member(&recipient_id) else {
@@ -830,6 +899,9 @@ impl SyncClient {
                         .target_done(&event.id, &recipient_id, "revoked")?;
                     continue;
                 };
+                if capacity_retries.contains_key(&recipient_id) {
+                    continue;
+                }
                 let state: String = self.auth_request(
                     Method::GET,
                     &format!("/v1/delivery/{}/{}", event.id, recipient_id),
@@ -858,11 +930,23 @@ impl SyncClient {
                             recipient,
                             &event,
                         )?;
-                        let _: i64 = self.auth_request(
+                        let submitted: Result<i64> = self.auth_request(
                             Method::POST,
                             "/v1/mailbox",
                             Some(&serde_json::to_value(envelope)?),
-                        )?;
+                        );
+                        match submitted {
+                            Ok(_) => {}
+                            Err(SyncError::Relay(507)) => {
+                                capacity_retries.insert(
+                                    recipient_id.clone(),
+                                    unix_time().saturating_add(FILE_QUEUE_RETRY_DELAY_SECS),
+                                );
+                                self.store
+                                    .put(RECIPIENT_CAPACITY_RETRIES, &capacity_retries)?;
+                            }
+                            Err(error) => return Err(error),
+                        }
                     }
                     "delivered" => self
                         .store
@@ -909,6 +993,19 @@ impl SyncClient {
             )?;
             match state.as_str() {
                 "missing" => {
+                    if job.first_attempted_at.is_some_and(|first| {
+                        unix_time().saturating_sub(first) > DELIVERY_MAX_RETRY_AGE
+                    }) {
+                        self.store.mark_file_job(
+                            &job.transfer,
+                            &job.recipient,
+                            job.index,
+                            "failed",
+                        )?;
+                        self.store.put("delivery-failure", &"expired")?;
+                        continue;
+                    }
+                    self.store.mark_file_job_attempted(&job, unix_time())?;
                     let frame = self.store.file_frame(&job)?;
                     let envelope = seal_file_frame(
                         &cfg.workspace,
@@ -1062,7 +1159,9 @@ impl SyncClient {
         }
         status = self.status()?;
         status.requests = self.pairing_requests()?;
-        status.state = if status.pending > 0 {
+        status.state = if self.store.overflow_count()? > 0 {
+            "Sharing backlog full; retry local clips in Devices"
+        } else if status.pending > 0 {
             "Pending delivery"
         } else {
             "Up to date"

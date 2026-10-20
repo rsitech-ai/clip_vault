@@ -113,18 +113,30 @@ impl RelayStore {
             return Err(SyncError::Membership);
         }
         let tx = self.db.transaction()?;
+        let serialized = serde_json::to_string(&roster)?;
+        let existing: Option<(String,String,String,String,bool)> = tx.query_row(
+            "SELECT w.owner_key,w.owner_device,w.roster,d.token_hash,d.active FROM workspaces w JOIN devices d ON d.workspace=w.id AND d.device=w.owner_device WHERE w.id=?1",
+            [&roster.workspace], |row|Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?)),
+        ).optional()?;
+        if let Some((key, device, original, credential, active)) = existing {
+            return if key == owner_key
+                && device == owner_device
+                && original == serialized
+                && credential == token_hash
+                && active
+            {
+                Ok(())
+            } else {
+                Err(SyncError::Membership)
+            };
+        }
         let count: u64 = tx.query_row("SELECT COUNT(*) FROM workspaces", [], |r| r.get(0))?;
         if count >= 16 {
             return Err(SyncError::Capacity);
         }
         tx.execute(
             "INSERT INTO workspaces(id,owner_key,owner_device,epoch,roster) VALUES(?1,?2,?3,1,?4)",
-            params![
-                roster.workspace,
-                owner_key,
-                owner_device,
-                serde_json::to_string(&roster)?
-            ],
+            params![roster.workspace, owner_key, owner_device, serialized],
         )?;
         tx.execute(
             "INSERT INTO devices(workspace,device,token_hash,active) VALUES(?1,?2,?3,1)",

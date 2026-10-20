@@ -75,6 +75,86 @@ struct ClipSyncStoreTests {
         #expect(try store.pendingSyncExports().isEmpty)
     }
 
+    @Test("a corrupt queued export is retained and quarantined without starving later exports")
+    func corruptOutboxRowDoesNotStarveLaterExports() throws {
+        let schema = Schema([ClipRecord.self, FolderRecord.self, ClipSyncExportRecord.self, ClipSyncReceiptRecord.self])
+        let container = try ModelContainer(for: schema, configurations: [.init(schema: schema, isStoredInMemoryOnly: true)])
+        let context = ModelContext(container)
+        let encryptor = CountingSyncEncryptor()
+        let store = SwiftDataClipStore(context: context, encryptor: encryptor)
+        store.sharingEnabled = true
+        let poison = ClipSyncExportRecord(id: "000-poison", clipID: "missing-clip", encryptedPayload: Data("not a portable payload".utf8))
+        context.insert(poison)
+        try context.save()
+        _ = try store.save(payload: ClipPayload(kind: .text, displayText: "Good export", extractedText: "Good export"), sourceApp: nil, capturedAt: Date())
+
+        let exports = try store.pendingSyncExports()
+        #expect(exports.count == 1)
+        #expect(exports[0].payload.text == "Good export")
+        #expect(poison.encryptedPayload == Data("not a portable payload".utf8))
+        #expect(poison.failure?.contains("queued share") == true)
+        #expect(try store.syncExportFailures().count == 1)
+
+        let beforeRepeatedPoll = poison.failure
+        let decryptsBeforeRepeatedPoll = encryptor.reads
+        #expect(try store.pendingSyncExports().count == 1)
+        #expect(poison.failure == beforeRepeatedPoll)
+        // The valid row is decoded once again; the quarantined payload is not read.
+        #expect(encryptor.reads == decryptsBeforeRepeatedPoll + 1)
+
+        try store.retrySyncExports()
+        #expect(try store.pendingSyncExports().count == 1)
+        #expect(poison.failure == beforeRepeatedPoll)
+    }
+
+    @Test("explicitly sharing a quarantined file rebuilds its same event within the queue cap")
+    func explicitShareRecoversQuarantinedFileExport() throws {
+        let schema = Schema([ClipRecord.self, FolderRecord.self, ClipSyncExportRecord.self, ClipSyncReceiptRecord.self])
+        let container = try ModelContainer(for: schema, configurations: [.init(schema: schema, isStoredInMemoryOnly: true)])
+        let context = ModelContext(container)
+        let store = SwiftDataClipStore(context: context, encryptor: PassthroughSyncEncryptor())
+        store.sharingEnabled = true
+        let file = ClipFileDescriptor(id: UUID().uuidString.lowercased(), origin: UUID().uuidString.lowercased(),
+            filename: "repair.bin", size: 12, sha256: String(repeating: "a", count: 64), chunkCount: 1, createdAt: 100)
+        let clip = try #require(try store.save(payload: file.payload(), sourceApp: nil, capturedAt: Date()))
+        let row = try #require(try context.fetch(FetchDescriptor<ClipSyncExportRecord>(predicate: #Predicate { $0.clipID == clip.id })).first)
+        let eventID = row.id
+        row.encryptedPayload = Data("corrupt portable export".utf8)
+        try context.save()
+
+        #expect(try store.pendingSyncExports().isEmpty)
+        #expect(row.failure?.contains("queued share") == true)
+        let corruptBytes = row.encryptedPayload
+        try store.retrySyncExports()
+        #expect(row.failure?.contains("queued share") == true)
+        #expect(row.encryptedPayload == corruptBytes)
+
+        store.syncQueueByteLimit = 1
+        try store.shareExistingClip(id: clip.id)
+        #expect(row.id == eventID)
+        #expect(row.failure != nil)
+        #expect(row.encryptedPayload == corruptBytes)
+        #expect(try store.pendingSyncExports().isEmpty)
+
+        store.syncQueueByteLimit = 256 * 1024 * 1024
+        try store.shareExistingClip(id: clip.id)
+        let repaired = try store.pendingSyncExports()
+        #expect(repaired.count == 1)
+        #expect(repaired[0].id == eventID)
+        #expect(repaired[0].clipID == clip.id)
+        #expect(repaired[0].payload.kind == "attachment")
+        #expect(repaired[0].payload.metadata["file_id"] == file.id)
+        #expect(row.failure == nil)
+        #expect(try context.fetch(FetchDescriptor<ClipSyncExportRecord>(predicate: #Predicate { $0.clipID == clip.id })).count == 1)
+
+        try store.shareExistingClip(id: clip.id)
+        #expect(try store.pendingSyncExports().count == 1)
+        try store.markSyncExported(id: eventID)
+        try store.shareExistingClip(id: clip.id)
+        #expect(try store.pendingSyncExports().isEmpty)
+        #expect(try context.fetch(FetchDescriptor<ClipSyncExportRecord>(predicate: #Predicate { $0.clipID == clip.id })).count == 1)
+    }
+
     @Test("permanent conversion failures are not decrypted again by background retry")
     func permanentFailureDoesNotRetry() throws {
         let schema = Schema([ClipRecord.self, FolderRecord.self, ClipSyncExportRecord.self, ClipSyncReceiptRecord.self])

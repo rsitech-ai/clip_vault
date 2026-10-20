@@ -826,18 +826,28 @@ fn exactly_100_mib_http_transfer_resumes_after_receiver_restart_and_hashes() {
     let mut ubuntu =
         SyncClient::open(DeviceStore::open(&ubuntu_path, ubuntu_key).unwrap()).unwrap();
 
-    let resume_ticks = (1..=16).find(|_| {
-        mac.tick(false).unwrap();
-        ubuntu.tick(false).unwrap();
-        ubuntu
-            .file_transfers()
-            .unwrap()
-            .iter()
-            .any(|item| item.id == descriptor.id && item.status == "ready")
-    });
+    // Production deliberately limits each drain by elapsed time as well as frame
+    // count. A loaded debug/emulated runner can send fewer frames per tick; the
+    // acceptance condition is verified completion within a bounded wall time.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(300);
+    let resume_ticks = (1..=128)
+        .take_while(|_| std::time::Instant::now() < deadline)
+        .find(|tick| {
+            let started = std::time::Instant::now();
+            mac.tick(false).unwrap();
+            ubuntu.tick(false).unwrap();
+            let transfers = ubuntu.file_transfers().unwrap();
+            let transfer = transfers.iter().find(|item| item.id == descriptor.id);
+            eprintln!(
+                "100 MiB resume tick {tick}: {:?}, elapsed {:?}",
+                transfer,
+                started.elapsed()
+            );
+            transfer.is_some_and(|item| item.status == "ready")
+        });
     assert!(
         resume_ticks.is_some(),
-        "Ubuntu did not finish and verify the restarted 100 MiB receive within 16 ticks"
+        "Ubuntu did not finish and verify the restarted 100 MiB receive within 300 seconds / 128 ticks"
     );
     eprintln!(
         "Verified the restarted 100 MiB receive in {} post-restart sync ticks",

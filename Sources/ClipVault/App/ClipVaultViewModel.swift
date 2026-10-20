@@ -265,6 +265,9 @@ final class ClipVaultViewModel {
             guard let self else { return }
             self.files.capture(urls: urls, sourceApp: sourceApp, capturedAt: capturedAt, model: self)
         }
+        captureService.onFileCaptureError = { [weak self] error in
+            self?.files.message = error
+        }
         captureService.onClipCaptured = { [weak self] payload, sourceApp, capturedAt in
             guard let self else { return }
             if payload.kind == .file, payload.metadata["file_id"] == nil {

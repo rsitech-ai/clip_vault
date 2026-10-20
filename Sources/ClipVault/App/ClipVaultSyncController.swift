@@ -117,6 +117,35 @@ final class ClipVaultSyncController {
         } catch { message = error.localizedDescription }
     }
 
+    func retryOverflow() {
+        guard !busy, status.enabled, status.state.contains("Sharing backlog full") else { return }
+        generation += 1
+        let version = generation
+        busy = true
+        message = nil
+        let write = enqueueMutation { [service] in
+            guard version == self.generation, self.status.enabled else {
+                throw ClipSyncServiceError(message: "Retry stopped because sharing state changed.")
+            }
+            return String(try await service.retryOverflow())
+        }
+        Task {
+            defer { busy = false }
+            do {
+                let response = try await write.value
+                let queued = Int(response ?? "0") ?? 0
+                let current = try await service.status()
+                guard version == generation, status.enabled else { return }
+                status = current
+                message = "Queued \(queued) local share\(queued == 1 ? "" : "s") for sending."
+                updateCapturePolicy()
+            } catch {
+                guard version == generation, status.enabled else { return }
+                message = error.localizedDescription
+            }
+        }
+    }
+
     func setEnabled(_ enabled: Bool) {
         // Invalidate any in-flight UI work immediately. The engine observes the persisted flag
         // before its next cycle; an HTTP request already accepted cannot be undone.

@@ -1,7 +1,7 @@
 use clipvault_sync_core::*;
 
 #[test]
-fn capacity_failure_retains_local_content_and_deferred_targets() {
+fn capacity_failure_retains_local_content_until_explicit_retry() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = DeviceStore::open(&dir.path().join("capacity.db"), random_secret()).unwrap();
     let sender = DeviceIdentity::generate();
@@ -20,11 +20,143 @@ fn capacity_failure_retains_local_content_and_deferred_targets() {
     assert!(store.pending().unwrap().is_empty());
     store.set_queue_limit(MAX_QUEUE_BYTES);
     store.promote_deferred().unwrap();
+    assert!(
+        store.pending().unwrap().is_empty(),
+        "free space must not silently consent to an overflow share"
+    );
+    assert_eq!(
+        store
+            .retry_overflow_with_targets(std::slice::from_ref(&recipient.id))
+            .unwrap(),
+        1
+    );
     assert_eq!(store.pending().unwrap().len(), 1);
     assert_eq!(
         store.targets(&event.id).unwrap(),
         vec![recipient.id.clone()]
     );
+}
+
+#[test]
+fn outbox_byte_budget_excludes_only_local_history_and_never_auto_retries_overflow() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("bounded.db");
+    let key = random_secret();
+    let mut store = DeviceStore::open(&path, key).unwrap();
+    let sender = DeviceIdentity::generate();
+    let peer = DeviceIdentity::generate();
+    let first = ClipEvent::new(
+        sender.id.clone(),
+        1,
+        PortableClip::text(&"a".repeat(256), 1),
+    );
+    let second = ClipEvent::new(
+        sender.id.clone(),
+        2,
+        PortableClip::text(&"b".repeat(256), 2),
+    );
+    store
+        .capture_with_targets(&first, std::slice::from_ref(&peer.id))
+        .unwrap();
+    let db = rusqlite::Connection::open(&path).unwrap();
+    let budget: u64 = db
+        .query_row(
+            "SELECT LENGTH(payload) FROM events WHERE id=?1",
+            [&first.id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    store.set_queue_limit(budget);
+    assert!(matches!(
+        store.capture_with_targets(&second, std::slice::from_ref(&peer.id)),
+        Err(SyncError::Capacity)
+    ));
+    store
+        .defer_capture(&second, std::slice::from_ref(&peer.id))
+        .unwrap();
+    // Simulate an earlier preview's overflow classification and migrate it.
+    db.execute("UPDATE events SET outgoing=2 WHERE id=?1", [&second.id])
+        .unwrap();
+    store.promote_deferred().unwrap();
+    assert_eq!(store.overflow_count().unwrap(), 1);
+    assert_eq!(store.history().unwrap().len(), 2);
+    let used: u64 = db
+        .query_row(
+            "SELECT SUM(LENGTH(payload)) FROM events WHERE outgoing IN (1,2)",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(used <= budget);
+    store.target_done(&first.id, &peer.id, "delivered").unwrap();
+    drop(store);
+    let mut store = DeviceStore::open(&path, key).unwrap();
+    store.set_queue_limit(budget);
+    store.promote_deferred().unwrap();
+    assert!(store.pending().unwrap().is_empty());
+    assert_eq!(
+        store
+            .retry_overflow_with_targets(std::slice::from_ref(&peer.id))
+            .unwrap(),
+        1
+    );
+    assert_eq!(store.pending().unwrap()[0].id, second.id);
+    assert_eq!(store.history().unwrap().len(), 2);
+}
+
+#[test]
+fn legacy_overflow_migration_preserves_interleaved_active_deliveries() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("legacy-interleaved.db");
+    let key = random_secret();
+    let mut store = DeviceStore::open(&path, key).unwrap();
+    let sender = DeviceIdentity::generate();
+    let peer = DeviceIdentity::generate();
+    let first = ClipEvent::new(
+        sender.id.clone(),
+        1,
+        PortableClip::text(&"a".repeat(4096), 1),
+    );
+    let deferred = ClipEvent::new(
+        sender.id.clone(),
+        2,
+        PortableClip::text(&"b".repeat(2048), 2),
+    );
+    let later = ClipEvent::new(
+        sender.id.clone(),
+        3,
+        PortableClip::text("later consented clip", 3),
+    );
+    store
+        .capture_with_targets(&first, std::slice::from_ref(&peer.id))
+        .unwrap();
+    store.defer_capture(&deferred, &[]).unwrap();
+    store
+        .capture_with_targets(&later, std::slice::from_ref(&peer.id))
+        .unwrap();
+    let db = rusqlite::Connection::open(&path).unwrap();
+    db.execute("UPDATE events SET outgoing=2 WHERE id=?1", [&deferred.id])
+        .unwrap();
+    let active_bytes: u64 = db
+        .query_row(
+            "SELECT SUM(LENGTH(payload)) FROM events WHERE outgoing=1",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    drop(store);
+    let mut store = DeviceStore::open(&path, key).unwrap();
+    store.set_queue_limit(active_bytes);
+    store.promote_deferred().unwrap();
+    let pending: Vec<_> = store.pending().unwrap().into_iter().map(|e| e.id).collect();
+    assert_eq!(
+        pending,
+        vec![first.id, later.id.clone()],
+        "migration must keep already-consented deliveries active"
+    );
+    assert_eq!(store.targets(&later.id).unwrap(), vec![peer.id.clone()]);
+    assert_eq!(store.overflow_count().unwrap(), 1);
+    assert_eq!(store.history().unwrap().len(), 3);
 }
 
 #[test]
