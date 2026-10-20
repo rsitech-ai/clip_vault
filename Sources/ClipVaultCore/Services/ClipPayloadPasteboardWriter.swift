@@ -2,12 +2,14 @@ import AppKit
 import Foundation
 
 public enum PasteboardWriterError: Error, LocalizedError {
-    case missingImageData
+    case missingImageData, attachmentRequiresSave
 
     public var errorDescription: String? {
         switch self {
         case .missingImageData:
             "This image clip does not have valid image data to copy."
+        case .attachmentRequiresSave:
+            "Save this attachment to a file before copying it in Finder."
         }
     }
 }
@@ -21,6 +23,9 @@ public final class ClipPayloadPasteboardWriter {
     }
 
     public func write(_ payload: ClipPayload) throws {
+        if payload.kind == .file, payload.metadata["file_id"] != nil {
+            throw PasteboardWriterError.attachmentRequiresSave
+        }
         if payload.kind == .image {
             try writeImage(payload)
             return

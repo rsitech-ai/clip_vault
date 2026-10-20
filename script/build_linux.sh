@@ -19,7 +19,7 @@ mkdir -p "$PACKAGE_ROOT/DEBIAN"
 ARCHITECTURE="$(dpkg --print-architecture)"
 cat > "$PACKAGE_ROOT/DEBIAN/control" <<CONTROL
 Package: clipvault
-Version: 0.2.0~preview1
+Version: 0.2.0~preview2
 Section: utils
 Priority: optional
 Architecture: $ARCHITECTURE
@@ -29,4 +29,4 @@ Description: Encrypted local clipboard workspace with paired device sharing
  Includes the preview ClipVault capture extension targeting GNOME Shell 51.
  Enable the extension explicitly after installing on a supported GNOME desktop.
 CONTROL
-dpkg-deb --build --root-owner-group "$PACKAGE_ROOT" "$ROOT_DIR/dist/linux/clipvault_0.2.0-preview1_$ARCHITECTURE.deb"
+dpkg-deb --build --root-owner-group "$PACKAGE_ROOT" "$ROOT_DIR/dist/linux/clipvault_0.2.0-preview2_$ARCHITECTURE.deb"

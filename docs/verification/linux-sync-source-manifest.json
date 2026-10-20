@@ -1,5 +1,5 @@
 {
-  "base": "ea4edf1",
+  "base": "ea4edf1078d6326f235a2a8793b0a70b7328fb88",
   "branch": "feat/andrzej_linux_encrypted_sync",
   "files": [
     {
@@ -12,7 +12,7 @@
     },
     {
       "path": "PRIVACY.md",
-      "sha256": "dc09b132b0a8c88fac5a92bc1ac08f122c11130b11a15ec4f814c686365108b6"
+      "sha256": "3098ed2e3900d4ad58c8021bc1e855daf4c635404327094ea86cbf6dd277624a"
     },
     {
       "path": "Package.swift",
@@ -20,11 +20,11 @@
     },
     {
       "path": "Packaging/ClipVault.entitlements",
-      "sha256": "e1698b3c8b40d5b2bfe7088e3932dce641ce1622e8cd0eb85044829e831b0d27"
+      "sha256": "1b2229f0cd65470dd88bd21fcd2ba4fc24aa153c894e255fd20e5cb10e492ced"
     },
     {
       "path": "Packaging/linux/Dockerfile",
-      "sha256": "df8e36563ab34fb01d1bc54609bdce42578402e5bda8da1a6326914416f9b55c"
+      "sha256": "8c7a1da66f5b0aaf84416239975575dfda3c6a878ac1f17af67c0e23bb0f272c"
     },
     {
       "path": "Packaging/linux/Dockerfile.dockerignore",
@@ -64,35 +64,67 @@
     },
     {
       "path": "README.md",
-      "sha256": "58908e3d4f7d0c4b9ced50d0c0d382c6e57b07141dca9ff86495f58b41bbf172"
+      "sha256": "873d988dfc68a7c07b0020e90992af442e9f47816c6186c058316ab1be53d2a9"
+    },
+    {
+      "path": "Sources/ClipVault/App/ClipVaultApp.swift",
+      "sha256": "5b1ef66049f686f4b26bf8997b10ea7c1f85b8e5897fd2e79899937b892ecc88"
+    },
+    {
+      "path": "Sources/ClipVault/App/ClipVaultFileController.swift",
+      "sha256": "078b2ab43d8b509078dbc69e6870c12204a730d29534af55017cbf4f04c08030"
     },
     {
       "path": "Sources/ClipVault/App/ClipVaultSyncController.swift",
-      "sha256": "60ce95c33a6f4f720d29428d5a17b213c8af3a6466b44b99dc90009c26aa3595"
+      "sha256": "968af2a3713226c2b96ce0c82bcc4e494b062da4157cd7c49273a94faa5f3d71"
     },
     {
       "path": "Sources/ClipVault/App/ClipVaultViewModel.swift",
-      "sha256": "38cea58913cd3b6add648a914f66fc1d517c68a6180773819de0f28c6eebaaac"
+      "sha256": "0254cbec89ce4841fc62d7565941f24ea3e704adcd3b9e5d59459d77df4ee48d"
     },
     {
       "path": "Sources/ClipVault/Views/ClipDetailView.swift",
-      "sha256": "480b330bd3af9a0064665ca3df334c7774c35abd5696438fcd537862fd037927"
+      "sha256": "cfac75d444076de5c4b6e3c55fb3a8f7378c4d7b1353700ed7500bdf8b60bd3e"
+    },
+    {
+      "path": "Sources/ClipVault/Views/ClipListView.swift",
+      "sha256": "f10cdc2d529bc18a9e6c8a94d4876059e560185ca6b978fdcf0f0dd59f151888"
+    },
+    {
+      "path": "Sources/ClipVault/Views/ContentView.swift",
+      "sha256": "9c707713b3618e15cb366d01c493891c1649a8ba35d236083dcf5a4efbcf3ada"
     },
     {
       "path": "Sources/ClipVault/Views/DevicesSharingSettingsTab.swift",
-      "sha256": "619dfb91ea7f2c991b1e37e7409155535986809f23896d4df3f597efb8f58942"
+      "sha256": "1e113eae93351c6ec86027d76c09926de9df4604ca46426949829f0b064755cf"
+    },
+    {
+      "path": "Sources/ClipVault/Views/MenuBarView.swift",
+      "sha256": "b08ca5db121782e73ada683faf898266a86352c9bcb29814fda5aba8b60a93ba"
     },
     {
       "path": "Sources/ClipVault/Views/SettingsView.swift",
-      "sha256": "ceb0fd42c0f1e9becdfa10a6f7de553faab11017fd9273fa4fee7f80f3934b1d"
+      "sha256": "165cda554cf9d1954634c7935e1adde73d4666d8bfc1b2e451aa942726f30746"
+    },
+    {
+      "path": "Sources/ClipVaultCore/Models/ClipFileDescriptor.swift",
+      "sha256": "b907ce30a30bf60a9c8a9c7e32e821fe2930e5059a653b03daa130399596a223"
     },
     {
       "path": "Sources/ClipVaultCore/Models/ClipSyncPayload.swift",
-      "sha256": "07c9d225752bcda46794b203c8096d364a2bcc8eb9df34304bf3a5985310e2fd"
+      "sha256": "31715552e25e981421a8e5f92a75a897146935b300433c8536faa6a18b24839e"
     },
     {
       "path": "Sources/ClipVaultCore/Services/BoundedTextRecognition.swift",
       "sha256": "b7c747d14ce178cede755517d237c6cf06033039700fc32ea92899bdf9a0a44a"
+    },
+    {
+      "path": "Sources/ClipVaultCore/Services/ClipFilePublisher.swift",
+      "sha256": "8d5c81df9c297900d54eacb4350de2852361943daaef74ad6886ed8b77d05111"
+    },
+    {
+      "path": "Sources/ClipVaultCore/Services/ClipFileService.swift",
+      "sha256": "74ce27fb6856d894521a01147a97b1cf982a18a21dc73453b343bc0f823e88be"
     },
     {
       "path": "Sources/ClipVaultCore/Services/ClipHistoryMigrationAudit.swift",
@@ -100,11 +132,11 @@
     },
     {
       "path": "Sources/ClipVaultCore/Services/ClipPayloadPasteboardWriter.swift",
-      "sha256": "b85abac74b5b37211f794d2f548629866d85bfbdd7fec53af4eb92fab946697a"
+      "sha256": "3acb7ec06d629512aecd5c559c1dc87a57b5cf61a256fdfb9945b192cbd96b73"
     },
     {
       "path": "Sources/ClipVaultCore/Services/ClipStore.swift",
-      "sha256": "2d5a2493ef0a79277c530973fd7b7f64ee1a87aa3658022b8a3847ce1a07b7f4"
+      "sha256": "6a1dd767907ecdc143b524ea549110d643ea55fe1e59ef5c75d92cb35650dd63"
     },
     {
       "path": "Sources/ClipVaultCore/Services/ClipStoreMigrationBackup.swift",
@@ -120,19 +152,39 @@
     },
     {
       "path": "Sources/ClipVaultCore/Services/ClipboardCaptureService.swift",
-      "sha256": "1723d5311a6201c6c87704deb86fec974add0a756b748f82ab7609eb710b4466"
+      "sha256": "10e27ed57c4a4e2ab6c702470ef60416a56c325fa7e34d8748c5d1357765db3c"
     },
     {
       "path": "Sources/ClipVaultCore/Services/SensitiveRuleEngine.swift",
       "sha256": "7222ec3ee381f0a74290401c647b1b6a3f7d156d5fd2fb9585e3a0d8be8717f0"
     },
     {
+      "path": "Sources/ClipVaultCore/Support/ClipDuplicateIdentity.swift",
+      "sha256": "06a55ced9dc0c01693df3ae47e8e78a54b5e9f94ce4738e3709d01bd6de662ff"
+    },
+    {
+      "path": "Tests/ClipVaultAppTests/ClipVaultFileControllerTests.swift",
+      "sha256": "412b0a6d299caeb50093c0c786308231330340f76519cb74c92558833ff315ce"
+    },
+    {
       "path": "Tests/ClipVaultAppTests/ClipVaultSyncControllerTests.swift",
       "sha256": "6555fa16174f77a189022fe2674930b54eaa407e66e258e5bd4a30897c8573ae"
     },
     {
+      "path": "Tests/ClipVaultAppTests/ClipVaultSyncResilienceTests.swift",
+      "sha256": "ce62d55332b061938775efd1ef05699c1590444a1941f752658dfeefee3045b9"
+    },
+    {
       "path": "Tests/ClipVaultCoreTests/BoundedTextRecognitionTests.swift",
       "sha256": "da1bed24515f2ffee093d03d9f31a25290d7efb12a0a78b27b062b7fd0a84634"
+    },
+    {
+      "path": "Tests/ClipVaultCoreTests/ClipFileAttachmentTests.swift",
+      "sha256": "b7a0170bb1bfdebb50761c39976f98c67b8b4d2de9a91a689f61a9c3514bac15"
+    },
+    {
+      "path": "Tests/ClipVaultCoreTests/ClipFilePublisherTests.swift",
+      "sha256": "0ef6bc6256acb31f7d6cb9072948fb4a6e5a2137e6ef449b0e55c3cda0251317"
     },
     {
       "path": "Tests/ClipVaultCoreTests/ClipHistoryMigrationAuditTests.swift",
@@ -147,12 +199,20 @@
       "sha256": "8cc250a873e62928adfd50bb2ad3e5fb2c407ae9731512710591f46ba86289da"
     },
     {
+      "path": "Tests/ClipVaultCoreTests/ClipboardCaptureServiceTests.swift",
+      "sha256": "7c005ea5098d36215475b38b885031c0949f27ac22c8aa0cafb86f6037e14559"
+    },
+    {
       "path": "docs/ARCHITECTURE.md",
-      "sha256": "b1ab6d110ab46e16f973abfe398c97e645edfb64f123db72ce97672bbad0e1ec"
+      "sha256": "6ee6312bf00863e4672ca9928b2d38d396321c644f5099cfdd32d2df69954181"
     },
     {
       "path": "docs/LINUX_AND_SYNC.md",
-      "sha256": "327fe4be3982f2b6ab925e7238d0cd7e415a37a827b5a3fb4e6588e0036e92b7"
+      "sha256": "cdec738fe01b4429089b97dde600a719751ea3f085840f5a0d090bd7b60480fa"
+    },
+    {
+      "path": "docs/design/file-sharing-and-linux-ui.md",
+      "sha256": "20f358ba6a56f818fae8053b273dba4f33b08cdf3eefec78081ac41dbb441097"
     },
     {
       "path": "docs/design/linux-encrypted-sync.md",
@@ -160,11 +220,11 @@
     },
     {
       "path": "rust/DeviceSync/Cargo.lock",
-      "sha256": "75aaa6ab4d077bff2986821d6d2c29ac5936ddabce4665130c1c03a70b7693b5"
+      "sha256": "5b1b8881408fe4306a94ac58fa5993c72c35127c11f5f504d51ab808d3db60f6"
     },
     {
       "path": "rust/DeviceSync/Cargo.toml",
-      "sha256": "39c092e159618449b589bbb40544b18ed3751984d8f97bf5b777279f7ab775c6"
+      "sha256": "7f77437c446f89fe49c1e162e4d6bd116b877d85440f2f224868ae597b49491f"
     },
     {
       "path": "rust/DeviceSync/bridge/Cargo.toml",
@@ -172,15 +232,19 @@
     },
     {
       "path": "rust/DeviceSync/bridge/src/lib.rs",
-      "sha256": "2c8bb106cdc09589f9452c64d38f776198501aa23e4927fabf11503a5568283f"
+      "sha256": "bec119db0fb1ad91808242a92fafa2971968fd3c85299694b9bc070720b4a0e2"
     },
     {
       "path": "rust/DeviceSync/core/Cargo.toml",
-      "sha256": "c3c9c89b2a9a3b7d8f03fa8327ceab3a53bef35103e25a44eb9b41c25b452768"
+      "sha256": "0fc7e62001d19f8f39cda73c64f1dda9b0f67dcb1ff2864eb3038b31a35444ee"
+    },
+    {
+      "path": "rust/DeviceSync/core/src/attachments.rs",
+      "sha256": "bdddc8ee1f32658751d003a5c8e0376d32effa3060cf846e951e9d94db9227f8"
     },
     {
       "path": "rust/DeviceSync/core/src/client.rs",
-      "sha256": "cc63b3445834d6a40bf9efa5a48be7d5e260f8ccd94ac3a60be4aa188ba121b2"
+      "sha256": "2f3faee4f708b83c1b9e9a5ae0a380a5bd26bf10cf457fc1c90aab0ce456df23"
     },
     {
       "path": "rust/DeviceSync/core/src/credentials.rs",
@@ -192,7 +256,7 @@
     },
     {
       "path": "rust/DeviceSync/core/src/lib.rs",
-      "sha256": "ea5be8cbabdd52268612956645e968e18e4c421d5d9d63e1f6e1076e0d613f46"
+      "sha256": "394c7527bde0e386664ddc453ba44725afeb0ed736b1d3938ab9f4e2736b3cab"
     },
     {
       "path": "rust/DeviceSync/core/src/membership.rs",
@@ -204,11 +268,15 @@
     },
     {
       "path": "rust/DeviceSync/core/src/protocol.rs",
-      "sha256": "1852a0b1691c6be0594ddeeb58fb7b967be428efe0ae9ed37aece864c9c17a36"
+      "sha256": "35f3acfc9c467586e084a4975314037bf3c83ec7fdc70c42b45a1f91f6626f0c"
     },
     {
       "path": "rust/DeviceSync/core/src/store.rs",
-      "sha256": "0705daa459fa8dc6db48655167f78fa69051425969da83183161a2ea67b6f366"
+      "sha256": "b8e9df3d1493830ec4a0f2898fab0e4b02bee34844b7da7027829f9facd7f719"
+    },
+    {
+      "path": "rust/DeviceSync/core/tests/attachments.rs",
+      "sha256": "2aef4a1f93e01046e33ce63721c1bb5c125bf82c88cab7c5bc34408468a07cf0"
     },
     {
       "path": "rust/DeviceSync/core/tests/delivery.rs",
@@ -244,7 +312,7 @@
     },
     {
       "path": "rust/DeviceSync/linux/Cargo.toml",
-      "sha256": "c4b46fcde90cb3f1dbda49c87a72ff26b8488b254679877fe82edde6bb830893"
+      "sha256": "de8c362674ef14544acd13665921a80854114e24c2ba3f7b68417fc04db2d200"
     },
     {
       "path": "rust/DeviceSync/linux/gnome-extension/boundedSelection.js",
@@ -252,7 +320,7 @@
     },
     {
       "path": "rust/DeviceSync/linux/gnome-extension/extension.js",
-      "sha256": "2498de8e9511bc91e51b7d3af57578e4915a8f9f495c104d6bd2262a0b6f0691"
+      "sha256": "dfe0db053918eb609b9b70ca203cd166929ed83c3b56d37bf57e6153a5c3c6ad"
     },
     {
       "path": "rust/DeviceSync/linux/gnome-extension/metadata.json",
@@ -260,11 +328,11 @@
     },
     {
       "path": "rust/DeviceSync/linux/src/bridge.rs",
-      "sha256": "e0148ef5ea4cfd4e4e5f20c76da87d2b4d7a71a45dfcd8d6a38623c288a6f3bc"
+      "sha256": "7eff7c029696e3aa945ec629c2c60b82d44a22d3ec5b4352624ace0f399c414b"
     },
     {
       "path": "rust/DeviceSync/linux/src/clipboard.rs",
-      "sha256": "58a5cb6dcf1c87c444616ea9629907b622f31695ac01303ae4229d8d564a8a10"
+      "sha256": "f613838bc58125016f276f763a467ba14c8c8a1927f3c0d05635e54224c60789"
     },
     {
       "path": "rust/DeviceSync/linux/src/lib.rs",
@@ -280,11 +348,11 @@
     },
     {
       "path": "rust/DeviceSync/linux/src/ui.rs",
-      "sha256": "3dcbd868eb4b0b7079087c6a85a2063ae9e427d1ecd517b2e382fc1fe2189da2"
+      "sha256": "846901b2ad9253d7edf98af720bd035760c1da6ff369da87976c061c627243c6"
     },
     {
       "path": "rust/DeviceSync/linux/src/worker.rs",
-      "sha256": "34e8feefd664aa965572ecee8b7b22bd3b32a9927dd8a5cccd1efc87fa50ba0d"
+      "sha256": "260bd62d19d19bcf16bebda49309e0a97f4221d31eda3463b20062d86dc3de6c"
     },
     {
       "path": "rust/DeviceSync/linux/tests/policy.rs",
@@ -300,7 +368,7 @@
     },
     {
       "path": "rust/DeviceSync/relay/src/lib.rs",
-      "sha256": "aa9c5a3e5d83e78332f38ad0a2edcfe97cdfd7058f46f265405244736e8452d0"
+      "sha256": "0ea83489da2b620826e38283863dd169bf6f027c79a8513d5e9c69901710d610"
     },
     {
       "path": "rust/DeviceSync/relay/src/main.rs",
@@ -308,7 +376,7 @@
     },
     {
       "path": "rust/DeviceSync/relay/src/store.rs",
-      "sha256": "faf393f9353651d6631b476e60c610ad47e4d47040745ae4800ee7486f456de8"
+      "sha256": "5560f03b7e6e53def020de81bdc4421d45315725dae6d9a6d96670fc4e32468e"
     },
     {
       "path": "rust/DeviceSync/relay/tests/body_limits.rs",
@@ -320,7 +388,7 @@
     },
     {
       "path": "rust/DeviceSync/relay/tests/relay.rs",
-      "sha256": "fec63311423f4a9cef29d005625d149c0fe293c22f0c71cee914586d9aea8630"
+      "sha256": "2092271e841b68f91044c400cff36d9bca25a6edc87b9f56dac2ce19818d3d51"
     },
     {
       "path": "rust/DeviceSync/relay/tests/retry.rs",
@@ -336,7 +404,7 @@
     },
     {
       "path": "script/build_linux.sh",
-      "sha256": "afee6856ef1f2d739b5051bfaf7ed8587b950aed4cfca8688808720c9acd4e0a"
+      "sha256": "0ef3c0b87bc15b81a0b6bf2227df72477531440ee18518371bb4c946dbf63fd8"
     },
     {
       "path": "script/build_sync_bridge.sh",
@@ -348,7 +416,7 @@
     },
     {
       "path": "script/package_app_store.sh",
-      "sha256": "43a064b3af51349bc6bca038506e34c5eefc107ffeccc985743f2ccffc8ce244"
+      "sha256": "7b3dc90a0262c4dd58c765e407c07bceccbd402a6ab5fad677bea5ba670b9076"
     },
     {
       "path": "script/package_direct_download.sh",
@@ -356,7 +424,7 @@
     },
     {
       "path": "script/smoke_linux_ui.sh",
-      "sha256": "699e906fd7687770a7a563f519810138f7bc6764e680d4f6d99f54c2890a6b9b"
+      "sha256": "6aaed9f6dd6f7678167405298173a8dcac8ab891bf1e9ba748ff63ce8de70596"
     },
     {
       "path": "script/test.sh",
@@ -377,6 +445,10 @@
     {
       "path": "script/test_sync_interop.py",
       "sha256": "9b1650eae28022a2d5bfc9f01ae2e71dd2a3ab5ce02b4d869e0a9350e38e4fff"
+    },
+    {
+      "path": "script/validate_app_store_package.sh",
+      "sha256": "7e93520cc6400cc6e80718b6202ad505ed0b7875e5c9f5c867a9dbb3661c9f71"
     }
   ]
 }

@@ -3,7 +3,7 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use clipvault_linux::policy::CaptureGate;
 use clipvault_sync_core::*;
 use gtk::{gdk, prelude::*};
-use std::{cell::Cell, rc::Rc, sync::mpsc::Sender};
+use std::{cell::Cell, path::PathBuf, rc::Rc, sync::mpsc::Sender};
 
 pub fn watch(display: &gdk::Display, tx: Sender<Work>, capturing: std::sync::Arc<CaptureGate>) {
     let clipboard = display.clipboard();
@@ -28,6 +28,7 @@ pub fn watch(display: &gdk::Display, tx: Sender<Work>, capturing: std::sync::Arc
             return;
         }
         let image = formats.contain_mime_type("image/png");
+        let files = formats.contain_mime_type("text/uri-list");
         let rich = if formats.contain_mime_type("application/rtf") {
             Some("application/rtf")
         } else if formats.contain_mime_type("text/rtf") {
@@ -40,7 +41,9 @@ pub fn watch(display: &gdk::Display, tx: Sender<Work>, capturing: std::sync::Arc
         let generation = generation.clone();
         let capturing = capturing.clone();
         glib::MainContext::default().spawn_local(async move {
-            let types = if image {
+            let types = if preferred_mime(image, files) == "text/uri-list" {
+                vec!["text/uri-list"]
+            } else if preferred_mime(image, files) == "image/png" {
                 vec!["image/png"]
             } else {
                 vec!["text/plain;charset=utf-8", "UTF8_STRING", "text/plain"]
@@ -51,6 +54,43 @@ pub fn watch(display: &gdk::Display, tx: Sender<Work>, capturing: std::sync::Arc
             };
             if generation.get() != current || !capturing.permits(token) {
                 let _ = stream.close(None::<&gio::Cancellable>);
+                return;
+            }
+            if files {
+                let mut data = Vec::new();
+                loop {
+                    let Ok(chunk) = stream
+                        .read_bytes_future(8192, glib::Priority::DEFAULT)
+                        .await
+                    else {
+                        return;
+                    };
+                    if generation.get() != current || !capturing.permits(token) {
+                        let _ = stream.close(None::<&gio::Cancellable>);
+                        return;
+                    }
+                    if chunk.is_empty() {
+                        break;
+                    }
+                    if data.len().saturating_add(chunk.len()) > 64 * 1024 {
+                        let _ = stream.close(None::<&gio::Cancellable>);
+                        return;
+                    }
+                    data.extend_from_slice(&chunk);
+                }
+                let _ = stream.close(None::<&gio::Cancellable>);
+                if generation.get() == current && capturing.permits(token) {
+                    match local_uri_paths(&data) {
+                        Ok(paths) => {
+                            let _ = tx.send(Work::StageFiles(paths, Some(token)));
+                        }
+                        Err(()) => {
+                            let _ = tx.send(Work::FileSelectionError(
+                                "Only up to 10 local files can be shared at a time.".into(),
+                            ));
+                        }
+                    }
+                }
                 return;
             }
             let mut data = Vec::new();
@@ -127,11 +167,59 @@ pub fn watch(display: &gdk::Display, tx: Sender<Work>, capturing: std::sync::Arc
                 }
             }
             if generation.get() == current && capturing.permits(token) {
-                let _ = tx.send(Work::Capture(clip, false));
+                let _ = tx.send(Work::Capture(clip, false, token));
             }
         });
     });
 }
+
+fn preferred_mime(image: bool, files: bool) -> &'static str {
+    if files {
+        "text/uri-list"
+    } else if image {
+        "image/png"
+    } else {
+        "text/plain;charset=utf-8"
+    }
+}
+
+/// Convert a bounded text/uri-list to local file paths. URI parsing happens
+/// once through GFile; only empty and localhost authorities are accepted.
+pub(crate) fn local_uri_paths(input: &[u8]) -> std::result::Result<Vec<PathBuf>, ()> {
+    if input.len() > 64 * 1024 {
+        return Err(());
+    }
+    let text = std::str::from_utf8(input).map_err(|_| ())?;
+    let mut paths = Vec::new();
+    for line in text
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+    {
+        if paths.len() >= 10 {
+            return Err(());
+        }
+        let rest = line.strip_prefix("file://").ok_or(())?;
+        let slash = rest.find('/').ok_or(())?;
+        let authority = &rest[..slash];
+        if !(authority.is_empty() || authority.eq_ignore_ascii_case("localhost"))
+            || line.contains('?')
+            || line.contains('#')
+        {
+            return Err(());
+        }
+        let path = gio::File::for_uri(line).path().ok_or(())?;
+        if !path.is_absolute() {
+            return Err(());
+        }
+        paths.push(path);
+    }
+    if paths.is_empty() {
+        return Err(());
+    }
+    Ok(paths)
+}
+
 pub fn copy(display: &gdk::Display, clip: &PortableClip) -> Result<()> {
     clip.validate()?;
     let content = if let Some(image) = &clip.image_png {
@@ -159,4 +247,38 @@ pub fn copy(display: &gdk::Display, clip: &PortableClip) -> Result<()> {
         .clipboard()
         .set_content(Some(&provider))
         .map_err(|_| SyncError::Invalid)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{local_uri_paths, preferred_mime};
+    use std::path::Path;
+
+    #[test]
+    fn uri_list_decodes_local_paths_and_rejects_remote_and_unbounded_input() {
+        let paths = local_uri_paths(
+            b"# comment\r\nfile:///tmp/a%20b.txt\r\nfile://localhost/tmp/c.txt\r\n",
+        )
+        .unwrap();
+        assert_eq!(
+            paths,
+            vec![Path::new("/tmp/a b.txt"), Path::new("/tmp/c.txt")]
+        );
+        assert!(local_uri_paths(b"file://server/share/a.txt\n").is_err());
+        assert!(local_uri_paths(b"https://example.test/a\n").is_err());
+        assert!(local_uri_paths(&vec![b'a'; 64 * 1024 + 1]).is_err());
+        let ten = (0..10)
+            .map(|i| format!("file:///tmp/{i}\n"))
+            .collect::<String>();
+        assert_eq!(local_uri_paths(ten.as_bytes()).unwrap().len(), 10);
+        let eleven = format!("{ten}file:///tmp/10\n");
+        assert!(local_uri_paths(eleven.as_bytes()).is_err());
+    }
+
+    #[test]
+    fn file_list_takes_precedence_when_clipboard_offers_files_and_png() {
+        assert_eq!(preferred_mime(true, true), "text/uri-list");
+        assert_eq!(preferred_mime(true, false), "image/png");
+        assert_eq!(preferred_mime(false, false), "text/plain;charset=utf-8");
+    }
 }

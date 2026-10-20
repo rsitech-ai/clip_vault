@@ -13,14 +13,14 @@ struct DevicesSharingSettingsTab: View {
     var body: some View {
         Form {
             Section("Encrypted device sharing") {
-                Text("Pair your Mac and Ubuntu laptop to share new text and image clips. Content is encrypted before it leaves this device. Your relay can see timing, sizes and device identifiers. Existing history is shared only when you select it.")
+                Text("Pair your Mac and Ubuntu laptop to share new clips and files. Content is encrypted before it leaves this device. Your relay can see timing, sizes and device identifiers. Existing history is shared only when you select it.")
                     .font(.callout).foregroundStyle(.secondary)
-                Toggle("Enable sharing with paired devices", isOn: Binding(get: { sync.status.enabled }, set: sync.setEnabled))
+                Toggle("Enable sharing with paired devices", isOn: Binding(get: { sync.status.enabled }, set: { sync.setEnabled($0) }))
                 LabeledContent("Status", value: sync.status.state)
                 Button("Disconnect and reset pairing…", role: .destructive) { disconnecting = true }
                     .disabled(sync.busy)
                 if let message = sync.message { Text(message).foregroundStyle(.orange).textSelection(.enabled) }
-                Text("Received clips appear in history. Use Copy to put one on this Mac’s clipboard. Notes, folders, pins and file references stay local.")
+                Text("Received clips appear in history. Use Copy for text and images, or Save File for attachments up to 100 MiB. Notes, folders, pins and old file references stay local. File contents are not screened for secrets.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             if sync.status.members.isEmpty {

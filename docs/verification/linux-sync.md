@@ -2,7 +2,7 @@
 
 Date: 2026-10-20
 
-**Verdict: code review PASS for a draft PR; HOLD merge and cross-device readiness.** The canonical Mac app has been upgraded locally and its complete prior history verified. The audited Ubuntu client and relay are installed, and the actual Mac and Ubuntu apps are paired after a user-confirmed comparison code. Mac-to-Ubuntu Unicode text/Copy, client-offline catch-up and image display are verified. The genuine active Ubuntu GNOME capture path and Ubuntu-to-Mac automatic clipboard delivery still require acceptance. This report does not claim a published release, long-term uptime, or an error-free environment.
+**Verdict: HOLD merge and file-sharing readiness.** The earlier clipboard-sync review passed, but the new 100 MiB attachment and Ubuntu UI scope is under validation and independent review. The canonical Mac app has been upgraded locally and its complete prior history verified. The audited Ubuntu client and relay are installed, and the actual Mac and Ubuntu apps are paired after a user-confirmed comparison code. Mac-to-Ubuntu Unicode text/Copy, client-offline catch-up and image display are verified. The genuine active Ubuntu GNOME capture path and Ubuntu-to-Mac automatic clipboard delivery still require acceptance. This report does not claim a published release, long-term uptime, or an error-free environment.
 
 ## Source, authority and scope
 
@@ -12,7 +12,9 @@ Date: 2026-10-20
 - Mac remains SwiftUI/AppKit + SwiftData; Linux uses GTK4/libadwaita. Shared Rust owns protocol, encrypted local sync state, pairing and HTTP transport. The relay holds ciphertext and routing metadata.
 - Existing history is not uploaded automatically. Notes, tags, pins, folders and file references remain local. Received clips enter history; explicit Copy changes the receiving clipboard.
 
-## Final observed validation
+## Clipboard-sync baseline validation
+
+These results qualify the earlier clipboard preview. The later attachment scope, fixes and package/device gates are recorded separately below.
 
 | Check | Result and boundary |
 | --- | --- |
@@ -52,7 +54,7 @@ The independent whole-feature review and regression work found and fixed:
 
 New migration tests use the exact legacy two-entity schema, AES-GCM payloads, annotations/tags/pins/folders/copy counts and large external data. They verify an immutable backup, all-field equality after adding sync entities, altered/missing/corrupt-asset rejection, and nonmutating readability across legacy detail formats. Receipt and durable cleanup hold are committed before normalizing reads. Cleanup requires explicit in-app confirmation to resume the unchanged retention setting.
 
-The final independent source review found no remaining reproducible P1/P2 and approved a controlled canonical Mac upgrade. The actual app then passed the installed-history checks above. This is not a guarantee that arbitrary inputs or future environment changes contain no bugs.
+The independent clipboard-sync source review found no remaining reproducible P1/P2 and approved a controlled canonical Mac upgrade. The actual app then passed the installed-history checks above. This is not a guarantee that arbitrary inputs or future environment changes contain no bugs.
 
 ## Logs and known limits
 
@@ -66,7 +68,7 @@ The final independent source review found no remaining reproducible P1/P2 and ap
 
 ## Remaining merge and device gates
 
-1. Complete the newly requested 100 MB file-sharing and Ubuntu UI changes, then repeat applicable source, package, runtime and device checks. The earlier audited Ubuntu update has completed; further builds require a separate verified update.
+1. Complete the newly requested 100 MiB file-sharing and Ubuntu UI changes, then repeat applicable source, package, runtime and device checks. The earlier audited Ubuntu update has completed; further builds require a separate verified update.
 2. When the user can save their desktop work, obtain a fresh GNOME session and enable the installed extension. No forced logout/reboot is authorized.
 3. The actual apps are paired and Mac-to-Ubuntu text/image/offline receipts are recorded. Finish the opposite direction plus physical RTF, busy-worker pause, removal and Secret Service lock/unlock acceptance. Keep real old history local unless explicitly shared.
 4. Inspect PR CI and review the final commit. Merge/main push remains held until these acceptance gates are satisfied.
@@ -80,7 +82,28 @@ The first image did not arrive during the initial 20-second check. Sampling the 
 
 Five focused tests plus the full 253-core/10-app run passed. A new regression first reproduced a timeout-status label splitting one blank image into two history records, then passed in both capture orders after preserving the existing Image label and storing OCR outcome separately. The final signed build captured a fresh controlled image with completed OCR; Ubuntu acknowledged delivery and the user confirmed its preview. Current Mac history includes the original 895 clips plus controlled test captures, and the original 12-folder upgrade receipt/cleanup hold are retained. Logs and receipts are under `actual-image-*` locally. These tests do not establish a maximum duration for Vision itself or qualify the blocked GNOME capture direction.
 
-The user subsequently requested actual file sharing up to 100 MB and a simpler Ubuntu workspace. Those changes are a new pending implementation scope; none of the above checks establish file-transfer support or validation.
+The user subsequently requested actual file sharing up to 100 MiB and a simpler Ubuntu workspace. The preceding clipboard checks do not establish attachment support. The separate attachment evidence follows.
+
+## Attachment and Ubuntu UI continuation
+
+The source adds regular files up to **100 MiB (104,857,600 bytes)**, split into 1 MiB authenticated encrypted chunks. Descriptors enter history only after receiver assembly and whole-file SHA-256 verification. Save is explicit, private and refuses to overwrite an existing file. Clipboard payloads retain their separate 10 MiB limit. Existing local file references are not read or uploaded by this change. All paired clients must advertise attachment support before a new file is committed; waiting files must not block ordinary sync.
+
+Current evidence, before final package and device qualification:
+
+- A release-mode HTTP integration test transferred exactly 100 MiB, restarted the receiver partway through, resumed and verified the final hash. Direct execution passed in 30.79 seconds (30.88 seconds wall clock), with 364,101,632-byte maximum RSS and 559,580,096-byte peak footprint. This one process contains the relay and both test clients; those figures are not per-client memory measurements.
+- The signed isolated Mac app added and saved an exact 100 MiB fixture through native Open/Save panels. The saved SHA-256 matched the source (`4cbf988462cc3ba2e10e3aae9f5268546aa79016359fb45be7dd199c073125c0`), with mode `0600`. A 100 MiB-plus-one fixture was rejected visibly without creating a history entry. This namespace has synthetic history; the canonical Mac app and its old history were preserved.
+- Native Save first exposed a real sandbox failure: a Save-panel grant does not cover arbitrary sibling temporary files. The repaired flow uses Foundation's item-replacement directory on the destination volume, core streaming verification and atomic no-overwrite publication to the exact granted destination. The native signed-app retest passed. Local no-overwrite tests cover collisions; APFS and ext4 have been exercised, while FAT/exFAT are unqualified.
+- Mac regression tests first reproduced rapid copies being dropped during staging and one unsupported file stopping ordinary export/import. The bounded capture queue and per-export failure continuation passed their regressions. The final complete `./script/test.sh` run passed 263 core and 15 app tests after those fixes, including shell policy checks and the linked Rust build.
+- The simplified GTK workspace, native Add File picker, capture toggle, exact text/PNG Copy, URI-list file staging and untrusted bridge rejection passed a disposable X11 smoke. Screenshots were inspected. This does not qualify the user's current Wayland session or the receiving Save dialog.
+- Independent review found additional file recovery and Linux ingress issues: failed incoming chunks retained quota, relay capacity failures blocked inbox work, mixed image/file MIME preference could lose file semantics, and GNOME consent cycles needed generation binding. The core recovery fixes passed full workspace tests, strict Clippy, formatting and independent source re-review. The real 256 MiB quota test confirmed ACK releases capacity; a separate HTTP-boundary 507 regression confirmed inbox progress and later file retry. Linux ingress corrections remain in progress. No merge approval is inferred from the earlier clipboard review.
+
+The independent Linux review also found attachment Delete hiding the row without cancelling file jobs/chunks, and a pending-file retry loop bypassing network backoff. The Linux worker now resolves attachment IDs from stored history, deletes transfer state before hiding history, clears pending markers on delete/disconnect, and retries at most one due file after a successful network tick while honoring durable backoff. Focused Linux tests pass, and independent re-review found no remaining P1/P2 in the scoped source fixes. Earliest-deadline selection prevents retry starvation; an indexed authenticated event lookup avoids decrypting unrelated history during Delete. Staged local files are labelled On this device. The final full Linux workspace tests/build/strict Clippy passed (13 relay tests, two intentional large tests ignored); native chooser/capture/Copy GUI smoke passed. A final Unix FIFO-open regression then reproduced a three-second pre-validation stall and passed after adding O_NONBLOCK to source open; targeted Linux FIFO/unit/lint/build checks and final AMD64 package validation follow that narrow change. A proposed pause-before-send issue was retracted after verifying the core uses the same cancellation atomic and checks it before sending HTTP; it is not counted as a confirmed defect.
+
+Attachment logs, hashes and native-app receipts are retained under `dist/linux-deployment/20261020/files-*` and UI screenshots under `dist/linux-evidence/ux-after/`. The signed canonical Mac build 6 was installed with the same designated requirement and retained rollback. Its live Settings still displayed the original 895-clip/12-folder preservation receipt and durable cleanup hold; pairing and sharing consent remained enabled. The accumulated local history had 900 clips before the controlled 89-byte Add File check and 901 afterward. The Ubuntu file-capable package and new relay are not installed yet. Cross-device file delivery, explicit Save, reconnect and reverse direction remain required.
+
+The Mac update exposed an upgrade-order regression: capability advertisement against the old relay returned HTTP 404 before ordinary sync work. A new strict compatibility regression verifies ordinary bidirectional clips continue while file commit remains unsupported/local, and HTTP 500 remains visible. The strict fallback passed full Rust tests and independent review, and was rebuilt into the canonical Mac app. A subsequent live retry caught a Mac/Rust contract mismatch: the Mac attachment included source-app metadata that the typed Rust validator rejects. The Mac now omits it, strictly validates parity and normalizes previously queued preview exports on read without changing their identity or local history. The source-app regression first failed, then the full `./script/test.sh` passed 263 core and 15 app tests. Independent source review passed. Signed canonical build 8 was installed, and the same pending 89-byte fixture now reaches the correct update-needed/local-copy-retained status while the ordinary tick reports Up to date. The original history receipt, cleanup hold and pairing remained intact.
+
+The hosted Mac check at `8207974` failed in Swift 6.3.3 IR generation (`SmallVector unable to grow`, actor/Bool reabstraction in DevicesSharingSettingsTab). This is an observed toolchain failure, classified INFRA_FAILURE, not a test assertion. The local Swift 6.4 full suite passes. An explicit Binding setter closure avoids the problematic method-reference conversion; hosted confirmation remains required. The same revision's Linux check passed.
 
 ## Recovery and preservation
 

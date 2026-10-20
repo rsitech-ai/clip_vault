@@ -439,6 +439,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "uuid",
 ]
 
 [[package]]
@@ -465,6 +466,7 @@ dependencies = [
  "hpke",
  "image",
  "keyring",
+ "libc",
  "rand 0.9.5",
  "regex",
  "reqwest",

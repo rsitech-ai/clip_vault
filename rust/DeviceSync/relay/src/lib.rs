@@ -2,7 +2,7 @@
 mod store;
 use axum::{
     Json, Router,
-    extract::{DefaultBodyLimit, Path, State},
+    extract::{DefaultBodyLimit, Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -65,6 +65,7 @@ pub fn router(store: RelayStore) -> Router {
         .route("/health", get(|| async { "ok" }))
         .route("/v1/workspaces", post(bootstrap))
         .route("/v1/roster", get(roster).post(publish))
+        .route("/v1/capabilities", get(capabilities).post(set_capabilities))
         .route("/v1/invites", post(invite))
         .route(
             "/v1/joins",
@@ -104,6 +105,29 @@ async fn roster(
     let s = lock(&s)?;
     let a = s.authenticate(token(&h)?)?;
     Ok(Json(s.roster(&a)?))
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CapabilityUpdate {
+    features: Vec<String>,
+}
+async fn capabilities(
+    State(s): State<Shared>,
+    h: HeaderMap,
+) -> std::result::Result<Json<Vec<DeviceCapabilities>>, Error> {
+    let s = lock(&s)?;
+    let a = s.authenticate(token(&h)?)?;
+    Ok(Json(s.capabilities(&a)?))
+}
+async fn set_capabilities(
+    State(s): State<Shared>,
+    h: HeaderMap,
+    Json(b): Json<CapabilityUpdate>,
+) -> std::result::Result<Json<bool>, Error> {
+    let mut s = lock(&s)?;
+    let a = s.authenticate(token(&h)?)?;
+    s.publish_capabilities(&a, &b.features)?;
+    Ok(Json(true))
 }
 #[derive(Deserialize)]
 struct Publication {
@@ -180,10 +204,19 @@ async fn consume(
 async fn mailbox(
     State(s): State<Shared>,
     h: HeaderMap,
+    Query(query): Query<MailboxQuery>,
 ) -> std::result::Result<Json<Vec<MailItem>>, Error> {
     let mut s = lock(&s)?;
     let a = s.authenticate(token(&h)?)?;
-    Ok(Json(s.mailbox(&a, now())?))
+    Ok(Json(s.mailbox_batch(
+        &a,
+        now(),
+        query.limit.unwrap_or(1),
+    )?))
+}
+#[derive(Deserialize, Default)]
+struct MailboxQuery {
+    limit: Option<usize>,
 }
 async fn submit(
     State(s): State<Shared>,

@@ -9,6 +9,7 @@ public final class ClipboardCaptureService {
     typealias PayloadBuilder = @Sendable (PasteboardSnapshot) async -> ClipPayload?
 
     public var onClipCaptured: (@MainActor (ClipPayload, String?, Date) -> Void)?
+    public var onFilesCaptured: (@MainActor ([URL], String?, Date) -> Void)?
     public private(set) var isRunning = false
 
     private let pasteboard: NSPasteboard
@@ -103,6 +104,12 @@ public final class ClipboardCaptureService {
         }
         deferredRead = nil
         let sourceApp = NSWorkspace.shared.frontmostApplication?.localizedName
+        if let onFilesCaptured, !snapshot.fileURLs.isEmpty {
+            // Preserve URLs supplied by AppKit: rebuilding a URL from its path
+            // would discard any security-scope information attached to it.
+            onFilesCaptured(snapshot.fileURLs, sourceApp, now)
+            return
+        }
         let generation = lifecycleGeneration
         let payloadBuilder = payloadBuilder
         Task { @MainActor [weak self, snapshot, sourceApp] in
@@ -134,8 +141,16 @@ public final class ClipboardCaptureService {
     private static func snapshot(from pasteboard: NSPasteboard) -> PasteboardSnapshot {
         let types = pasteboard.types?.map(\.rawValue) ?? []
         let urls = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL] ?? []
-        let fileURLs = urls.filter(\.isFileURL)
+        // Keep one extra URL so the controller can report the ten-file limit
+        // without building path metadata for an unbounded selection.
+        let fileURLs = Array(urls.lazy.filter(\.isFileURL).prefix(11))
         if !fileURLs.isEmpty {
+            // A file URL with a remote authority is not permission to read the
+            // same path on this laptop. Never discard that authority into a path.
+            guard fileURLs.allSatisfy({ $0.host == nil || $0.host == "" || $0.host == "localhost" }) else {
+                return PasteboardSnapshot(uniformTypeIdentifiers: types, string: nil, urlString: nil,
+                    rtfData: nil, tiffData: nil, pngData: nil, objectImageData: nil, filePaths: [])
+            }
             return PasteboardSnapshot(
                 uniformTypeIdentifiers: types,
                 string: nil,
@@ -144,7 +159,8 @@ public final class ClipboardCaptureService {
                 tiffData: nil,
                 pngData: nil,
                 objectImageData: nil,
-                filePaths: fileURLs.map(\.path)
+                filePaths: fileURLs.map(\.path),
+                fileURLs: fileURLs
             )
         }
         let objectImageData = (pasteboard.readObjects(forClasses: [NSImage.self])?.first as? NSImage)?.tiffRepresentation
@@ -168,11 +184,12 @@ public final class ClipboardCaptureService {
     ) -> ClipPayload? {
         if !snapshot.filePaths.isEmpty {
             let text = snapshot.filePaths.joined(separator: "\n")
+            let encodedPaths = (try? JSONEncoder().encode(snapshot.filePaths)).flatMap { String(data: $0, encoding: .utf8) }
             return ClipPayload(
                 kind: .file,
                 displayText: text,
                 extractedText: text,
-                metadata: ["count": "\(snapshot.filePaths.count)", "paths": text],
+                metadata: ["count": "\(snapshot.filePaths.count)", "paths": text, "captureFiles": encodedPaths ?? "[]"],
                 uniformTypeIdentifiers: snapshot.uniformTypeIdentifiers
             )
         }
@@ -342,6 +359,7 @@ struct PasteboardSnapshot: Sendable {
     var pngData: Data?
     var objectImageData: Data?
     var filePaths: [String]
+    var fileURLs: [URL] = []
 
     var hasReadableContent: Bool {
         string?.isEmpty == false || urlString?.isEmpty == false || !filePaths.isEmpty

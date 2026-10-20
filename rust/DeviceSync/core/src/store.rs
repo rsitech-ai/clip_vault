@@ -15,7 +15,7 @@ const MAX_EVENT_BATCH_COUNT: usize = 16;
 const MAX_EVENT_BATCH_BYTES: usize = MAX_WIRE_BYTES + 1024;
 
 pub struct DeviceStore {
-    db: Connection,
+    pub(crate) db: Connection,
     key: Zeroizing<[u8; 32]>,
     queue_limit: u64,
 }
@@ -36,6 +36,11 @@ impl DeviceStore {
             CREATE TABLE IF NOT EXISTS events (id TEXT PRIMARY KEY, origin TEXT NOT NULL, sequence INTEGER NOT NULL, digest BLOB NOT NULL, payload BLOB, outgoing INTEGER NOT NULL DEFAULT 0, applied INTEGER NOT NULL DEFAULT 0, UNIQUE(origin,sequence));
             CREATE TABLE IF NOT EXISTS receipts (cursor INTEGER PRIMARY KEY, event TEXT, applied INTEGER NOT NULL DEFAULT 0, acknowledged INTEGER NOT NULL DEFAULT 0);
             CREATE TABLE IF NOT EXISTS targets (event TEXT NOT NULL, recipient TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', attempted_at INTEGER, PRIMARY KEY(event,recipient));")?;
+        db.execute_batch("CREATE TABLE IF NOT EXISTS file_transfers (id TEXT PRIMARY KEY, payload BLOB NOT NULL, direction TEXT NOT NULL, state TEXT NOT NULL, committed INTEGER NOT NULL DEFAULT 0, event_id TEXT, transferred INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL);
+            CREATE TABLE IF NOT EXISTS file_chunks (transfer TEXT NOT NULL REFERENCES file_transfers(id) ON DELETE CASCADE, idx INTEGER NOT NULL, payload BLOB NOT NULL, PRIMARY KEY(transfer,idx));
+            CREATE TABLE IF NOT EXISTS file_jobs (transfer TEXT NOT NULL, recipient TEXT NOT NULL, idx INTEGER NOT NULL, frame_event TEXT NOT NULL, sequence INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'pending', attempted_at INTEGER, PRIMARY KEY(transfer,recipient,idx), UNIQUE(frame_event,recipient));
+            CREATE TABLE IF NOT EXISTS file_targets (transfer TEXT NOT NULL, recipient TEXT NOT NULL, status TEXT NOT NULL, PRIMARY KEY(transfer,recipient));
+            CREATE TABLE IF NOT EXISTS file_tombstones (transfer TEXT PRIMARY KEY, origin TEXT NOT NULL, deleted_at INTEGER NOT NULL);")?;
         let has_attempted: bool = db.query_row(
             "SELECT EXISTS(SELECT 1 FROM pragma_table_info('targets') WHERE name='attempted_at')",
             [],
@@ -49,6 +54,7 @@ impl DeviceStore {
             key: Zeroizing::new(key),
             queue_limit: MAX_QUEUE_BYTES,
         };
+        store.prune_incomplete_files(crate::unix_time())?;
         match store.get::<String>("key-check")? {
             Some(value) if value == "ClipVault encrypted state v1" => {}
             None => store.put("key-check", &"ClipVault encrypted state v1")?,
@@ -56,7 +62,7 @@ impl DeviceStore {
         }
         Ok(store)
     }
-    fn seal<T: Serialize>(&self, context: &str, data: &T) -> Result<Vec<u8>> {
+    pub(crate) fn seal<T: Serialize>(&self, context: &str, data: &T) -> Result<Vec<u8>> {
         let plaintext = Zeroizing::new(serde_json::to_vec(data)?);
         let nonce: [u8; 12] = random_secret()[..12]
             .try_into()
@@ -72,7 +78,7 @@ impl DeviceStore {
             .map_err(|_| SyncError::Authentication)?;
         Ok([nonce.as_slice(), &ciphertext].concat())
     }
-    fn unseal<T: DeserializeOwned>(&self, context: &str, blob: &[u8]) -> Result<T> {
+    pub(crate) fn unseal<T: DeserializeOwned>(&self, context: &str, blob: &[u8]) -> Result<T> {
         if blob.len() < 28 {
             return Err(SyncError::Invalid);
         }
@@ -88,6 +94,37 @@ impl DeviceStore {
                 .map_err(|_| SyncError::Authentication)?,
         );
         Ok(serde_json::from_slice(&plaintext)?)
+    }
+    pub(crate) fn seal_raw(&self, context: &str, plaintext: &[u8]) -> Result<Vec<u8>> {
+        let nonce: [u8; 12] = random_secret()[..12]
+            .try_into()
+            .map_err(|_| SyncError::Invalid)?;
+        let ciphertext = ChaCha20Poly1305::new((&*self.key).into())
+            .encrypt(
+                Nonce::from_slice(&nonce),
+                Payload {
+                    msg: plaintext,
+                    aad: context.as_bytes(),
+                },
+            )
+            .map_err(|_| SyncError::Authentication)?;
+        Ok([nonce.as_slice(), &ciphertext].concat())
+    }
+    pub(crate) fn unseal_raw(&self, context: &str, blob: &[u8]) -> Result<Zeroizing<Vec<u8>>> {
+        if blob.len() < 28 {
+            return Err(SyncError::Invalid);
+        }
+        Ok(Zeroizing::new(
+            ChaCha20Poly1305::new((&*self.key).into())
+                .decrypt(
+                    Nonce::from_slice(&blob[..12]),
+                    Payload {
+                        msg: &blob[12..],
+                        aad: context.as_bytes(),
+                    },
+                )
+                .map_err(|_| SyncError::Authentication)?,
+        ))
     }
     pub fn put<T: Serialize>(&mut self, name: &str, value: &T) -> Result<()> {
         let blob = self.seal(name, value)?;
@@ -115,6 +152,15 @@ impl DeviceStore {
             "UPDATE targets SET status='cancelled' WHERE status='pending'",
             [],
         )?;
+        tx.execute(
+            "UPDATE file_jobs SET status='cancelled' WHERE status='pending'",
+            [],
+        )?;
+        tx.execute(
+            "UPDATE file_targets SET status='failed' WHERE status='pending'",
+            [],
+        )?;
+        tx.execute("UPDATE file_transfers SET state='failed',committed=0 WHERE direction='outgoing' AND state NOT IN ('ready','failed','unsupported')", [])?;
         tx.execute(
             "UPDATE events SET outgoing=0,applied=1 WHERE outgoing IN (1,2) OR outgoing=0",
             [],
@@ -189,11 +235,57 @@ impl DeviceStore {
             |r| r.get(0),
         )?)
     }
+    /// Read one authenticated history event without decrypting unrelated clips.
+    pub fn event(&self, event: &str) -> Result<Option<ClipEvent>> {
+        let blob: Option<Vec<u8>> = self
+            .db
+            .query_row(
+                "SELECT payload FROM events WHERE id=?1 AND payload IS NOT NULL",
+                [event],
+                |r| r.get(0),
+            )
+            .optional()?;
+        blob.map(|b| self.unseal(event, &b)).transpose()
+    }
     pub fn receive(&mut self, event: &ClipEvent, cursor: i64) -> Result<bool> {
         if cursor <= 0 {
             return Err(SyncError::Invalid);
         }
+        if event.clip.kind == "attachment" {
+            return Err(SyncError::Invalid);
+        }
         self.insert(event, 0, Some(cursor), &[])
+    }
+    pub(crate) fn receive_verified_attachment(&mut self, event: &ClipEvent) -> Result<bool> {
+        if event.clip.kind != "attachment" {
+            return Err(SyncError::Invalid);
+        }
+        let inserted = self.insert(event, 0, None, &[])?;
+        if inserted {
+            self.db.execute(
+                "UPDATE events SET applied=0 WHERE id=?1 AND outgoing=0",
+                [&event.id],
+            )?;
+        }
+        Ok(inserted)
+    }
+    pub(crate) fn record_file_receipt(&mut self, cursor: i64, event: &str) -> Result<()> {
+        let previous: Option<Option<String>> = self
+            .db
+            .query_row(
+                "SELECT event FROM receipts WHERE cursor=?1",
+                [cursor],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if previous.is_some_and(|value| value.as_deref() != Some(event)) {
+            return Err(SyncError::Authentication);
+        }
+        self.db.execute(
+            "INSERT OR IGNORE INTO receipts(cursor,event,applied) VALUES(?1,?2,1)",
+            params![cursor, event],
+        )?;
+        Ok(())
     }
     fn insert(
         &mut self,

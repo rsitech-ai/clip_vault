@@ -1,13 +1,24 @@
 //! Blocking network client. Invoke on a worker thread, never a platform UI thread.
 use crate::*;
 use reqwest::{Method, blocking::Client};
+use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::io::Read;
+use std::path::Path;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
 };
+use std::time::{Duration, Instant};
 use zeroize::Zeroize;
+
+const MAILBOX_BATCH_BYTES: usize = 24 * 1024 * 1024;
+const FILE_MAILBOX_MAX_ITEMS: usize = 16;
+const FILE_MAILBOX_TIME_BUDGET: Duration = Duration::from_secs(2);
+const FILE_JOB_MAX_SENDS_PER_TICK: usize = 16;
+const FILE_JOB_MAX_CHECKS_PER_TICK: usize = 128;
+const FILE_JOB_TIME_BUDGET: Duration = Duration::from_secs(2);
+const FILE_QUEUE_RETRY_DELAY_SECS: i64 = 2;
 
 #[derive(Clone, Serialize, Deserialize)]
 struct Configuration {
@@ -211,18 +222,23 @@ impl SyncClient {
         if !status.is_success() {
             return Err(SyncError::Relay(status.as_u16()));
         }
+        let response_limit = if path.starts_with("/v1/mailbox") {
+            MAILBOX_BATCH_BYTES + 8192
+        } else {
+            MAX_WIRE_BYTES + 8192
+        };
         if response
             .content_length()
-            .is_some_and(|l| l > (MAX_WIRE_BYTES + 8192) as u64)
+            .is_some_and(|l| l > response_limit as u64)
         {
             return Err(SyncError::TooLarge);
         }
         let mut bytes = zeroize::Zeroizing::new(Vec::new());
         response
-            .take((MAX_WIRE_BYTES + 8193) as u64)
+            .take((response_limit + 1) as u64)
             .read_to_end(&mut bytes)
             .map_err(|_| SyncError::Network)?;
-        if bytes.len() > MAX_WIRE_BYTES + 8192 {
+        if bytes.len() > response_limit {
             return Err(SyncError::TooLarge);
         }
         Ok(serde_json::from_slice(&bytes)?)
@@ -533,6 +549,35 @@ impl SyncClient {
         if let Some(cfg) = &self.configuration {
             clip.source_device = Some(cfg.name.clone());
         }
+        if clip.kind == "attachment" {
+            let id = clip.metadata.get("file_id").ok_or(SyncError::Invalid)?;
+            let transfer = self.store.stored_transfer(id)?;
+            let descriptor = transfer.descriptor;
+            if descriptor.origin != self.identity.id
+                || descriptor.filename != clip.text
+                || descriptor.size.to_string()
+                    != clip.metadata.get("file_size").cloned().unwrap_or_default()
+                || descriptor.sha256
+                    != clip
+                        .metadata
+                        .get("file_sha256")
+                        .cloned()
+                        .unwrap_or_default()
+                || !["staged", "pending", "delivered", "ready"].contains(
+                    &self
+                        .store
+                        .db
+                        .query_row::<String, _, _>(
+                            "SELECT state FROM file_transfers WHERE id=?1",
+                            [id],
+                            |r| r.get(0),
+                        )?
+                        .as_str(),
+                )
+            {
+                return Err(SyncError::Authentication);
+            }
+        }
         let mut event = ClipEvent::new(self.identity.id.clone(), self.store.next_sequence()?, clip);
         if let Some(id) = event_id {
             event.id = id.into();
@@ -549,6 +594,12 @@ impl SyncClient {
                     .map(|m| m.id.clone())
                     .collect()
             });
+        if event.clip.kind == "attachment" {
+            // Attachment descriptors are visible local history only after their file is
+            // staged. Chunk frames are activated separately by commit_file.
+            self.store.capture_local(&event)?;
+            return Ok(Some(event.id));
+        }
         if recipients.is_empty() {
             self.store.capture_local(&event)?;
         } else {
@@ -561,6 +612,116 @@ impl SyncClient {
             }
         }
         Ok(Some(event.id))
+    }
+    pub fn stage_file<F>(&mut self, path: &Path, cancelled: F) -> Result<FileDescriptor>
+    where
+        F: FnMut() -> bool,
+    {
+        self.store.stage_file(path, &self.identity.id, cancelled)
+    }
+
+    /// Bind an already persisted small attachment-history event to encrypted chunk frames.
+    /// No file frame becomes sendable before this method returns successfully.
+    pub fn commit_file(&mut self, id: &str, event_id: &str) -> Result<PortableClip> {
+        let cfg = self.configuration.as_ref().ok_or(SyncError::Membership)?;
+        if !cfg.enabled {
+            return Err(SyncError::Paused);
+        }
+        let roster = cfg.roster.as_ref().ok_or(SyncError::Membership)?;
+        let transfer = self.store.stored_transfer(id)?;
+        let descriptor = &transfer.descriptor;
+        descriptor.validate()?;
+        if descriptor.origin != self.identity.id {
+            return Err(SyncError::Membership);
+        }
+        let event = self.store.event(event_id)?.ok_or(SyncError::Attachment)?;
+        if event.origin != self.identity.id
+            || event.clip.kind != "attachment"
+            || event.clip.metadata.get("file_id") != Some(&descriptor.id)
+            || event.clip.metadata.get("file_origin") != Some(&descriptor.origin)
+            || event.clip.metadata.get("file_size") != Some(&descriptor.size.to_string())
+            || event.clip.metadata.get("file_sha256") != Some(&descriptor.sha256)
+            || event.clip.text != descriptor.filename
+        {
+            return Err(SyncError::Authentication);
+        }
+        let already: Option<String> = self
+            .store
+            .db
+            .query_row(
+                "SELECT event_id FROM file_transfers WHERE id=?1 AND committed=1",
+                [id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if let Some(previous) = already {
+            return if previous == event_id {
+                Ok(event.clip)
+            } else {
+                Err(SyncError::Authentication)
+            };
+        }
+        let published = self.auth_request::<bool>(
+            Method::POST,
+            "/v1/capabilities",
+            Some(&serde_json::json!({"features":["file-v1"]})),
+        );
+        if matches!(&published, Err(SyncError::Relay(404))) {
+            self.store.db.execute(
+                "UPDATE file_transfers SET state='unsupported' WHERE id=?1",
+                [id],
+            )?;
+            return Err(SyncError::Unsupported);
+        }
+        published?;
+        let capabilities: Vec<crate::DeviceCapabilities> =
+            self.auth_request(Method::GET, "/v1/capabilities", None)?;
+        let advertised: std::collections::HashSet<&str> = capabilities
+            .iter()
+            .filter(|cap| cap.features.iter().any(|f| f == "file-v1"))
+            .map(|cap| cap.device.as_str())
+            .collect();
+        let peers: Vec<String> = roster
+            .members
+            .iter()
+            .filter(|m| m.id != self.identity.id)
+            .map(|m| m.id.clone())
+            .collect();
+        if peers.is_empty() || peers.iter().any(|id| !advertised.contains(id.as_str())) {
+            self.store.db.execute(
+                "UPDATE file_transfers SET state='unsupported' WHERE id=?1",
+                [id],
+            )?;
+            return Err(SyncError::Unsupported);
+        }
+        let recipients = peers;
+        let mut jobs = Vec::with_capacity(recipients.len() * (descriptor.chunk_count as usize + 1));
+        for recipient in &recipients {
+            for index in -1..i64::from(descriptor.chunk_count) {
+                let frame_event = uuid::Uuid::new_v4().to_string();
+                let sequence = self.store.next_sequence()?;
+                jobs.push((recipient.clone(), index, frame_event, sequence));
+            }
+        }
+        let unsupported = jobs.is_empty();
+        let mut stored = transfer;
+        stored.history_event = Some(event.id.clone());
+        stored.history_sequence = Some(event.sequence);
+        let payload = self.store.seal(&format!("file-meta:{id}"), &stored)?;
+        let tx = self.store.db.transaction()?;
+        for recipient in &recipients {
+            tx.execute("INSERT OR IGNORE INTO file_targets(transfer,recipient,status) VALUES(?1,?2,'pending')",rusqlite::params![id,recipient])?;
+        }
+        for (recipient, index, frame_event, sequence) in jobs {
+            tx.execute("INSERT INTO file_jobs(transfer,recipient,idx,frame_event,sequence,status) VALUES(?1,?2,?3,?4,?5,'pending')", rusqlite::params![id,recipient,index,frame_event,sequence])?;
+        }
+        tx.execute("UPDATE file_transfers SET payload=?2,committed=1,event_id=?3,state=?4 WHERE id=?1 AND committed=0", rusqlite::params![id,payload,event.id,if unsupported { "unsupported" } else { "pending" }])?;
+        tx.commit()?;
+        Ok(event.clip)
+    }
+
+    pub fn file_transfers(&self) -> Result<Vec<FileTransferStatus>> {
+        self.store.file_transfers()
     }
     pub fn status(&self) -> Result<ClientStatus> {
         let retry = self
@@ -648,6 +809,19 @@ impl SyncClient {
         // Snapshot configuration only after refresh. Every network cycle binds current membership.
         let cfg = self.configuration.clone().ok_or(SyncError::Membership)?;
         let roster = cfg.roster.as_ref().ok_or(SyncError::Membership)?;
+        // Capability discovery is an additive protocol extension. Older relays
+        // do not expose this route, but that must not interrupt ordinary clip
+        // delivery or mailbox polling during independent client/relay rollouts.
+        // Only a missing route is compatible; authentication and server errors
+        // still fail the network cycle normally.
+        let capabilities_published = self.auth_request::<bool>(
+            Method::POST,
+            "/v1/capabilities",
+            Some(&serde_json::json!({"features":["file-v1"]})),
+        );
+        if !matches!(&capabilities_published, Err(SyncError::Relay(404))) {
+            capabilities_published?;
+        }
         self.store.promote_deferred()?;
         for event in self.store.pending()?.into_iter().take(16) {
             for recipient_id in self.store.targets(&event.id)? {
@@ -702,6 +876,84 @@ impl SyncClient {
                 }
             }
         }
+        // File traffic has a separate bounded budget and runs after ordinary clips.
+        // The relay mailbox is oldest-first; each delivered chunk is durably staged
+        // and acknowledged before the next frame is made visible.
+        let file_drain_started = Instant::now();
+        let mut checked_jobs = 0usize;
+        let mut sent_jobs = 0usize;
+        let mut checked = std::collections::HashSet::new();
+        while checked_jobs < FILE_JOB_MAX_CHECKS_PER_TICK
+            && sent_jobs < FILE_JOB_MAX_SENDS_PER_TICK
+            && file_drain_started.elapsed() < FILE_JOB_TIME_BUDGET
+            && !self.cancelled.load(Ordering::Acquire)
+        {
+            let job = self
+                .store
+                .pending_file_jobs(FILE_JOB_MAX_CHECKS_PER_TICK)?
+                .into_iter()
+                .find(|job| {
+                    checked.insert((job.transfer.clone(), job.recipient.clone(), job.index))
+                });
+            let Some(job) = job else { break };
+            checked_jobs += 1;
+            let Ok(recipient) = roster.member(&job.recipient) else {
+                self.store
+                    .mark_file_job(&job.transfer, &job.recipient, job.index, "revoked")?;
+                continue;
+            };
+            let state: String = self.auth_request(
+                Method::GET,
+                &format!("/v1/delivery/{}/{}", job.event, job.recipient),
+                None,
+            )?;
+            match state.as_str() {
+                "missing" => {
+                    let frame = self.store.file_frame(&job)?;
+                    let envelope = seal_file_frame(
+                        &cfg.workspace,
+                        roster.epoch,
+                        &self.identity,
+                        recipient,
+                        &job.event,
+                        job.sequence,
+                        &frame,
+                    )?;
+                    let submitted: Result<i64> = self.auth_request(
+                        Method::POST,
+                        "/v1/mailbox",
+                        Some(&serde_json::to_value(envelope)?),
+                    );
+                    match submitted {
+                        Ok(_) => sent_jobs += 1,
+                        Err(SyncError::Relay(507)) => {
+                            let retry_at = unix_time().saturating_add(FILE_QUEUE_RETRY_DELAY_SECS);
+                            self.store
+                                .defer_file_jobs_for_recipient(&job.recipient, retry_at)?;
+                            checked.insert((
+                                job.transfer.clone(),
+                                job.recipient.clone(),
+                                job.index,
+                            ));
+                        }
+                        Err(error) => return Err(error),
+                    }
+                }
+                "pending" => {}
+                "delivered" => self.store.mark_file_job(
+                    &job.transfer,
+                    &job.recipient,
+                    job.index,
+                    "delivered",
+                )?,
+                "expired" | "revoked" | "rejected" => {
+                    self.store
+                        .mark_file_job(&job.transfer, &job.recipient, job.index, "failed")?;
+                    self.store.put("delivery-failure", &state)?;
+                }
+                _ => return Err(SyncError::Invalid),
+            }
+        }
         for cursor in self.store.acknowledgements()? {
             let endpoint = if self.store.receipt_rejected(cursor)? {
                 "reject"
@@ -712,8 +964,67 @@ impl SyncClient {
                 self.auth_request(Method::POST, &format!("/v1/{endpoint}/{cursor}"), None)?;
             self.store.mark_acknowledged(cursor)?;
         }
-        let mailbox: Vec<MailItem> = self.auth_request(Method::GET, "/v1/mailbox", None)?;
-        for item in mailbox {
+        let drain_started = Instant::now();
+        let mailbox: Vec<MailItem> = self.auth_request(
+            Method::GET,
+            &format!("/v1/mailbox?limit={FILE_MAILBOX_MAX_ITEMS}"),
+            None,
+        )?;
+        for (index, item) in mailbox.into_iter().enumerate() {
+            if self.cancelled.load(Ordering::Acquire)
+                || (index > 0 && drain_started.elapsed() >= FILE_MAILBOX_TIME_BUDGET)
+            {
+                break;
+            }
+            if item.envelope.header.message_type != "clip" {
+                let h = &item.envelope.header;
+                if h.epoch > roster.epoch {
+                    status.state = "Waiting for a newer membership record".into();
+                    return Ok(status);
+                }
+                let received = (|| -> Result<()> {
+                    let sender = roster.member(&h.sender)?;
+                    let (event_id, _, frame) =
+                        open_file_frame(&roster.workspace, &self.identity, sender, &item.envelope)?;
+                    match &frame {
+                        FileFrame::Outcome(outcome) => {
+                            self.store
+                                .apply_file_outcome(outcome, &h.sender, &self.identity.id)?
+                        }
+                        _ => {
+                            self.store.receive_file_frame(
+                                &frame,
+                                &self.identity.id,
+                                &sender.name,
+                            )?;
+                        }
+                    }
+                    self.store.record_file_receipt(item.cursor, &event_id)?;
+                    Ok(())
+                })();
+                match received {
+                    Ok(()) => {}
+                    Err(
+                        SyncError::Authentication
+                        | SyncError::Invalid
+                        | SyncError::Attachment
+                        | SyncError::TooLarge
+                        | SyncError::Capacity
+                        | SyncError::Membership
+                        | SyncError::Sensitive,
+                    ) => {
+                        self.store.reject(item.cursor)?;
+                        let rejected = self
+                            .store
+                            .get::<usize>("rejected")?
+                            .unwrap_or(0)
+                            .saturating_add(1);
+                        self.store.put("rejected", &rejected)?;
+                    }
+                    Err(error) => return Err(error),
+                }
+                continue;
+            }
             let result = match classify_incoming(roster, &self.identity, &item.envelope) {
                 Incoming::Event(event) => Ok(*event),
                 Incoming::Deferred => {
@@ -734,6 +1045,8 @@ impl SyncClient {
                     }
                     if auto_apply {
                         self.store.mark_applied(&event.id)?;
+                    } else {
+                        break;
                     }
                 }
                 Err(_) => {

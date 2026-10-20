@@ -2,12 +2,13 @@ import AppKit
 import Foundation
 
 public enum ClipSyncError: Error, LocalizedError {
-    case invalidPayload, unsupportedFile, tooLarge
+    case invalidPayload, unsupportedFile, tooLarge, fileTooLarge
     public var errorDescription: String? {
         switch self {
         case .invalidPayload: "The shared clip has invalid or unsupported content."
         case .unsupportedFile: "File references stay on this device."
         case .tooLarge: "This clip exceeds the 10 MiB sharing limit."
+        case .fileTooLarge: "This file exceeds the 100 MiB sharing limit."
         }
     }
 }
@@ -31,7 +32,16 @@ public struct ClipSyncPortable: Codable, Sendable, Equatable {
         case sourceApp = "source_app", sourceDevice = "source_device", imagePNG = "image_png"
     }
     public init(payload: ClipPayload, sourceApp: String?, capturedAt: Date) throws {
-        guard payload.kind != .file else { throw ClipSyncError.unsupportedFile }
+        if payload.kind == .file {
+            guard let file = try ClipFileDescriptor.from(payload: payload, capturedAt: Int64(capturedAt.timeIntervalSince1970)) else {
+                throw ClipSyncError.unsupportedFile
+            }
+            self.init(kind: "attachment", text: file.filename, displayText: file.filename, capturedAt: file.createdAt,
+                sourceApp: nil, sourceDevice: nil, imagePNG: nil,
+                metadata: try file.payload().metadata)
+            _ = try payloadValue()
+            return
+        }
         var image: String?
         if payload.kind == .image {
             guard let data = payload.previewData, data.count <= 10 * 1024 * 1024,
@@ -50,7 +60,8 @@ public struct ClipSyncPortable: Codable, Sendable, Equatable {
         _ = try payloadValue()
     }
     public func payloadValue() throws -> ClipPayload {
-        guard let clipKind = ClipKind(rawValue: kind), clipKind != .file, capturedAt >= 0,
+        let decodedKind = kind == "attachment" ? ClipKind.file : ClipKind(rawValue: kind)
+        guard let clipKind = decodedKind, kind != "file", capturedAt >= 0,
               metadata.count <= 32, (sourceApp?.utf8.count ?? 0) <= 256,
               (sourceDevice?.utf8.count ?? 0) <= 256 else { throw ClipSyncError.invalidPayload }
         // JSON escaping can expand otherwise small text past the FFI/wire cap.
@@ -67,6 +78,15 @@ public struct ClipSyncPortable: Codable, Sendable, Equatable {
               !metadata.values.contains(where: { SensitiveRuleEngine.default.classify($0).isExcluded }) else { throw ClipSyncError.invalidPayload }
         var resultMetadata = metadata
         if let sourceDevice { resultMetadata["syncSourceDevice"] = sourceDevice }
+        if kind == "attachment" {
+            guard imagePNG == nil, sourceApp == nil, text == displayText,
+                  Set(metadata.keys) == Set(["file_id", "file_origin", "file_size", "file_sha256"]) else {
+                throw ClipSyncError.invalidPayload
+            }
+            let attachment = ClipPayload(kind: .file, displayText: displayText, extractedText: text, metadata: resultMetadata)
+            guard try ClipFileDescriptor.from(payload: attachment, capturedAt: capturedAt) != nil else { throw ClipSyncError.invalidPayload }
+            return attachment
+        }
         if clipKind == .image {
             guard let decoded, decoded.starts(with: [137, 80, 78, 71, 13, 10, 26, 10]), decoded.count >= 24 else { throw ClipSyncError.invalidPayload }
             let width = decoded[16..<20].reduce(UInt64(0)) { ($0 << 8) | UInt64($1) }

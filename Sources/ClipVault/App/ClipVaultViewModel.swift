@@ -23,6 +23,7 @@ final class ClipVaultViewModel {
     let shouldMigrateLegacyKey: Bool
 
     let deviceSync = ClipVaultSyncController()
+    let files: ClipVaultFileController
     var historyMigrationStatus: String?
     var historyRetentionReviewPending = false
     var canApplyHistoryRetention: Bool { historyMigrationReady && !historyRetentionReviewPending }
@@ -127,7 +128,8 @@ final class ClipVaultViewModel {
         return hasCaptureConsent ? "Paused" : "Consent required"
     }
 
-    init(container: ModelContainer, store: (any ClipStoring)?) {
+    init(container: ModelContainer, store: (any ClipStoring)?, fileService: any ClipFileServicing = ClipSyncService()) {
+        files = ClipVaultFileController(service: fileService)
         self.container = container
         self.store = store
         historyMigrationReady = store != nil
@@ -144,8 +146,10 @@ final class ClipVaultViewModel {
     init(
         promptEnhancementRunner: PromptEnhancementBatchRunner = PromptEnhancementBatchRunner(
             enhancer: FoundationModelsPromptEnhancer()
-        )
+        ),
+        fileService: any ClipFileServicing = ClipSyncService()
     ) {
+        files = ClipVaultFileController(service: fileService)
         self.promptEnhancementRunner = promptEnhancementRunner
         let schema = Schema([ClipRecord.self, FolderRecord.self, ClipSyncExportRecord.self, ClipSyncReceiptRecord.self])
         var migrateLegacyKey = false
@@ -257,8 +261,17 @@ final class ClipVaultViewModel {
             return
         }
         deviceSync.start(model: self, store: persistentStore)
+        captureService.onFilesCaptured = { [weak self] urls, sourceApp, capturedAt in
+            guard let self else { return }
+            self.files.capture(urls: urls, sourceApp: sourceApp, capturedAt: capturedAt, model: self)
+        }
         captureService.onClipCaptured = { [weak self] payload, sourceApp, capturedAt in
-            self?.ingest(payload: payload, sourceApp: sourceApp, capturedAt: capturedAt)
+            guard let self else { return }
+            if payload.kind == .file, payload.metadata["file_id"] == nil {
+                self.files.capture(payload, sourceApp: sourceApp, capturedAt: capturedAt, model: self)
+            } else {
+                self.ingest(payload: payload, sourceApp: sourceApp, capturedAt: capturedAt)
+            }
         }
         let screenshotHotKeyRegistered = ScreenshotCaptureController.shared.configure { [weak self] didCapture, status in
             self?.captureStatus = status
@@ -471,6 +484,7 @@ final class ClipVaultViewModel {
 
     private func stopCapture() {
         captureService.stop()
+        files.cancelCapture()
         isCapturing = false
         UserDefaults.standard.removeObject(forKey: ClipVaultSettingsKey.captureReadyProcessID)
         Self.logger.info("Clipboard capture stopped")
@@ -704,6 +718,10 @@ final class ClipVaultViewModel {
             guard let payload = try store?.payload(for: clip.id) else {
                 captureStatus = "Missing payload"
                 updateDockTile()
+                return
+            }
+            if payload.kind == .file, payload.metadata["file_id"] != nil {
+                files.save(clip)
                 return
             }
             try pasteboardWriter.write(payload)
@@ -1062,7 +1080,8 @@ final class ClipVaultViewModel {
         selectedClipIDs = restored.selectedClipIDs
     }
 
-    func ingest(payload: ClipPayload, sourceApp: String?, capturedAt: Date) {
+    @discardableResult
+    func ingest(payload: ClipPayload, sourceApp: String?, capturedAt: Date) -> Bool {
         do {
             if let clip = try store?.save(payload: payload, sourceApp: sourceApp, capturedAt: capturedAt) {
                 if let existingIndex = clips.firstIndex(where: { $0.id == clip.id }) {
@@ -1077,6 +1096,8 @@ final class ClipVaultViewModel {
                 selectFirstVisibleResultIfNeeded()
                 Self.logger.info("Captured clipboard item")
                 captureStatus = "Added to \(payload.kind.title)"
+                updateDockTile()
+                return true
             } else {
                 Self.logger.info("Excluded sensitive clipboard item before persistence")
                 captureStatus = "Excluded sensitive item"
@@ -1087,6 +1108,7 @@ final class ClipVaultViewModel {
             captureStatus = error.localizedDescription
             updateDockTile()
         }
+        return false
     }
 
     func copyPrivateSyncInvitation(_ code: String) {

@@ -48,6 +48,7 @@ impl RelayStore {
         db.execute_batch("PRAGMA foreign_keys=ON; PRAGMA secure_delete=ON;
             CREATE TABLE IF NOT EXISTS workspaces(id TEXT PRIMARY KEY, owner_key TEXT NOT NULL, owner_device TEXT NOT NULL, epoch INTEGER NOT NULL, roster TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS devices(workspace TEXT NOT NULL, device TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE, active INTEGER NOT NULL, PRIMARY KEY(workspace,device));
+            CREATE TABLE IF NOT EXISTS capabilities(workspace TEXT NOT NULL, device TEXT NOT NULL, feature TEXT NOT NULL, PRIMARY KEY(workspace,device,feature));
             CREATE TABLE IF NOT EXISTS invites(id TEXT PRIMARY KEY, workspace TEXT NOT NULL, expires INTEGER NOT NULL, consumed INTEGER NOT NULL DEFAULT 0);
             CREATE TABLE IF NOT EXISTS joins(id TEXT PRIMARY KEY, invite TEXT NOT NULL, body TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS enrollments(invite TEXT PRIMARY KEY, request_id TEXT NOT NULL, request_digest TEXT NOT NULL, roster TEXT NOT NULL, device TEXT NOT NULL, token_hash TEXT NOT NULL, completed_at INTEGER NOT NULL);
@@ -139,6 +140,48 @@ impl RelayStore {
             |r| r.get(0),
         )?;
         Ok(serde_json::from_str(&data)?)
+    }
+    pub fn publish_capabilities(&mut self, auth: &Auth, features: &[String]) -> Result<()> {
+        if features.len() > 8 || features.iter().any(|feature| feature != "file-v1") {
+            return Err(SyncError::Invalid);
+        }
+        let tx = self.db.transaction()?;
+        tx.execute(
+            "DELETE FROM capabilities WHERE workspace=?1 AND device=?2",
+            params![auth.workspace, auth.device],
+        )?;
+        for feature in features {
+            tx.execute(
+                "INSERT INTO capabilities(workspace,device,feature) VALUES(?1,?2,?3)",
+                params![auth.workspace, auth.device, feature],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+    pub fn capabilities(&self, auth: &Auth) -> Result<Vec<DeviceCapabilities>> {
+        let mut query=self.db.prepare("SELECT d.device,COALESCE(c.feature,'') FROM devices d LEFT JOIN capabilities c ON c.workspace=d.workspace AND c.device=d.device WHERE d.workspace=?1 AND d.active=1 ORDER BY d.device,c.feature")?;
+        let rows = query.query_map([&auth.workspace], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })?;
+        let mut devices: Vec<DeviceCapabilities> = Vec::new();
+        for row in rows {
+            let (device, feature) = row?;
+            if devices.last().is_none_or(|d| d.device != device) {
+                devices.push(DeviceCapabilities {
+                    device,
+                    features: Vec::new(),
+                });
+            }
+            if !feature.is_empty() {
+                devices
+                    .last_mut()
+                    .expect("device row was inserted")
+                    .features
+                    .push(feature);
+            }
+        }
+        Ok(devices)
     }
     pub fn publish(
         &mut self,
@@ -381,7 +424,7 @@ impl RelayStore {
         let roster = self.roster(auth)?;
         let h = &envelope.header;
         if h.version != 1
-            || h.message_type != "clip"
+            || !["clip", "file-v1", "file-outcome-v1"].contains(&h.message_type.as_str())
             || h.workspace != auth.workspace
             || h.sender != auth.device
             || h.epoch != roster.epoch
@@ -393,6 +436,14 @@ impl RelayStore {
         }
         roster.member(&h.recipient)?;
         roster.member(&h.sender)?;
+        if h.message_type != "clip" {
+            for device in [&h.sender, &h.recipient] {
+                let supported: bool = self.db.query_row("SELECT EXISTS(SELECT 1 FROM capabilities WHERE workspace=?1 AND device=?2 AND feature='file-v1')", params![auth.workspace,device], |r| r.get(0))?;
+                if !supported {
+                    return Err(SyncError::Invalid);
+                }
+            }
+        }
         let body = serde_json::to_string(envelope)?;
         if body.len() > MAX_WIRE_BYTES {
             return Err(SyncError::TooLarge);
@@ -427,20 +478,32 @@ impl RelayStore {
         Ok(cursor)
     }
     pub fn mailbox(&mut self, auth: &Auth, now: i64) -> Result<Vec<MailItem>> {
+        self.mailbox_batch(auth, now, 1)
+    }
+    pub fn mailbox_batch(&mut self, auth: &Auth, now: i64, limit: usize) -> Result<Vec<MailItem>> {
         self.maintain(now)?;
-        // One maximum-size event per response bounds decrypted response allocations.
-        let mut q=self.db.prepare("SELECT cursor,envelope FROM deliveries WHERE workspace=?1 AND recipient=?2 AND status='pending' ORDER BY cursor LIMIT 1")?;
-        q.query_map(params![auth.workspace, auth.device], |r| {
+        const MAX_ITEMS: usize = 16;
+        const MAX_BYTES: usize = 24 * 1024 * 1024;
+        let limit = limit.clamp(1, MAX_ITEMS);
+        let mut q = self.db.prepare("SELECT cursor,envelope FROM deliveries WHERE workspace=?1 AND recipient=?2 AND status='pending' ORDER BY cursor LIMIT ?3")?;
+        let rows = q.query_map(params![auth.workspace, auth.device, limit as i64], |r| {
             Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?))
-        })?
-        .map(|r| {
-            let (cursor, body) = r?;
-            Ok(MailItem {
+        })?;
+        let mut total_bytes = 2usize;
+        let mut items = Vec::new();
+        for row in rows {
+            let (cursor, body) = row?;
+            let bytes = body.len().saturating_add(2);
+            if total_bytes.saturating_add(bytes) > MAX_BYTES {
+                break;
+            }
+            total_bytes += bytes;
+            items.push(MailItem {
                 cursor,
                 envelope: serde_json::from_str(&body)?,
-            })
-        })
-        .collect()
+            });
+        }
+        Ok(items)
     }
     pub fn ack(&mut self, auth: &Auth, cursor: i64) -> Result<()> {
         let count=self.db.execute("UPDATE deliveries SET envelope=NULL,status='delivered',terminal_at=COALESCE(terminal_at,?4) WHERE workspace=?1 AND recipient=?2 AND cursor=?3 AND status IN ('pending','delivered')",params![auth.workspace,auth.device,cursor,super::now()])?;

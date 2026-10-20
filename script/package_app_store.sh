@@ -159,7 +159,7 @@ if [[ -n "$APPLE_TEAM_ID" ]]; then
   <true/>
   <key>com.apple.security.app-sandbox</key>
   <true/>
-  <key>com.apple.security.files.user-selected.read-only</key>
+  <key>com.apple.security.files.user-selected.read-write</key>
   <true/>
 </dict>
 </plist>

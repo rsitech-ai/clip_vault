@@ -252,7 +252,7 @@ private struct PrivacyAccessSettingsTab: View {
                 )
                 PermissionStatusRow(
                     title: "User-selected files",
-                    detail: "Read-only sandbox entitlement is included for files the user explicitly selects.",
+                    detail: "User-selected sandbox access lets you add files and save received attachments at a chosen destination.",
                     state: .ready
                 )
             }

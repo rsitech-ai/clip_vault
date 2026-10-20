@@ -4,6 +4,7 @@ use axum::{
 };
 use clipvault_sync_core::*;
 use clipvault_sync_relay::*;
+use sha2::Digest;
 use tower::ServiceExt;
 
 fn enroll(
@@ -77,6 +78,802 @@ fn join_shape_limits_and_exact_request_retry_preserve_owner_listing() {
     let visible = store.joins(&auth, now).unwrap();
     assert_eq!(visible.len(), 1);
     assert_eq!(visible[0].id, request.id);
+}
+
+#[test]
+fn file_capabilities_are_authenticated_device_scoped_and_allowlisted() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = RelayStore::open(&dir.path().join("relay.db"), "registration").unwrap();
+    let owner = OwnerIdentity::generate();
+    let sender = DeviceIdentity::generate();
+    let receiver = DeviceIdentity::generate();
+    store
+        .bootstrap(
+            SignedRoster::sign("space", 1, vec![sender.member("Device")], &owner).unwrap(),
+            &owner.public_key(),
+            &sender.id,
+            &credential_hash("sender"),
+        )
+        .unwrap();
+    let auth = store.authenticate("sender").unwrap();
+    enroll(
+        &mut store, &auth, &owner, "space", &sender, &receiver, "receiver",
+    );
+    let receiver_auth = store.authenticate("receiver").unwrap();
+    assert_eq!(
+        store
+            .capabilities(&auth)
+            .unwrap()
+            .iter()
+            .filter(|d| d.features.contains(&"file-v1".into()))
+            .count(),
+        0
+    );
+    store
+        .publish_capabilities(&auth, &["file-v1".into()])
+        .unwrap();
+    assert!(
+        store
+            .capabilities(&auth)
+            .unwrap()
+            .iter()
+            .any(|d| d.device == sender.id && d.features == ["file-v1"])
+    );
+    assert!(
+        !store
+            .capabilities(&auth)
+            .unwrap()
+            .iter()
+            .any(|d| d.device == receiver.id && d.features.contains(&"file-v1".into()))
+    );
+    assert!(
+        store
+            .publish_capabilities(&receiver_auth, &["future-unreviewed".into()])
+            .is_err()
+    );
+    assert!(
+        store
+            .capabilities(&auth)
+            .unwrap()
+            .iter()
+            .all(|d| !d.features.contains(&"future-unreviewed".into()))
+    );
+}
+
+#[test]
+fn two_clients_send_encrypted_files_both_directions_over_http_relay() {
+    use std::io::Write;
+    let dir = tempfile::tempdir().unwrap();
+    let relay_store = RelayStore::open(&dir.path().join("http-relay.db"), "registration").unwrap();
+    let (address_tx, address_rx) = std::sync::mpsc::channel();
+    let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
+    let server = std::thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async move {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            address_tx.send(listener.local_addr().unwrap()).unwrap();
+            axum::serve(listener, router(relay_store))
+                .with_graceful_shutdown(async {
+                    let _ = stop_rx.await;
+                })
+                .await
+                .unwrap();
+        });
+    });
+    let relay_url = format!("http://{}", address_rx.recv().unwrap());
+
+    let mut mac =
+        SyncClient::open(DeviceStore::open(&dir.path().join("mac.db"), random_secret()).unwrap())
+            .unwrap();
+    let mut ubuntu = SyncClient::open(
+        DeviceStore::open(&dir.path().join("ubuntu.db"), random_secret()).unwrap(),
+    )
+    .unwrap();
+    mac.create_workspace(&relay_url, "registration", "Mac")
+        .unwrap();
+    let invite = mac.create_invite().unwrap();
+    ubuntu.join(&invite, "Ubuntu").unwrap();
+    let request = mac.pairing_requests().unwrap().pop().unwrap();
+    mac.approve(&request.id, &request.words).unwrap();
+    ubuntu.refresh_membership().unwrap();
+    mac.tick(false).unwrap();
+    ubuntu.tick(false).unwrap();
+
+    let source = dir.path().join("payload.bin");
+    let mut file = std::fs::File::create(&source).unwrap();
+    let expected: Vec<u8> = (0..(2 * 1024 * 1024 + 33))
+        .map(|n| (n % 251) as u8)
+        .collect();
+    file.write_all(&expected).unwrap();
+    file.sync_all().unwrap();
+
+    let sync_direction = |sender: &mut SyncClient,
+                          receiver: &mut SyncClient,
+                          source: &std::path::Path,
+                          destination: &std::path::Path| {
+        let descriptor = sender.stage_file(source, || false).unwrap();
+        let event_id = sender
+            .capture(PortableClip::attachment(&descriptor), None)
+            .unwrap()
+            .unwrap();
+        sender.commit_file(&descriptor.id, &event_id).unwrap();
+        let mut receiver_ready = false;
+        let mut sender_ready = false;
+        for _ in 0..64 {
+            sender.tick(false).unwrap();
+            receiver.tick(false).unwrap();
+            sender_ready = sender
+                .file_transfers()
+                .unwrap()
+                .iter()
+                .any(|item| item.id == descriptor.id && item.status == "ready");
+            receiver_ready = receiver
+                .file_transfers()
+                .unwrap()
+                .iter()
+                .any(|item| item.id == descriptor.id && item.status == "ready");
+            if sender_ready && receiver_ready {
+                break;
+            }
+        }
+        assert!(receiver_ready, "receiver never verified the transfer");
+        assert!(
+            sender_ready,
+            "sender never received authenticated ready outcome"
+        );
+        receiver
+            .store
+            .save_file(&descriptor.id, destination, || false)
+            .unwrap();
+        assert_eq!(std::fs::read(destination).unwrap(), expected);
+        descriptor.id
+    };
+    let mac_transfer = sync_direction(
+        &mut mac,
+        &mut ubuntu,
+        &source,
+        &dir.path().join("mac-to-ubuntu.bin"),
+    );
+    sync_direction(
+        &mut ubuntu,
+        &mut mac,
+        &source,
+        &dir.path().join("ubuntu-to-mac.bin"),
+    );
+    assert_eq!(
+        mac.file_transfers()
+            .unwrap()
+            .iter()
+            .find(|item| item.id == mac_transfer)
+            .unwrap()
+            .status,
+        "ready"
+    );
+    let pending_descriptor = mac.stage_file(&source, || false).unwrap();
+    let pending_event = mac
+        .capture(PortableClip::attachment(&pending_descriptor), None)
+        .unwrap()
+        .unwrap();
+    mac.commit_file(&pending_descriptor.id, &pending_event)
+        .unwrap();
+    let original_id = mac.device_id().to_owned();
+    mac.disconnect().unwrap();
+    assert_ne!(mac.device_id(), original_id);
+    assert_eq!(
+        mac.file_transfers()
+            .unwrap()
+            .iter()
+            .find(|item| item.id == pending_descriptor.id)
+            .unwrap()
+            .status,
+        "failed"
+    );
+    mac.store
+        .save_file(
+            &pending_descriptor.id,
+            &dir.path().join("retained-after-disconnect.bin"),
+            || false,
+        )
+        .unwrap();
+    mac.create_workspace(&relay_url, "registration", "Mac re-paired")
+        .unwrap();
+    assert!(matches!(
+        mac.commit_file(&pending_descriptor.id, &pending_event),
+        Err(SyncError::Membership)
+    ));
+    stop_tx.send(()).unwrap();
+    server.join().unwrap();
+}
+
+#[test]
+fn deleting_committed_outgoing_file_cancels_frames_and_persists_tombstone() {
+    use rusqlite::params;
+
+    let dir = tempfile::tempdir().unwrap();
+    let relay_store =
+        RelayStore::open(&dir.path().join("delete-relay.db"), "registration").unwrap();
+    let (address_tx, address_rx) = std::sync::mpsc::channel();
+    let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
+    let server = std::thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async move {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            address_tx.send(listener.local_addr().unwrap()).unwrap();
+            axum::serve(listener, router(relay_store))
+                .with_graceful_shutdown(async {
+                    let _ = stop_rx.await;
+                })
+                .await
+                .unwrap();
+        });
+    });
+    let relay_url = format!("http://{}", address_rx.recv().unwrap());
+    let sender_path = dir.path().join("delete-sender.db");
+    let sender_key = random_secret();
+    let mut sender =
+        SyncClient::open(DeviceStore::open(&sender_path, sender_key).unwrap()).unwrap();
+    let mut receiver = SyncClient::open(
+        DeviceStore::open(&dir.path().join("delete-receiver.db"), random_secret()).unwrap(),
+    )
+    .unwrap();
+    sender
+        .create_workspace(&relay_url, "registration", "Sender")
+        .unwrap();
+    let invite = sender.create_invite().unwrap();
+    receiver.join(&invite, "Receiver").unwrap();
+    let request = sender.pairing_requests().unwrap().pop().unwrap();
+    sender.approve(&request.id, &request.words).unwrap();
+    receiver.refresh_membership().unwrap();
+    sender.tick(false).unwrap();
+    receiver.tick(false).unwrap();
+
+    let source = dir.path().join("delete-before-send.bin");
+    std::fs::write(&source, vec![0x6b; 2 * 1024 * 1024 + 11]).unwrap();
+    let descriptor = sender.stage_file(&source, || false).unwrap();
+    let event_id = sender
+        .capture(PortableClip::attachment(&descriptor), None)
+        .unwrap()
+        .unwrap();
+    sender.commit_file(&descriptor.id, &event_id).unwrap();
+
+    let db = rusqlite::Connection::open(&sender_path).unwrap();
+    let staged_chunks: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM file_chunks WHERE transfer=?1",
+            [&descriptor.id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let pending_jobs: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM file_jobs WHERE transfer=?1 AND status='pending'",
+            [&descriptor.id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(staged_chunks, i64::from(descriptor.chunk_count));
+    assert_eq!(pending_jobs, i64::from(descriptor.chunk_count + 1));
+    assert!(
+        sender
+            .store
+            .history()
+            .unwrap()
+            .iter()
+            .any(|event| { event.id == event_id && event.clip.kind == "attachment" })
+    );
+
+    sender.store.delete_file(&descriptor.id).unwrap();
+    assert!(
+        sender
+            .store
+            .history()
+            .unwrap()
+            .iter()
+            .all(|event| event.id != event_id)
+    );
+    assert!(matches!(
+        sender
+            .store
+            .save_file(&descriptor.id, &dir.path().join("deleted.bin"), || false),
+        Err(SyncError::Attachment)
+    ));
+    let no_chunks: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM file_chunks WHERE transfer=?1",
+            [&descriptor.id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let cancelled_jobs: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM file_jobs WHERE transfer=?1 AND status='cancelled'",
+            [&descriptor.id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let remaining_pending_jobs: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM file_jobs WHERE transfer=?1 AND status IN ('pending','retry')",
+            [&descriptor.id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let transfer_rows: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM file_transfers WHERE id=?1",
+            [&descriptor.id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let tombstones: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM file_tombstones WHERE transfer=?1",
+            [&descriptor.id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let removed_history: (Option<Vec<u8>>, i64, i64) = db
+        .query_row(
+            "SELECT payload,outgoing,applied FROM events WHERE id=?1",
+            params![event_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!(no_chunks, 0);
+    assert_eq!(cancelled_jobs, i64::from(descriptor.chunk_count + 1));
+    assert_eq!(remaining_pending_jobs, 0);
+    assert_eq!(transfer_rows, 0);
+    assert_eq!(tombstones, 1);
+    assert_eq!(removed_history, (None, 0, 1));
+    drop(db);
+
+    drop(sender);
+    let mut reopened =
+        SyncClient::open(DeviceStore::open(&sender_path, sender_key).unwrap()).unwrap();
+    let db = rusqlite::Connection::open(&sender_path).unwrap();
+    let reopened_tombstones: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM file_tombstones WHERE transfer=?1",
+            [&descriptor.id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(reopened_tombstones, 1);
+    drop(db);
+    reopened.store.delete_file(&descriptor.id).unwrap();
+
+    // Deletion happened before the first send attempt. A subsequent network tick
+    // must not recreate the transfer or deliver any staged file frame.
+    reopened.tick(false).unwrap();
+    receiver.tick(false).unwrap();
+    assert!(
+        receiver
+            .file_transfers()
+            .unwrap()
+            .iter()
+            .all(|transfer| transfer.id != descriptor.id)
+    );
+    assert!(
+        receiver
+            .store
+            .history()
+            .unwrap()
+            .iter()
+            .all(|event| { event.clip.metadata.get("file_id") != Some(&descriptor.id) })
+    );
+    stop_tx.send(()).unwrap();
+    server.join().unwrap();
+}
+
+#[test]
+fn mailbox_capacity_507_does_not_block_inbound_clip_or_file_outcome_and_retries() {
+    use axum::{
+        body::{Body, to_bytes},
+        middleware::{self, Next},
+        response::IntoResponse,
+    };
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+
+    let dir = tempfile::tempdir().unwrap();
+    let relay_store =
+        RelayStore::open(&dir.path().join("capacity-relay.db"), "registration").unwrap();
+    let reject_next_file_post = Arc::new(AtomicBool::new(false));
+    let (address_tx, address_rx) = std::sync::mpsc::channel();
+    let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
+    let server_gate = reject_next_file_post.clone();
+    let server = std::thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async move {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            address_tx.send(listener.local_addr().unwrap()).unwrap();
+            let app = router(relay_store).layer(middleware::from_fn(
+                move |request: Request<Body>, next: Next| {
+                    let gate = server_gate.clone();
+                    async move {
+                        if request.method() == axum::http::Method::POST
+                            && request.uri().path() == "/v1/mailbox"
+                        {
+                            let (parts, body) = request.into_parts();
+                            let bytes = to_bytes(body, 8 * 1024 * 1024).await.unwrap();
+                            let is_file = serde_json::from_slice::<Envelope>(&bytes)
+                                .is_ok_and(|envelope| envelope.header.message_type == "file-v1");
+                            if is_file && gate.swap(false, Ordering::SeqCst) {
+                                return (StatusCode::INSUFFICIENT_STORAGE, "full").into_response();
+                            }
+                            return next
+                                .run(Request::from_parts(parts, Body::from(bytes)))
+                                .await;
+                        }
+                        next.run(request).await
+                    }
+                },
+            ));
+            axum::serve(listener, app)
+                .with_graceful_shutdown(async {
+                    let _ = stop_rx.await;
+                })
+                .await
+                .unwrap();
+        });
+    });
+    let address = address_rx.recv().unwrap();
+    let relay_url = format!("http://{address}");
+    let sender_key = random_secret();
+    let receiver_key = random_secret();
+    let sender_path = dir.path().join("sender.db");
+    let receiver_path = dir.path().join("receiver.db");
+    let mut sender =
+        SyncClient::open(DeviceStore::open(&sender_path, sender_key).unwrap()).unwrap();
+    let mut receiver =
+        SyncClient::open(DeviceStore::open(&receiver_path, receiver_key).unwrap()).unwrap();
+    sender
+        .create_workspace(&relay_url, "registration", "Sender")
+        .unwrap();
+    let invite = sender.create_invite().unwrap();
+    receiver.join(&invite, "Receiver").unwrap();
+    let request = sender.pairing_requests().unwrap().pop().unwrap();
+    sender.approve(&request.id, &request.words).unwrap();
+    receiver.refresh_membership().unwrap();
+    sender.tick(false).unwrap();
+    receiver.tick(false).unwrap();
+
+    let first_source = dir.path().join("previously-sent.bin");
+    std::fs::write(&first_source, b"ready outcome fixture").unwrap();
+    let first = sender.stage_file(&first_source, || false).unwrap();
+    let first_event = sender
+        .capture(PortableClip::attachment(&first), None)
+        .unwrap()
+        .unwrap();
+    sender.commit_file(&first.id, &first_event).unwrap();
+    sender.tick(false).unwrap();
+    receiver.tick(false).unwrap();
+    receiver
+        .capture(
+            PortableClip::text("peer text arrives during backpressure", 7),
+            None,
+        )
+        .unwrap();
+    receiver.tick(false).unwrap();
+    receiver.tick(false).unwrap();
+
+    let blocked_source = dir.path().join("temporarily-blocked.bin");
+    std::fs::write(&blocked_source, b"retry after capacity clears").unwrap();
+    let blocked = sender.stage_file(&blocked_source, || false).unwrap();
+    let blocked_event = sender
+        .capture(PortableClip::attachment(&blocked), None)
+        .unwrap()
+        .unwrap();
+    sender.commit_file(&blocked.id, &blocked_event).unwrap();
+
+    // Existing relay quota coverage proves a full 256 MiB recipient queue returns
+    // HTTP 507. This transport gate injects that exact response at one file submit
+    // so this test can prove the client keeps draining its independent inbox.
+    reject_next_file_post.store(true, Ordering::SeqCst);
+    sender.tick(true).unwrap();
+    assert!(
+        sender
+            .store
+            .history()
+            .unwrap()
+            .iter()
+            .any(|event| { event.clip.text == "peer text arrives during backpressure" })
+    );
+    assert_eq!(
+        sender
+            .file_transfers()
+            .unwrap()
+            .iter()
+            .find(|file| file.id == first.id)
+            .unwrap()
+            .status,
+        "ready",
+        "authenticated file outcome was not processed after HTTP 507"
+    );
+    assert_eq!(
+        sender
+            .file_transfers()
+            .unwrap()
+            .iter()
+            .find(|file| file.id == blocked.id)
+            .unwrap()
+            .status,
+        "pending",
+        "a capacity response must retain the transfer for retry"
+    );
+
+    // The peer's next mailbox poll acknowledges its earlier deliveries. Once the
+    // bounded retry delay elapses, the retained sender frame can be submitted.
+    receiver.tick(false).unwrap();
+    std::thread::sleep(std::time::Duration::from_secs(2));
+    sender.tick(false).unwrap();
+    receiver.tick(false).unwrap();
+    assert!(receiver.file_transfers().unwrap().iter().any(|file| {
+        file.id == blocked.id && matches!(file.status.as_str(), "receiving" | "ready")
+    }));
+    stop_tx.send(()).unwrap();
+    server.join().unwrap();
+}
+
+#[test]
+fn old_relay_without_capabilities_keeps_text_sync_and_rejects_file_commit_locally() {
+    use axum::{
+        middleware::{self, Next},
+        response::IntoResponse,
+    };
+    use std::sync::{
+        Arc,
+        atomic::{AtomicU16, Ordering},
+    };
+
+    let dir = tempfile::tempdir().unwrap();
+    let relay_store =
+        RelayStore::open(&dir.path().join("legacy-relay.db"), "registration").unwrap();
+    let capability_status = Arc::new(AtomicU16::new(404));
+    let server_status = capability_status.clone();
+    let (address_tx, address_rx) = std::sync::mpsc::channel();
+    let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
+    let server = std::thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async move {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            address_tx.send(listener.local_addr().unwrap()).unwrap();
+            let app = router(relay_store).layer(middleware::from_fn(
+                move |request: Request<Body>, next: Next| {
+                    let status = server_status.clone();
+                    async move {
+                        if request.uri().path() == "/v1/capabilities" {
+                            return (
+                                StatusCode::from_u16(status.load(Ordering::SeqCst)).unwrap(),
+                                "legacy relay has no capability endpoint",
+                            )
+                                .into_response();
+                        }
+                        next.run(request).await
+                    }
+                },
+            ));
+            axum::serve(listener, app)
+                .with_graceful_shutdown(async {
+                    let _ = stop_rx.await;
+                })
+                .await
+                .unwrap();
+        });
+    });
+    let address = address_rx.recv().unwrap();
+    let relay_url = format!("http://{address}");
+    let mut mac =
+        SyncClient::open(DeviceStore::open(&dir.path().join("mac.db"), random_secret()).unwrap())
+            .unwrap();
+    let mut ubuntu = SyncClient::open(
+        DeviceStore::open(&dir.path().join("ubuntu.db"), random_secret()).unwrap(),
+    )
+    .unwrap();
+    mac.create_workspace(&relay_url, "registration", "Mac")
+        .unwrap();
+    let invite = mac.create_invite().unwrap();
+    ubuntu.join(&invite, "Ubuntu").unwrap();
+    let request = mac.pairing_requests().unwrap().pop().unwrap();
+    mac.approve(&request.id, &request.words).unwrap();
+    ubuntu.refresh_membership().unwrap();
+
+    mac.capture(PortableClip::text("Mac remains usable", 1), None)
+        .unwrap();
+    mac.tick(false)
+        .expect("an old relay's missing capability endpoint must not stall text delivery");
+    ubuntu
+        .tick(false)
+        .expect("the receiver must still poll its ordinary mailbox");
+    assert!(
+        ubuntu
+            .store
+            .history()
+            .unwrap()
+            .iter()
+            .any(|event| event.clip.text == "Mac remains usable")
+    );
+
+    ubuntu
+        .capture(PortableClip::text("Ubuntu remains usable", 2), None)
+        .unwrap();
+    ubuntu.tick(false).unwrap();
+    mac.tick(false).unwrap();
+    assert!(
+        mac.store
+            .history()
+            .unwrap()
+            .iter()
+            .any(|event| event.clip.text == "Ubuntu remains usable")
+    );
+
+    let source = dir.path().join("local-only.bin");
+    std::fs::write(&source, b"local file remains available").unwrap();
+    let descriptor = mac.stage_file(&source, || false).unwrap();
+    let event_id = mac
+        .capture(PortableClip::attachment(&descriptor), None)
+        .unwrap()
+        .unwrap();
+    assert!(matches!(
+        mac.commit_file(&descriptor.id, &event_id),
+        Err(SyncError::Unsupported)
+    ));
+    assert_eq!(
+        mac.file_transfers()
+            .unwrap()
+            .iter()
+            .find(|file| file.id == descriptor.id)
+            .unwrap()
+            .status,
+        "unsupported"
+    );
+    mac.store
+        .save_file(
+            &descriptor.id,
+            &dir.path().join("saved-local-only.bin"),
+            || false,
+        )
+        .unwrap();
+
+    capability_status.store(500, Ordering::SeqCst);
+    assert!(matches!(
+        mac.commit_file(&descriptor.id, &event_id),
+        Err(SyncError::Relay(500))
+    ));
+    assert!(matches!(mac.tick(false), Err(SyncError::Relay(500))));
+    stop_tx.send(()).unwrap();
+    server.join().unwrap();
+}
+
+#[test]
+#[ignore = "explicit 100 MiB HTTP relay and receiver restart validation"]
+fn exactly_100_mib_http_transfer_resumes_after_receiver_restart_and_hashes() {
+    use std::io::{Read, Write};
+    const SIZE: u64 = 100 * 1024 * 1024;
+    let dir = tempfile::tempdir().unwrap();
+    let relay_store = RelayStore::open(&dir.path().join("large-relay.db"), "registration").unwrap();
+    let (address_tx, address_rx) = std::sync::mpsc::channel();
+    let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
+    let server = std::thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async move {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            address_tx.send(listener.local_addr().unwrap()).unwrap();
+            axum::serve(listener, router(relay_store))
+                .with_graceful_shutdown(async {
+                    let _ = stop_rx.await;
+                })
+                .await
+                .unwrap();
+        });
+    });
+    let relay_url = format!("http://{}", address_rx.recv().unwrap());
+    let mac_key = random_secret();
+    let ubuntu_key = random_secret();
+    let mac_path = dir.path().join("large-mac.db");
+    let ubuntu_path = dir.path().join("large-ubuntu.db");
+    let mut mac = SyncClient::open(DeviceStore::open(&mac_path, mac_key).unwrap()).unwrap();
+    let mut ubuntu =
+        SyncClient::open(DeviceStore::open(&ubuntu_path, ubuntu_key).unwrap()).unwrap();
+    mac.create_workspace(&relay_url, "registration", "Mac")
+        .unwrap();
+    let invite = mac.create_invite().unwrap();
+    ubuntu.join(&invite, "Ubuntu").unwrap();
+    let request = mac.pairing_requests().unwrap().pop().unwrap();
+    mac.approve(&request.id, &request.words).unwrap();
+    ubuntu.refresh_membership().unwrap();
+    mac.tick(false).unwrap();
+    ubuntu.tick(false).unwrap();
+
+    let source = dir.path().join("exactly-100-mib.bin");
+    let mut file = std::fs::File::create(&source).unwrap();
+    let block = vec![0x6d; 1024 * 1024];
+    for _ in 0..100 {
+        file.write_all(&block).unwrap();
+    }
+    file.sync_all().unwrap();
+    let descriptor = mac.stage_file(&source, || false).unwrap();
+    assert_eq!(descriptor.size, SIZE);
+    assert_eq!(descriptor.chunk_count, 100);
+    let event_id = mac
+        .capture(PortableClip::attachment(&descriptor), None)
+        .unwrap()
+        .unwrap();
+    mac.commit_file(&descriptor.id, &event_id).unwrap();
+
+    // Deliver the manifest, then take Ubuntu offline. The local receiving state
+    // and already-encrypted chunks must survive reopening the same database.
+    mac.tick(false).unwrap();
+    ubuntu.tick(false).unwrap();
+    drop(ubuntu);
+    let mut ubuntu =
+        SyncClient::open(DeviceStore::open(&ubuntu_path, ubuntu_key).unwrap()).unwrap();
+
+    let resume_ticks = (1..=16).find(|_| {
+        mac.tick(false).unwrap();
+        ubuntu.tick(false).unwrap();
+        ubuntu
+            .file_transfers()
+            .unwrap()
+            .iter()
+            .any(|item| item.id == descriptor.id && item.status == "ready")
+    });
+    assert!(
+        resume_ticks.is_some(),
+        "Ubuntu did not finish and verify the restarted 100 MiB receive within 16 ticks"
+    );
+    eprintln!(
+        "Verified the restarted 100 MiB receive in {} post-restart sync ticks",
+        resume_ticks.unwrap()
+    );
+    let destination = dir.path().join("received-100-mib.bin");
+    ubuntu
+        .store
+        .save_file(&descriptor.id, &destination, || false)
+        .unwrap();
+    let mut input = std::fs::File::open(destination).unwrap();
+    let mut hasher = sha2::Sha256::new();
+    let mut buffer = [0u8; 1024 * 1024];
+    loop {
+        let count = input.read(&mut buffer).unwrap();
+        if count == 0 {
+            break;
+        }
+        hasher.update(&buffer[..count]);
+    }
+    assert_eq!(hex::encode(hasher.finalize()), descriptor.sha256);
+    for _ in 0..4 {
+        ubuntu.tick(false).unwrap();
+        mac.tick(false).unwrap();
+    }
+    assert_eq!(
+        mac.file_transfers()
+            .unwrap()
+            .iter()
+            .find(|item| item.id == descriptor.id)
+            .unwrap()
+            .status,
+        "ready"
+    );
+    stop_tx.send(()).unwrap();
+    server.join().unwrap();
 }
 
 #[test]

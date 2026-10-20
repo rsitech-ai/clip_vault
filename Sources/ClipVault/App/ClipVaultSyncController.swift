@@ -80,9 +80,16 @@ final class ClipVaultSyncController {
                 try syncStore.completeSyncCancellation(id: id)
             }
             try syncStore.retrySyncExports()
+            var waiting: [String] = []
             for export in try syncStore.pendingSyncExports() {
                 guard operation == generation, status.enabled else { return }
-                try await service.export(export)
+                do { try await service.export(export) }
+                catch {
+                    // An unsupported attachment or transient recipient failure
+                    // keeps its durable marker, without starving text or inbox.
+                    waiting.append(error.localizedDescription)
+                    continue
+                }
                 try syncStore.markSyncExported(id: export.id)
             }
             guard operation == generation, status.enabled else { return }
@@ -102,9 +109,11 @@ final class ClipVaultSyncController {
                 }
             }
             if imported { _ = model?.reload() }
+            await model?.files.refresh()
             updateCapturePolicy()
             let failures = try syncStore.syncExportFailures()
-            message = failures.isEmpty ? nil : "\(failures.count) clips remain local: \(failures[0])"
+            if let first = waiting.first { message = "\(waiting.count) clips waiting to share: \(first)" }
+            else { message = failures.isEmpty ? nil : "\(failures.count) clips remain local: \(failures[0])" }
         } catch { message = error.localizedDescription }
     }
 
@@ -181,6 +190,10 @@ final class ClipVaultSyncController {
             // Persist pause before touching the platform outbox. A SwiftData
             // failure must not leave the Rust configuration enabled on reopen.
             try await service.setEnabled(false)
+            for id in try syncStore?.pendingSyncCancellations() ?? [] {
+                try await service.cancel(id: id)
+                try syncStore?.completeSyncCancellation(id: id)
+            }
             try syncStore?.cancelAllSyncExports()
             return String(try await service.disconnect())
         }
@@ -200,6 +213,10 @@ final class ClipVaultSyncController {
 
     func shareSelected() {
         guard status.enabled, status.members.count > 1, let clip = model?.selectedClip, let syncStore else { return }
+        if clip.metadata["file_id"] != nil, clip.metadata["file_origin"] != status.deviceID {
+            message = "To share a received file again, save it and add the saved copy."
+            return
+        }
         do { try syncStore.shareExistingClip(id: clip.id) }
         catch { message = error.localizedDescription }
     }

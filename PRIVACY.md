@@ -24,9 +24,27 @@ Pause sharing stops subsequent requests. A request already accepted cannot be re
 
 Cloud or BYO AI providers remain disabled. Sharing does not enable cloud AI.
 
+The file-sharing extension supports individual regular files up to 100 MiB
+(104,857,600 bytes). File contents, base filenames, hashes and
+manifests are encrypted for paired devices. Source paths remain local. File chunks
+are encrypted in local transfer staging; only a small descriptor enters history.
+The relay can distinguish clip frames from file-transfer frames and observe their
+sizes and timing. Local transfer identifiers, chunk indices, ciphertext lengths,
+timestamps and transfer progress/state remain operational metadata in the private
+database; filenames and whole-file hashes are encrypted there.
+The receiving client verifies the whole file before offering an explicit Save.
+Save creates a plaintext copy at the user's selected destination; ClipVault never
+opens or executes received files automatically. Existing file-reference history is
+not automatically read or uploaded. Devices must advertise file support before
+files are sent; relay acknowledgement alone does not prove a verified file.
+
 ## Sensitive Content
 
 ClipVault attempts to exclude obvious secrets before storage, including private keys, API tokens, and password-like values. Users can delete clips at any time.
+
+File contents are not scanned for secrets. Copying or explicitly adding a file
+while paired sharing is enabled shares its actual contents with the paired
+devices. Pause sharing before copying a file you want to keep only on this device.
 
 On Mac, OCR failure or a two-second OCR timeout does not discard an image capture. The image is kept locally with text recognition marked unavailable, and is excluded from automatic sharing. You can review and share it explicitly. OCR and secret detection are not guarantees that an image contains no sensitive information.
 

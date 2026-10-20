@@ -47,9 +47,34 @@ impl PortableClip {
             metadata: BTreeMap::new(),
         }
     }
+    pub fn attachment(file: &crate::FileDescriptor) -> Self {
+        let mut metadata = BTreeMap::new();
+        metadata.insert("file_id".into(), file.id.clone());
+        metadata.insert("file_origin".into(), file.origin.clone());
+        metadata.insert("file_size".into(), file.size.to_string());
+        metadata.insert("file_sha256".into(), file.sha256.clone());
+        Self {
+            kind: "attachment".into(),
+            text: file.filename.clone(),
+            display_text: file.filename.clone(),
+            captured_at: file.created_at,
+            source_app: None,
+            source_device: None,
+            image_png: None,
+            metadata,
+        }
+    }
     pub fn validate(&self) -> Result<()> {
         if ![
-            "text", "code", "sql", "url", "richText", "image", "error", "unknown",
+            "text",
+            "code",
+            "sql",
+            "url",
+            "richText",
+            "image",
+            "error",
+            "unknown",
+            "attachment",
         ]
         .contains(&self.kind.as_str())
             || self.captured_at < 0
@@ -92,6 +117,34 @@ impl PortableClip {
             }
         } else if self.metadata.contains_key("rtf") {
             return Err(SyncError::Invalid);
+        }
+        if self.kind == "attachment" {
+            let id = self.metadata.get("file_id").ok_or(SyncError::Invalid)?;
+            let origin = self.metadata.get("file_origin").ok_or(SyncError::Invalid)?;
+            let size: u64 = self
+                .metadata
+                .get("file_size")
+                .ok_or(SyncError::Invalid)?
+                .parse()
+                .map_err(|_| SyncError::Invalid)?;
+            let sha256 = self.metadata.get("file_sha256").ok_or(SyncError::Invalid)?;
+            let descriptor = crate::FileDescriptor {
+                id: id.clone(),
+                origin: origin.clone(),
+                filename: self.text.clone(),
+                size,
+                sha256: sha256.clone(),
+                chunk_count: size.div_ceil(crate::FILE_CHUNK_BYTES as u64) as u32,
+                created_at: self.captured_at,
+            };
+            if self.metadata.len() != 4
+                || self.display_text != self.text
+                || self.image_png.is_some()
+                || self.source_app.is_some()
+            {
+                return Err(SyncError::Invalid);
+            }
+            descriptor.validate()?;
         }
         match &self.image_png {
             Some(image) => {
@@ -227,6 +280,9 @@ pub fn seal_event(
     event: &ClipEvent,
 ) -> Result<Envelope> {
     event.validate()?;
+    if event.clip.kind == "attachment" {
+        return Err(SyncError::Invalid);
+    }
     recipient.validate()?;
     if event.origin != sender.id || epoch == 0 || workspace.is_empty() || workspace.len() > 64 {
         return Err(SyncError::Invalid);
@@ -296,6 +352,9 @@ pub fn open_event(
     }
     let event: ClipEvent = serde_json::from_slice(&plaintext)?;
     event.validate()?;
+    if event.clip.kind == "attachment" {
+        return Err(SyncError::Invalid);
+    }
     if event.id != h.event || event.origin != h.sender || event.sequence != h.sequence {
         return Err(SyncError::Authentication);
     }

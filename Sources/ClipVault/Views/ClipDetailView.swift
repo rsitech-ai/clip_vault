@@ -137,11 +137,12 @@ private struct ClipDetailHeader: View {
             Button {
                 model.copyToClipboard(clip)
             } label: {
-                adaptiveLabel("Copy", systemImage: "doc.on.doc", compact: compact)
+                adaptiveLabel(clip.metadata["file_id"] == nil ? "Copy" : "Save File", systemImage: clip.metadata["file_id"] == nil ? "doc.on.doc" : "square.and.arrow.down", compact: compact)
             }
             .clipVaultGlassButtonStyle(prominent: true)
-            .help("Copy this clip to the clipboard")
-            .accessibilityLabel("Copy")
+            .help(clip.metadata["file_id"] == nil ? "Copy this clip to the clipboard" : "Save this attachment to a file")
+            .accessibilityLabel(clip.metadata["file_id"] == nil ? "Copy" : "Save File")
+            .disabled(clip.metadata["file_id"] != nil && model.files.busy)
 
             Button {
                 model.togglePinned(clip)
@@ -397,6 +398,26 @@ private extension ClipDetailView {
                     .frame(maxWidth: .infinity)
                     .padding()
             }
+        } else if let id = clip.metadata["file_id"] {
+            VStack(alignment: .leading, spacing: 12) {
+                Label(clip.preview, systemImage: "doc")
+                    .font(.headline)
+                if let raw = clip.metadata["file_size"], let size = Int64(raw) {
+                    Text(ByteCountFormatter.string(fromByteCount: size, countStyle: .file))
+                        .foregroundStyle(.secondary)
+                }
+                if let transfer = model.files.transfer(id: id) {
+                    Text(model.files.statusTitle(transfer.status)).font(.callout).foregroundStyle(.secondary)
+                    if transfer.size > 0, transfer.transferred < transfer.size {
+                        ProgressView(value: Double(transfer.transferred), total: Double(transfer.size))
+                    }
+                }
+                Text("Save a copy to use this file. Attachments never open automatically.")
+                    .font(.callout).foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(14)
+            .clipVaultGlassSurface(cornerRadius: 14)
         } else {
             Text(clip.extractedText.isEmpty ? clip.preview : clip.extractedText)
                 .font(.system(.body, design: clip.kind == .code || clip.kind == .sql ? .monospaced : .default))

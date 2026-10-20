@@ -1035,6 +1035,15 @@ public final class SwiftDataClipStore: ClipStoring {
             for record in try context.fetch(descriptor) {
                 let deletedID = record.id
                 if context.container.schema.entities.contains(where: { $0.name == "ClipSyncExportRecord" }) {
+                    if record.kindRaw == ClipKind.file.rawValue,
+                       let fileID = try payload(from: record).metadata["file_id"] {
+                        let cancellationID = "file:\(fileID)"
+                        if try context.fetch(FetchDescriptor<ClipSyncExportRecord>(predicate: #Predicate { $0.id == cancellationID })).isEmpty {
+                            let cancellation = ClipSyncExportRecord(id: cancellationID, clipID: deletedID, encryptedPayload: nil)
+                            cancellation.cancelled = true
+                            context.insert(cancellation)
+                        }
+                    }
                     let exports = try context.fetch(FetchDescriptor<ClipSyncExportRecord>(predicate: #Predicate { $0.clipID == deletedID }))
                     for export in exports { export.cancelled = true; export.encryptedPayload = nil }
                     for receipt in try context.fetch(FetchDescriptor<ClipSyncReceiptRecord>(predicate: #Predicate { $0.clipID == deletedID })) {
@@ -1314,7 +1323,14 @@ public final class SwiftDataClipStore: ClipStoring {
     }
 
     private func enqueueSyncPayload(_ payload: ClipPayload, clipID: String, sourceApp: String?, capturedAt: Date) throws {
-        if payload.kind == .file { return }
+        if payload.kind == .file, payload.metadata["file_id"] == nil { return }
+        if payload.kind == .file {
+            // A transfer has one immutable history identity. Retain that outbox
+            // identity after export so repeated Share gestures cannot bind the
+            // same transfer to a second event and strand a new retry marker.
+            let existing = try context.fetch(FetchDescriptor<ClipSyncExportRecord>(predicate: #Predicate { $0.clipID == clipID && !$0.cancelled }))
+            if !existing.isEmpty { return }
+        }
         let portable: ClipSyncPortable
         do { portable = try ClipSyncPortable(payload: payload, sourceApp: sourceApp, capturedAt: capturedAt) }
         catch {
@@ -1339,7 +1355,11 @@ public final class SwiftDataClipStore: ClipStoring {
             guard bytes + (record.encryptedPayload?.count ?? 0) <= 20 * 1024 * 1024 else { return nil }
             bytes += record.encryptedPayload?.count ?? 0
             guard !record.cancelled, let data = record.encryptedPayload else { return nil }
-            let payload = try decoder.decode(ClipSyncPortable.self, from: encryptor.decrypt(data))
+            var payload = try decoder.decode(ClipSyncPortable.self, from: encryptor.decrypt(data))
+            // Earlier file previews persisted the capture app in the outbox.
+            // Typed file frames omit it; normalize on read without changing
+            // the event identity or the original local history metadata.
+            if payload.kind == "attachment" { payload.sourceApp = nil }
             return ClipSyncExport(id: record.id, clipID: record.clipID, payload: payload)
         }
     }
@@ -1414,6 +1434,7 @@ public final class SwiftDataClipStore: ClipStoring {
     public func importSyncEvent(_ event: ClipSyncEvent) throws -> Clip? {
         try withRollback {
             guard UUID(uuidString: event.id) != nil, UUID(uuidString: event.origin) != nil, event.sequence > 0 else { throw ClipSyncError.invalidPayload }
+            guard event.clip.kind != "attachment" || event.clip.metadata["file_origin"] == event.origin else { throw ClipSyncError.invalidPayload }
             let id = event.id
             if try context.fetch(FetchDescriptor<ClipSyncReceiptRecord>(predicate: #Predicate { $0.id == id })).first != nil { return nil }
             guard try context.fetch(FetchDescriptor<ClipRecord>(predicate: #Predicate { $0.id == id })).isEmpty else { throw ClipSyncError.invalidPayload }

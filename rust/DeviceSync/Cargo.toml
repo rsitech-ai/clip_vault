@@ -20,6 +20,7 @@ zeroize = { version = "1.8", features = ["derive"] }
 uuid = { version = "1.18", features = ["v4", "serde"] }
 rusqlite = { version = "0.37", features = ["bundled"] }
 tempfile = "3.23"
+libc = "0.2"
 
 [profile.dev]
 debug = 0

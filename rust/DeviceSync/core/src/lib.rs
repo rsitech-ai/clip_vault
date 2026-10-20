@@ -1,4 +1,5 @@
 //! Portable, authenticated clip sharing. Platform APIs live in clients.
+mod attachments;
 mod client;
 mod credentials;
 mod identity;
@@ -6,6 +7,7 @@ mod membership;
 mod pairing;
 mod protocol;
 mod store;
+pub use attachments::*;
 pub use client::*;
 pub use credentials::*;
 pub use identity::*;
@@ -20,6 +22,8 @@ pub enum SyncError {
     Invalid,
     #[error("Clip exceeds the sharing limit")]
     TooLarge,
+    #[error("Attachment is unavailable or invalid")]
+    Attachment,
     #[error("Sensitive-looking content is excluded from sharing")]
     Sensitive,
     #[error("Encrypted message authentication failed")]
@@ -44,5 +48,7 @@ pub enum SyncError {
     Credentials,
     #[error("Sharing paused")]
     Paused,
+    #[error("A paired device needs an update before it can receive files; the local copy is kept")]
+    Unsupported,
 }
 pub type Result<T> = std::result::Result<T, SyncError>;

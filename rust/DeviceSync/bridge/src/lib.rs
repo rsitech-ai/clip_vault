@@ -7,12 +7,13 @@ use std::{
     path::PathBuf,
     sync::{
         Arc, LazyLock, Mutex,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
 };
 use zeroize::Zeroizing;
 static EXECUTION: Mutex<()> = Mutex::new(());
 static CANCELLED: LazyLock<Arc<AtomicBool>> = LazyLock::new(|| Arc::new(AtomicBool::new(false)));
+static FILE_CAPTURE_GENERATION: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -36,6 +37,15 @@ fn export_outbox(client: &mut SyncClient, body: &Value) -> Result<Value> {
     }
     let clip: PortableClip =
         serde_json::from_value(body.get("clip").cloned().ok_or(SyncError::Invalid)?)?;
+    if clip.kind == "attachment" {
+        clip.validate()?;
+        let id = clip.metadata.get("file_id").ok_or(SyncError::Invalid)?;
+        let event_id = text(body, "id")?;
+        let file_id = id.clone();
+        client.capture(clip, Some(event_id))?;
+        client.commit_file(&file_id, event_id)?;
+        return Ok(json!(event_id));
+    }
     Ok(json!(
         client.capture(clip, body.get("id").and_then(Value::as_str))?
     ))
@@ -86,6 +96,35 @@ fn execute(bytes: &[u8]) -> Result<Value> {
             Ok(json!(true))
         }
         "capture" => export_outbox(&mut client, b),
+        "file_stage" => {
+            let generation = match b.get("generation") {
+                None | Some(Value::Null) => None,
+                Some(value) => Some(value.as_u64().ok_or(SyncError::Invalid)?),
+            };
+            let path = PathBuf::from(text(b, "path")?);
+            if !path.is_absolute() {
+                return Err(SyncError::Invalid);
+            }
+            let descriptor = client.stage_file(&path, || {
+                generation.is_some_and(|expected| {
+                    FILE_CAPTURE_GENERATION.load(Ordering::Acquire) != expected
+                })
+            })?;
+            Ok(serde_json::to_value(descriptor)?)
+        }
+        "file_save" => {
+            let path = PathBuf::from(text(b, "path")?);
+            if !path.is_absolute() {
+                return Err(SyncError::Invalid);
+            }
+            client.store.save_file(text(b, "id")?, &path, || false)?;
+            Ok(json!(true))
+        }
+        "file_discard" => {
+            client.store.discard_uncommitted_file(text(b, "id")?)?;
+            Ok(json!(true))
+        }
+        "file_transfers" => Ok(serde_json::to_value(client.file_transfers()?)?),
         "tick" => Ok(serde_json::to_value(client.tick(false)?)?),
         "imports" => Ok(serde_json::to_value(client.store.unapplied()?)?),
         "applied" => {
@@ -97,11 +136,25 @@ fn execute(bytes: &[u8]) -> Result<Value> {
             Ok(json!(true))
         }
         "delete" => {
-            client.store.delete_local(text(b, "id")?)?;
+            let id = text(b, "id")?;
+            if let Some(file_id) = id.strip_prefix("file:") {
+                client.store.delete_file(file_id)?;
+            } else {
+                client.store.delete_local(id)?;
+            }
             Ok(json!(true))
         }
         _ => Err(SyncError::Invalid),
     }
+}
+/// Captured before queueing a file read so a later pause cancels queued work too.
+#[unsafe(no_mangle)]
+pub extern "C" fn cv_sync_file_generation() -> u64 {
+    FILE_CAPTURE_GENERATION.load(Ordering::Acquire)
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn cv_sync_cancel_file_capture() {
+    FILE_CAPTURE_GENERATION.fetch_add(1, Ordering::AcqRel);
 }
 /// Executes one bounded UTF-8 command and returns a NUL-terminated JSON result.
 ///

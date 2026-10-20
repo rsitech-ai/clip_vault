@@ -8,6 +8,7 @@ const SERVICE = 'com.rsitech.ClipVault.Capture';
 const PATH = '/com/rsitech/ClipVault/Capture';
 const IFACE = 'com.rsitech.ClipVault.Capture';
 const LIMIT = 10 * 1024 * 1024;
+const URI_LIMIT = 64 * 1024;
 const MARKERS = ['application/x-clipvault-copy', 'x-kde-passwordManagerHint',
     'application/x-keepassxc', 'application/x-1password'];
 
@@ -52,8 +53,8 @@ export default class ClipVaultCapture extends Extension {
         const info = Gio.File.new_for_path('/usr/bin/clipvault-linux')
             .query_info('unix::uid', Gio.FileQueryInfoFlags.NONE, this._cancel);
         if (info.get_attribute_uint32('unix::uid') !== 0) return null;
-        const [capturing] = await call(owner, PATH, IFACE, 'Heartbeat', null, '(b)', this._cancel);
-        return this._active && capturing ? owner : null;
+        const [token] = await call(owner, PATH, IFACE, 'Heartbeat', null, '(s)', this._cancel);
+        return this._active && token ? {owner, token} : null;
     }
 
     async _capture(generation) {
@@ -62,6 +63,17 @@ export default class ClipVaultCapture extends Extension {
         const type = Meta.SelectionType.SELECTION_CLIPBOARD;
         const types = this._selection.get_mimetypes(type) ?? [];
         if (MARKERS.some(marker => types.includes(marker))) return;
+        if (types.includes('text/uri-list')) {
+            const bytes = await readSelection(this._selection, type, 'text/uri-list', URI_LIMIT, this._cancel);
+            if (!bytes || bytes.get_size() > URI_LIMIT) return;
+            const uriList = new TextDecoder('utf-8', {fatal: true}).decode(bytes.get_data());
+            if (!this._active || generation !== this._generation) return;
+            // The application parses local file URIs and stages content locally;
+            // paths are never part of an encrypted clip or sent to the relay.
+            await call(destination.owner, PATH, IFACE, 'CaptureFiles',
+                new GLib.Variant('(ss)', [destination.token, uriList]), '(b)', this._cancel);
+            return;
+        }
         const clip = {kind: 'text', text: '', display_text: '', captured_at:
             Math.floor(Date.now() / 1000), source_app: null, source_device: null,
         image_png: null, metadata: {}};
@@ -92,8 +104,8 @@ export default class ClipVaultCapture extends Extension {
         }
         if (!this._active || generation !== this._generation) return;
         // Address the verified unique owner, never the replaceable well-known name.
-        await call(destination, PATH, IFACE, 'Capture',
-            new GLib.Variant('(s)', [JSON.stringify(clip)]), '(b)', this._cancel);
+        await call(destination.owner, PATH, IFACE, 'Capture',
+            new GLib.Variant('(ss)', [destination.token, JSON.stringify(clip)]), '(b)', this._cancel);
     }
 
     disable() {

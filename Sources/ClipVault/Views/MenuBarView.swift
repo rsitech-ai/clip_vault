@@ -379,7 +379,7 @@ private struct MenuClipRow: View {
         .background(isHovered ? Color.accentColor : Color.clear, in: RoundedRectangle(cornerRadius: 6))
         .foregroundStyle(isHovered ? Color.white : Color.primary)
         .contextMenu {
-            Button("Copy") {
+            Button(clip.metadata["file_id"] == nil ? "Copy" : "Save File…") {
                 copy()
             }
             Button("Open in Workspace") {

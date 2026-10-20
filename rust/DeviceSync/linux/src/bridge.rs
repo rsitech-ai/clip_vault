@@ -31,7 +31,7 @@ pub fn start(tx: Sender<Work>, capturing: Arc<CaptureGate>) -> Arc<AtomicU64> {
         connection.start_receive(
             rule,
             Box::new(move |message, connection| {
-                let accepted = (|| -> Option<()> {
+                let authenticated = (|| -> Option<()> {
                     let sender = message.sender()?;
                     let bus = connection.with_proxy(
                         "org.freedesktop.DBus",
@@ -56,27 +56,65 @@ pub fn start(tx: Sender<Work>, capturing: Arc<CaptureGate>) -> Arc<AtomicU64> {
                         return None;
                     }
                     state.store(unix_time() as u64, Ordering::Relaxed);
-                    if !capturing.enabled() {
-                        return None;
+                    Some(())
+                })()
+                .is_some();
+                let member = message.member().map(|member| member.to_string());
+                if !authenticated {
+                    let response = if member.as_deref() == Some("Heartbeat") {
+                        message.method_return().append1("")
+                    } else {
+                        message.method_return().append1(false)
+                    };
+                    let _ = dbus::channel::Sender::send(connection, response);
+                    return true;
+                }
+                match member.as_deref() {
+                    Some("Heartbeat") => {
+                        let token = if capturing.enabled() {
+                            capturing.read_token().to_string()
+                        } else {
+                            String::new()
+                        };
+                        let response = message.method_return().append1(token);
+                        let _ = dbus::channel::Sender::send(connection, response);
                     }
-                    match message.member()?.as_ref() {
-                        "Heartbeat" => {}
-                        "Capture" => {
-                            let (body,): (String,) = message.read1().ok().map(|body| (body,))?;
-                            if body.len() > MAX_WIRE_BYTES {
+                    Some("Capture") => {
+                        let accepted = (|| -> Option<()> {
+                            let (token, body): (String, String) = message.read2().ok()?;
+                            let token = token.parse::<u64>().ok()?;
+                            if !capturing.permits(token) || body.len() > MAX_WIRE_BYTES {
                                 return None;
                             }
                             let clip: PortableClip = serde_json::from_str(&body).ok()?;
                             clip.validate().ok()?;
-                            tx.send(Work::Capture(clip, false)).ok()?;
-                        }
-                        _ => return None,
+                            tx.send(Work::Capture(clip, false, token)).ok()?;
+                            Some(())
+                        })()
+                        .is_some();
+                        let response = message.method_return().append1(accepted);
+                        let _ = dbus::channel::Sender::send(connection, response);
                     }
-                    Some(())
-                })()
-                .is_some();
-                let response = message.method_return().append1(accepted);
-                let _ = dbus::channel::Sender::send(connection, response);
+                    Some("CaptureFiles") => {
+                        let accepted = (|| -> Option<()> {
+                            let (token, body): (String, String) = message.read2().ok()?;
+                            let token = token.parse::<u64>().ok()?;
+                            if !capturing.permits(token) || body.len() > 64 * 1024 {
+                                return None;
+                            }
+                            let paths = crate::clipboard::local_uri_paths(body.as_bytes()).ok()?;
+                            tx.send(Work::StageFiles(paths, Some(token))).ok()?;
+                            Some(())
+                        })()
+                        .is_some();
+                        let response = message.method_return().append1(accepted);
+                        let _ = dbus::channel::Sender::send(connection, response);
+                    }
+                    _ => {
+                        let response = message.method_return().append1(false);
+                        let _ = dbus::channel::Sender::send(connection, response);
+                    }
+                }
                 true
             }),
         );

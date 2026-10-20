@@ -58,3 +58,16 @@ A successful source build does not prove signing, notarization, App Store provis
 Mac capture creates a SwiftData export record in the same transaction as a local clip. Export preparation failures retain retryable references to local content. Rust queue submission uses a stable event identifier. Remote import uses its own SwiftData method and receipt, without increasing local copy counts or producing another export. Only after the SwiftData import commits does the controller mark that event applied for acknowledgement. Invalid platform payloads create durable negative acknowledgements; storage failures remain retryable.
 
 The Linux client uses encrypted SQLite payloads and GNOME Secret Service credentials. GNOME Wayland capture uses a push-only, consent-gated Shell bridge; X11 capture uses bounded clipboard streams. Both clients retain local history while offline. HTTPS is required outside explicit loopback tests, and disabled sharing starts no relay connection. See [Linux and sync](LINUX_AND_SYNC.md) and the [design](design/linux-encrypted-sync.md) for trust and compatibility boundaries.
+
+
+Attachments use separate versioned authenticated manifest/chunk/outcome frames,
+with 1 MiB chunks and a 100 MiB per-file limit. The platform history and C ABI
+carry only a small descriptor; encrypted file bytes stay in the portable store.
+Outgoing data is staged before a history descriptor/outbox is committed. Every
+paired device must advertise file support before transmission. Incoming chunks
+are acknowledged after encrypted persistence; a separate authenticated outcome
+confirms complete length/hash verification before history publication. Explicit
+Save streams and verifies again, then publishes without overwriting a destination.
+Ordinary clip work and incoming mail continue while an attachment is waiting for
+an update or recipient capacity. See the [file design](design/file-sharing-and-linux-ui.md)
+for resource bounds, consent generations, sandbox access and recovery behavior.
