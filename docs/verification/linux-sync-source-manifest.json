@@ -12,7 +12,7 @@
     },
     {
       "path": "PRIVACY.md",
-      "sha256": "7cf285ae1a59414eb270f01a0c36bd490cc3fe5fd45312f8536b33b909714c77"
+      "sha256": "dc09b132b0a8c88fac5a92bc1ac08f122c11130b11a15ec4f814c686365108b6"
     },
     {
       "path": "Package.swift",
@@ -75,6 +75,10 @@
       "sha256": "38cea58913cd3b6add648a914f66fc1d517c68a6180773819de0f28c6eebaaac"
     },
     {
+      "path": "Sources/ClipVault/Views/ClipDetailView.swift",
+      "sha256": "480b330bd3af9a0064665ca3df334c7774c35abd5696438fcd537862fd037927"
+    },
+    {
       "path": "Sources/ClipVault/Views/DevicesSharingSettingsTab.swift",
       "sha256": "619dfb91ea7f2c991b1e37e7409155535986809f23896d4df3f597efb8f58942"
     },
@@ -87,6 +91,10 @@
       "sha256": "07c9d225752bcda46794b203c8096d364a2bcc8eb9df34304bf3a5985310e2fd"
     },
     {
+      "path": "Sources/ClipVaultCore/Services/BoundedTextRecognition.swift",
+      "sha256": "b7c747d14ce178cede755517d237c6cf06033039700fc32ea92899bdf9a0a44a"
+    },
+    {
       "path": "Sources/ClipVaultCore/Services/ClipHistoryMigrationAudit.swift",
       "sha256": "15762ec3f0781a22313a3c9c786abcc54622b9987ccd1be7671c7c23791d3dcd"
     },
@@ -96,7 +104,7 @@
     },
     {
       "path": "Sources/ClipVaultCore/Services/ClipStore.swift",
-      "sha256": "d61ece310736bb56364298d6d41b7fae44697a810af0bd599402353514a60376"
+      "sha256": "2d5a2493ef0a79277c530973fd7b7f64ee1a87aa3658022b8a3847ce1a07b7f4"
     },
     {
       "path": "Sources/ClipVaultCore/Services/ClipStoreMigrationBackup.swift",
@@ -112,7 +120,7 @@
     },
     {
       "path": "Sources/ClipVaultCore/Services/ClipboardCaptureService.swift",
-      "sha256": "c9d3c7e3a644527d05d05cf15de7c034f3ee9cf361935e0e515a04a9ab7b6f84"
+      "sha256": "1723d5311a6201c6c87704deb86fec974add0a756b748f82ab7609eb710b4466"
     },
     {
       "path": "Sources/ClipVaultCore/Services/SensitiveRuleEngine.swift",
@@ -121,6 +129,10 @@
     {
       "path": "Tests/ClipVaultAppTests/ClipVaultSyncControllerTests.swift",
       "sha256": "6555fa16174f77a189022fe2674930b54eaa407e66e258e5bd4a30897c8573ae"
+    },
+    {
+      "path": "Tests/ClipVaultCoreTests/BoundedTextRecognitionTests.swift",
+      "sha256": "da1bed24515f2ffee093d03d9f31a25290d7efb12a0a78b27b062b7fd0a84634"
     },
     {
       "path": "Tests/ClipVaultCoreTests/ClipHistoryMigrationAuditTests.swift",
@@ -132,7 +144,7 @@
     },
     {
       "path": "Tests/ClipVaultCoreTests/ClipSyncStoreTests.swift",
-      "sha256": "d705ba03af9a7e0b5d70d3f39bd1ef54712508bf607b77dd8dd9018455c107a4"
+      "sha256": "8cc250a873e62928adfd50bb2ad3e5fb2c407ae9731512710591f46ba86289da"
     },
     {
       "path": "docs/ARCHITECTURE.md",
@@ -140,7 +152,7 @@
     },
     {
       "path": "docs/LINUX_AND_SYNC.md",
-      "sha256": "ce14e12f6fc9e64982e2272dad0c97498e736f38ee54214a9fd2402f315dce23"
+      "sha256": "327fe4be3982f2b6ab925e7238d0cd7e415a37a827b5a3fb4e6588e0036e92b7"
     },
     {
       "path": "docs/design/linux-encrypted-sync.md",

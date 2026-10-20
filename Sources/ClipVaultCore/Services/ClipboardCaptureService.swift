@@ -24,6 +24,7 @@ public final class ClipboardCaptureService {
         qos: .utility,
         attributes: .concurrent
     )
+    nonisolated private static let imageTextRecognition = BoundedTextRecognition()
 
     public convenience init(pasteboard: NSPasteboard = .general) {
         self.init(pasteboard: pasteboard) { snapshot in
@@ -160,7 +161,11 @@ public final class ClipboardCaptureService {
         )
     }
 
-    nonisolated private static func payload(from snapshot: PasteboardSnapshot) -> ClipPayload? {
+    nonisolated static func payload(
+        from snapshot: PasteboardSnapshot,
+        textRecognition: BoundedTextRecognition = imageTextRecognition,
+        recognizeText: @escaping @Sendable (Data) -> String? = { recognizeText(inImageData: $0) }
+    ) -> ClipPayload? {
         if !snapshot.filePaths.isEmpty {
             let text = snapshot.filePaths.joined(separator: "\n")
             return ClipPayload(
@@ -172,7 +177,7 @@ public final class ClipboardCaptureService {
             )
         }
 
-        if let imagePayload = imagePayload(from: snapshot) {
+        if let imagePayload = imagePayload(from: snapshot, textRecognition: textRecognition, recognizeText: recognizeText) {
             return imagePayload
         }
 
@@ -206,7 +211,11 @@ public final class ClipboardCaptureService {
         return nil
     }
 
-    nonisolated private static func imagePayload(from snapshot: PasteboardSnapshot) -> ClipPayload? {
+    nonisolated private static func imagePayload(
+        from snapshot: PasteboardSnapshot,
+        textRecognition: BoundedTextRecognition,
+        recognizeText: @escaping @Sendable (Data) -> String?
+    ) -> ClipPayload? {
         let imageData: [(Data?, String)] = [
             (snapshot.tiffData, NSPasteboard.PasteboardType.tiff.rawValue),
             (snapshot.pngData, "public.png"),
@@ -215,13 +224,14 @@ public final class ClipboardCaptureService {
 
         for (candidateData, rawType) in imageData {
             if let data = candidateData, NSImage(data: data) != nil {
-                let ocr = recognizeText(inImageData: data)
+                let recognized = textRecognition.recognize(data, operation: recognizeText)
+                let ocr = recognized ?? ""
                 let lineCount = ocr.split(whereSeparator: \.isNewline).count
                 return ClipPayload(
                     kind: .image,
                     displayText: lineCount > 0 ? "Image • \(lineCount) OCR lines" : "Image",
                     extractedText: ocr,
-                    metadata: ["previewType": rawType, "ocrLineCount": "\(lineCount)"],
+                    metadata: ["previewType": rawType, "ocrLineCount": "\(lineCount)", "ocrStatus": recognized == nil ? "unavailable" : "complete"],
                     previewData: data,
                     uniformTypeIdentifiers: snapshot.uniformTypeIdentifiers
                 )
@@ -277,10 +287,10 @@ public final class ClipboardCaptureService {
         return .text
     }
 
-    nonisolated private static func recognizeText(inImageData data: Data) -> String {
+    nonisolated private static func recognizeText(inImageData data: Data) -> String? {
         guard let image = NSImage(data: data),
               let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
-            return ""
+            return nil
         }
 
         let request = VNRecognizeTextRequest()
@@ -302,7 +312,7 @@ public final class ClipboardCaptureService {
                 }
                 .joined(separator: "\n") ?? ""
         } catch {
-            return ""
+            return nil
         }
     }
 }

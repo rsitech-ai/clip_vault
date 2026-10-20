@@ -280,8 +280,15 @@ struct ScreenshotAnnotationPanel: View {
 
             HStack(spacing: 14) {
                 annotationStat("Source", clip.sourceApp ?? "Unknown")
-                annotationStat("OCR", "\(clip.extractedText.split(whereSeparator: \.isNewline).count) lines")
+                annotationStat("OCR", clip.metadata["ocrStatus"] == "unavailable"
+                    ? "Unavailable" : (clip.metadata["ocrStatus"] == nil && clip.extractedText.isEmpty
+                        ? "Not available" : "\(clip.extractedText.split(whereSeparator: \.isNewline).count) lines"))
                 annotationStat("Copies", "\(clip.copyCount)")
+            }
+            if clip.metadata["ocrStatus"] == "unavailable" {
+                Text("Images with unavailable text recognition are excluded from automatic sharing. You can review and share this image manually.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
         .padding(14)

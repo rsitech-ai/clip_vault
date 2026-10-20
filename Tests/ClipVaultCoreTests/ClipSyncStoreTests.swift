@@ -12,6 +12,43 @@ struct ClipSyncStoreTests {
         return SwiftDataClipStore(context: ModelContext(container), encryptor: PassthroughSyncEncryptor())
     }
 
+    @Test("empty OCR and unavailable OCR preserve one image identity", arguments: [true, false])
+    func ocrOutcomeDoesNotSplitBlankImage(completedFirst: Bool) throws {
+        let store = try makeStore()
+        let png = try #require(Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGPQbD/+HwAEywJ3k0b7vgAAAABJRU5ErkJggg=="))
+        let snapshot = PasteboardSnapshot(uniformTypeIdentifiers: ["public.png"], string: nil,
+            urlString: nil, rtfData: nil, tiffData: nil, pngData: png, objectImageData: nil, filePaths: [])
+        let recognition = BoundedTextRecognition(timeout: .seconds(1))
+        let complete = ClipboardCaptureService.payload(from: snapshot, textRecognition: recognition, recognizeText: { _ in "" })
+        let unavailable = ClipboardCaptureService.payload(from: snapshot, textRecognition: recognition, recognizeText: { _ in nil })
+        #expect(complete?.metadata["ocrStatus"] == "complete")
+        #expect(unavailable?.metadata["ocrStatus"] == "unavailable")
+        let firstPayload = try #require(completedFirst ? complete : unavailable)
+        let secondPayload = try #require(completedFirst ? unavailable : complete)
+        let first = try #require(try store.save(payload: firstPayload, sourceApp: "Tests", capturedAt: Date()))
+        let second = try #require(try store.save(payload: secondPayload, sourceApp: "Tests", capturedAt: Date()))
+        #expect(first.id == second.id)
+        #expect(second.copyCount == 2)
+        #expect(try store.allClips().count == 1)
+    }
+
+    @Test("an image with unavailable OCR stays local across recopy and retry until explicitly shared")
+    func unavailableOCRIsLocalOnly() throws {
+        let store = try makeStore()
+        store.sharingEnabled = true
+        let png = try #require(Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGPQbD/+HwAEywJ3k0b7vgAAAABJRU5ErkJggg=="))
+        let payload = ClipPayload(kind: .image, displayText: "Image • OCR unavailable", extractedText: "",
+            metadata: ["ocrStatus": "unavailable"], previewData: png)
+        let clip = try #require(try store.save(payload: payload, sourceApp: "Preview", capturedAt: Date()))
+        _ = try store.save(payload: payload, sourceApp: "Preview", capturedAt: Date())
+        try store.retrySyncExports()
+        #expect(try store.allClips().count == 1)
+        #expect(try store.payload(for: clip.id)?.previewData == png)
+        #expect(try store.pendingSyncExports().isEmpty)
+        try store.shareExistingClip(id: clip.id)
+        #expect(try store.pendingSyncExports().count == 1)
+    }
+
     @Test("sensitive text hidden in RTF metadata is excluded")
     func sensitiveRTF() throws {
         let rtf = Data("{\\rtf1 hello {\\*\\comment password=hiddenlongsecret123}}".utf8)

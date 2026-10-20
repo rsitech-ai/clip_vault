@@ -28,6 +28,8 @@ Cloud or BYO AI providers remain disabled. Sharing does not enable cloud AI.
 
 ClipVault attempts to exclude obvious secrets before storage, including private keys, API tokens, and password-like values. Users can delete clips at any time.
 
+On Mac, OCR failure or a two-second OCR timeout does not discard an image capture. The image is kept locally with text recognition marked unavailable, and is excluded from automatic sharing. You can review and share it explicitly. OCR and secret detection are not guarantees that an image contains no sensitive information.
+
 ## Data Deletion
 
 Disconnect/reset replaces local pairing keys, cancels queued shares and preserves local history. It does not remotely revoke old membership; remove the old device from the owner separately.

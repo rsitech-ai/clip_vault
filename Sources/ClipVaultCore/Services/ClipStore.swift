@@ -683,7 +683,9 @@ public final class SwiftDataClipStore: ClipStoring {
                 existing.updatedAt = max(existing.updatedAt, capturedAt)
                 existing.encryptedListPayload = try encryptedDetailsPayload(details)
                 clearPlaintextDetails(on: existing)
-                if sharingEnabled { try enqueueSyncPayload(payload, clipID: existing.id, sourceApp: sourceApp, capturedAt: capturedAt) }
+                if sharingEnabled, payload.metadata["ocrStatus"] != "unavailable" {
+                    try enqueueSyncPayload(payload, clipID: existing.id, sourceApp: sourceApp, capturedAt: capturedAt)
+                }
                 try saveContext(context)
                 return try recordToClip(existing)
             }
@@ -719,7 +721,11 @@ public final class SwiftDataClipStore: ClipStoring {
             )
             clearPlaintextDetails(on: record)
             context.insert(record)
-            if sharingEnabled { try enqueueSyncPayload(payload, clipID: clip.id, sourceApp: sourceApp, capturedAt: capturedAt) }
+            // Incomplete OCR cannot establish whether the image text is sensitive.
+            // Keep it locally; an explicit Share selected clip remains available.
+            if sharingEnabled, payload.metadata["ocrStatus"] != "unavailable" {
+                try enqueueSyncPayload(payload, clipID: clip.id, sourceApp: sourceApp, capturedAt: capturedAt)
+            }
             try saveContext(context)
             return clip
         }

@@ -12,6 +12,8 @@ A mismatch or missing payload blocks capture and automatic cleanup. Automatic cl
 
 New text, code, links, rich text with a plain-text fallback, and PNG image clips can be shared after pairing. Received clips appear in history; Copy places one on the receiving laptop's clipboard. Existing clips are not uploaded automatically. Mac's Devices settings can share a selected old clip explicitly.
 
+On Mac, image capture waits at most two seconds for OCR after taking and validating the clipboard snapshot. If Vision stalls or fails, the image is still saved, with text recognition marked unavailable. Only one OCR operation can remain in flight; later images do not accumulate blocked OCR workers. Images with unavailable OCR stay out of automatic sharing because their text could not be checked for sensitive content. Review the image and use **Share selected clip** to share it explicitly. A late OCR result does not change or share a saved clip.
+
 Notes, tags, pins, folders, retention settings, local file references, and application settings remain local. File transfer, mobile clients, and automatic replacement of the system clipboard are not included.
 
 Capture consent and sharing consent are separate. Pause sharing to stop subsequent network operations. A request already accepted by a relay cannot be undone. Delete locally affects that laptop; it does not erase copies already delivered to another device.
