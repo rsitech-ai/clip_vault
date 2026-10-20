@@ -264,7 +264,7 @@
     },
     {
       "path": "rust/DeviceSync/linux/src/policy.rs",
-      "sha256": "e0b1627a158cf147303db4afe4ba207ade3b39cee24256634edb46dd7f41d5ab"
+      "sha256": "45ab0ee1e20f91873c9ae663faf56e01318999f16c427e1d28478f4ae8023bb8"
     },
     {
       "path": "rust/DeviceSync/linux/src/ui.rs",
@@ -276,7 +276,7 @@
     },
     {
       "path": "rust/DeviceSync/linux/tests/policy.rs",
-      "sha256": "e271164ae5cc98633e63bb4d4870652acbc963d67956d018a243beffc4d741f9"
+      "sha256": "a86b0f66421d2398b35fe23eab2593d0c216beb0419a7e66138acb309d395c30"
     },
     {
       "path": "rust/DeviceSync/relay/Cargo.toml",

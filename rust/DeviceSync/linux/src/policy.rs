@@ -29,11 +29,17 @@ impl CaptureGate {
         token & 3 == 2 && self.read_token() == token
     }
     pub fn set(&self, enabled: bool) {
-        let _ = self
-            .0
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |value| {
-                Some((value.wrapping_add(4) & !3) | if enabled { 2 } else { 1 })
-            });
+        let mut value = self.0.load(Ordering::Acquire);
+        loop {
+            let next = (value.wrapping_add(4) & !3) | if enabled { 2 } else { 1 };
+            match self
+                .0
+                .compare_exchange_weak(value, next, Ordering::AcqRel, Ordering::Acquire)
+            {
+                Ok(_) => return,
+                Err(current) => value = current,
+            }
+        }
     }
 }
 

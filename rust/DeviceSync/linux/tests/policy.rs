@@ -65,3 +65,31 @@ fn a_pending_clipboard_read_cannot_survive_a_consent_cycle() {
     assert!(!gate.permits(read));
     assert!(gate.permits(gate.read_token()));
 }
+
+#[test]
+fn concurrent_consent_changes_each_advance_the_generation() {
+    use std::sync::{Arc, Barrier};
+    let gate = Arc::new(CaptureGate::default());
+    gate.restore(true);
+    let old_read = gate.read_token();
+    let start = Arc::new(Barrier::new(8));
+    let workers: Vec<_> = (0..8)
+        .map(|_| {
+            let gate = gate.clone();
+            let start = start.clone();
+            std::thread::spawn(move || {
+                start.wait();
+                for _ in 0..1_000 {
+                    gate.set(true);
+                }
+            })
+        })
+        .collect();
+    for worker in workers {
+        worker.join().unwrap();
+    }
+    assert_eq!(gate.read_token() >> 2, 8_000);
+    assert!(gate.enabled());
+    assert!(!gate.permits(old_read));
+    assert!(gate.permits(gate.read_token()));
+}
