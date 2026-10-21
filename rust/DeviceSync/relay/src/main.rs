@@ -1,4 +1,4 @@
-use clipvault_sync_relay::{RelayStore, router};
+use clipvault_sync_relay::{RelayStore, low_latency_listener, router};
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
@@ -23,7 +23,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "ClipVault opaque relay listening on {}",
         listener.local_addr()?
     );
-    axum::serve(listener, router(store))
+    axum::serve(low_latency_listener(listener), router(store))
         .with_graceful_shutdown(async {
             let _ = tokio::signal::ctrl_c().await;
         })

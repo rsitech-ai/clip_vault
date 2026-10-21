@@ -1,0 +1,79 @@
+{
+  "base_revision": "1259d008e11f65de95db3493f7a9f823168b18ac",
+  "production_revision": "c81af12",
+  "note": "Final runtime production tree; subsequent changes affect tests and verification evidence only. Report and this manifest exclude themselves.",
+  "files": [
+    {
+      "path": "Packaging/linux/relay/README.md",
+      "sha256": "9260ef4fb5525fdfd7d63fa8ee510a77de0e05d663c25de7756be26025a07231"
+    },
+    {
+      "path": "Packaging/linux/relay/nginx.conf",
+      "sha256": "5e06fc260e3dad923efb164ced8d2d70ee7b8c046ae5756a0af480664f7e9436"
+    },
+    {
+      "path": "Sources/ClipVault/App/ClipVaultFileController.swift",
+      "sha256": "48729f27824991d6136a213befa36866e3eb82faf9e1c3ba42e1b24116d731c2"
+    },
+    {
+      "path": "Sources/ClipVault/App/ClipVaultViewModel.swift",
+      "sha256": "8c0b4a9c758ea10a242ac1d2c13336b558e872e190b2fbd165030ec1ef398a41"
+    },
+    {
+      "path": "Sources/ClipVaultCore/Services/ClipboardCaptureService.swift",
+      "sha256": "1dea843caa1663a5fd8f944ee37d1d7febf376817b8781f0b9d7dd8045e4156a"
+    },
+    {
+      "path": "Tests/ClipVaultAppTests/ClipVaultFileControllerTests.swift",
+      "sha256": "157f29ed2ba5a71cdd9cb611de91f8fcfb52d9c258dcff1bd35e8e6844a99386"
+    },
+    {
+      "path": "Tests/ClipVaultCoreTests/ClipboardCaptureServiceTests.swift",
+      "sha256": "d52b04bf2a1ef6123efaffffdcc222565af543399b7cc776724516f038e41501"
+    },
+    {
+      "path": "rust/DeviceSync/core/src/attachments.rs",
+      "sha256": "5b6409debd210565545b3a546775dda42dbe9d90a8433066bd2e4b379848cf4a"
+    },
+    {
+      "path": "rust/DeviceSync/core/src/client.rs",
+      "sha256": "2630c325bb055231592e8c0209e0fa4ed9f1cbd4a969faa74a16522e4e59c594"
+    },
+    {
+      "path": "rust/DeviceSync/core/tests/attachments.rs",
+      "sha256": "85ddf00f6049b59be0647d132dc13a97b34c1d1872f92aec5a39876533077cc6"
+    },
+    {
+      "path": "rust/DeviceSync/relay/examples/interop_probe.rs",
+      "sha256": "d7dae0897bea691bcdaa2be5bd0251b53155d042670f4a8b35621063a36bef60"
+    },
+    {
+      "path": "rust/DeviceSync/relay/src/lib.rs",
+      "sha256": "1e26981ffd7f0b203db249a08a818aafe726ea50b9542695bafae73a49826fbe"
+    },
+    {
+      "path": "rust/DeviceSync/relay/src/main.rs",
+      "sha256": "c8cf82e3361a2dd3b6d9cab7ff1465229d7f05b8db7406a4b81f6c499901459a"
+    },
+    {
+      "path": "rust/DeviceSync/relay/src/store.rs",
+      "sha256": "0333fdb3759e2cea7e7e89213af68b091b8c78d12f7a573852377d9c4b126c1e"
+    },
+    {
+      "path": "rust/DeviceSync/relay/tests/client_e2e.rs",
+      "sha256": "a98a624e5d5cadbc1a0927e596832d043e57b11ea1d1c68bc12584ffdbcc9b11"
+    },
+    {
+      "path": "rust/DeviceSync/relay/tests/large_files.rs",
+      "sha256": "77f069d749e90ffe511c13070de8e5fe1ef720bf5d05cd4545a2c44a5ec6069f"
+    },
+    {
+      "path": "rust/DeviceSync/relay/tests/relay.rs",
+      "sha256": "a5ca6e069097b758ff04d55b91c9d587f7805dbb6d1c4c49054a80c0a75b209e"
+    },
+    {
+      "path": "script/smoke_linux_ui.sh",
+      "sha256": "24fca130362e2ed414b5766f8a599731c4c4ed5cf1529fbd6402fe3965dc7f65"
+    }
+  ]
+}

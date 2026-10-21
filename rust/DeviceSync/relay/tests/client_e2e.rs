@@ -1,6 +1,6 @@
 use axum::{
     body::Body,
-    extract::State,
+    extract::{ConnectInfo, State},
     http::{Request, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
@@ -8,9 +8,126 @@ use axum::{
 use clipvault_sync_core::*;
 use clipvault_sync_relay::{RelayStore, router};
 use std::sync::{
-    Arc,
+    Arc, Mutex,
     atomic::{AtomicBool, Ordering},
 };
+use std::{collections::HashSet, net::SocketAddr};
+
+#[derive(Clone, Default)]
+struct AcceptedConnections(Arc<Mutex<HashSet<SocketAddr>>>);
+
+async fn record_accepted_connection(
+    State(connections): State<AcceptedConnections>,
+    request: Request<Body>,
+    next: Next,
+) -> Response {
+    if let Some(ConnectInfo(address)) = request.extensions().get::<ConnectInfo<SocketAddr>>() {
+        connections.0.lock().unwrap().insert(*address);
+    }
+    next.run(request).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn reopened_clients_reuse_http_pool_without_crossing_workspace_auth() {
+    let dir = tempfile::tempdir().unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    let relay = RelayStore::open(&dir.path().join("relay.db"), "registration").unwrap();
+    let connections = AcceptedConnections::default();
+    let app = router(relay).layer(middleware::from_fn_with_state(
+        connections.clone(),
+        record_accepted_connection,
+    ));
+    let server = tokio::spawn(async move {
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await
+        .unwrap()
+    });
+    let path = dir.path().to_path_buf();
+    let observed = connections.clone();
+    tokio::task::spawn_blocking(move || {
+        let owner_a_key = random_secret();
+        let owner_b_key = random_secret();
+        let guest_a_key = random_secret();
+        let guest_b_key = random_secret();
+        let owner_a_path = path.join("owner-a.db");
+        let mut owner_a =
+            SyncClient::open(DeviceStore::open(&owner_a_path, owner_a_key).unwrap()).unwrap();
+        owner_a
+            .create_workspace(&endpoint, "registration", "Owner A")
+            .unwrap();
+        owner_a.create_invite().unwrap();
+        let established_connections = observed.0.lock().unwrap().len();
+        assert_eq!(established_connections, 1);
+        drop(owner_a);
+
+        let mut owner_a =
+            SyncClient::open(DeviceStore::open(&owner_a_path, owner_a_key).unwrap()).unwrap();
+        assert!(owner_a.pairing_requests().unwrap().is_empty());
+        assert_eq!(
+            observed.0.lock().unwrap().len(),
+            established_connections,
+            "reopening the client should reuse its process-wide keep-alive connection"
+        );
+
+        let mut owner_b =
+            SyncClient::open(DeviceStore::open(&path.join("owner-b.db"), owner_b_key).unwrap())
+                .unwrap();
+        owner_b
+            .create_workspace(&endpoint, "registration", "Owner B")
+            .unwrap();
+        assert_eq!(observed.0.lock().unwrap().len(), established_connections);
+
+        let mut guest_a =
+            SyncClient::open(DeviceStore::open(&path.join("guest-a.db"), guest_a_key).unwrap())
+                .unwrap();
+        let mut guest_b =
+            SyncClient::open(DeviceStore::open(&path.join("guest-b.db"), guest_b_key).unwrap())
+                .unwrap();
+        guest_a
+            .join(&owner_a.create_invite().unwrap(), "Guest A")
+            .unwrap();
+        guest_b
+            .join(&owner_b.create_invite().unwrap(), "Guest B")
+            .unwrap();
+        let request_a = owner_a.pairing_requests().unwrap().remove(0);
+        let request_b = owner_b.pairing_requests().unwrap().remove(0);
+        assert_eq!(request_a.device_id, guest_a.device_id());
+        assert_eq!(request_b.device_id, guest_b.device_id());
+        owner_a.approve(&request_a.id, &request_a.words).unwrap();
+        owner_b.approve(&request_b.id, &request_b.words).unwrap();
+        guest_a.tick(true).unwrap();
+        guest_b.tick(true).unwrap();
+        let guest_a_members = guest_a.status().unwrap().members;
+        let guest_b_members = guest_b.status().unwrap().members;
+        assert!(
+            guest_a_members
+                .iter()
+                .any(|member| member.id == owner_a.device_id())
+        );
+        assert!(
+            !guest_a_members
+                .iter()
+                .any(|member| member.id == owner_b.device_id())
+        );
+        assert!(
+            guest_b_members
+                .iter()
+                .any(|member| member.id == owner_b.device_id())
+        );
+        assert!(
+            !guest_b_members
+                .iter()
+                .any(|member| member.id == owner_a.device_id())
+        );
+    })
+    .await
+    .unwrap();
+    server.abort();
+}
 
 #[derive(Clone)]
 struct DropFirstResponses {

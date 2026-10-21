@@ -261,9 +261,10 @@ final class ClipVaultViewModel {
             return
         }
         deviceSync.start(model: self, store: persistentStore)
-        captureService.onFilesCaptured = { [weak self] urls, sourceApp, capturedAt in
+        captureService.onFilesCaptured = { [weak self] urls, sourceApp, capturedAt, imageFallback in
             guard let self else { return }
-            self.files.capture(urls: urls, sourceApp: sourceApp, capturedAt: capturedAt, model: self)
+            self.files.capture(urls: urls, sourceApp: sourceApp, capturedAt: capturedAt, model: self,
+                imageFallback: imageFallback)
         }
         captureService.onFileCaptureError = { [weak self] error in
             self?.files.message = error

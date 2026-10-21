@@ -34,7 +34,12 @@ The service starts at boot independently of a desktop login. Do not disable the
 laptop's sleep policy implicitly. While the relay machine sleeps or has no
 network, clients retain pending clips and retry later; an always-on host is
 needed for availability independent of laptop sleep. Relay mailbox quota and
-30-day payload expiry and 37-day delivery/status retention still apply. The proxy allows four concurrent requests and the unauthenticated pairing endpoint accepts at most 8 KiB before JSON decoding; authenticated payload requests retain the larger envelope limit. These limits reduce memory pressure under the service resource ceiling. Neither restart checks nor a short network sample
+30-day payload expiry and 37-day delivery/status retention still apply. The proxy streams ciphertext requests and responses without temporary-body copies.
+It allows 100 requests/second overall (burst 50) because Tailscale Serve forwards
+all paired devices through the same loopback address. Join and workspace setup
+retain a separate 20 requests/second limit (burst 50). Empty map keys exclude
+ordinary transfer traffic from that setup allowance. These limits still apply
+before application authentication. The proxy allows four concurrent requests and the unauthenticated pairing endpoint accepts at most 8 KiB before JSON decoding; authenticated payload requests retain the larger envelope limit. These limits reduce memory pressure under the service resource ceiling. Neither restart checks nor a short network sample
 prove long-term uptime.
 
 ## Interrupted installation and rollback

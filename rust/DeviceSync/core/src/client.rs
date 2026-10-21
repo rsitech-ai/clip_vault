@@ -6,11 +6,11 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::io::Read;
 use std::path::Path;
 use std::sync::{
-    Arc,
+    Arc, OnceLock,
     atomic::{AtomicBool, Ordering},
 };
 use std::time::{Duration, Instant};
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 const MAILBOX_BATCH_BYTES: usize = 24 * 1024 * 1024;
 const FILE_MAILBOX_MAX_ITEMS: usize = 16;
@@ -20,6 +20,25 @@ const FILE_JOB_MAX_CHECKS_PER_TICK: usize = 128;
 const FILE_JOB_TIME_BUDGET: Duration = Duration::from_secs(2);
 const FILE_QUEUE_RETRY_DELAY_SECS: i64 = 2;
 const RECIPIENT_CAPACITY_RETRIES: &str = "recipient-capacity-retries";
+const FILE_POLL_UNTIL: &str = "file-poll-until";
+const FILE_POLL_GRACE_SECS: i64 = 10;
+
+static HTTP_CLIENT: OnceLock<Client> = OnceLock::new();
+
+fn shared_http_client() -> Result<Client> {
+    if let Some(client) = HTTP_CLIENT.get() {
+        return Ok(client.clone());
+    }
+    // Cache only success so a transient initialization failure can recover on
+    // the next command. Concurrent first opens converge on one shared pool.
+    let client = Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .connect_timeout(Duration::from_secs(5))
+        .timeout(Duration::from_secs(12))
+        .build()
+        .map_err(|_| SyncError::Network)?;
+    Ok(HTTP_CLIENT.get_or_init(|| client).clone())
+}
 
 #[derive(Clone, Serialize, Deserialize)]
 struct Configuration {
@@ -143,6 +162,50 @@ fn is_terminal_approval_error(error: &SyncError) -> bool {
     matches!(error, SyncError::Relay(400 | 403 | 410 | 422))
 }
 
+fn post_file_mailbox(
+    http: &Client,
+    relay: &str,
+    credential: &str,
+    cancelled: &AtomicBool,
+    envelope: &serde_json::Value,
+) -> Result<i64> {
+    if cancelled.load(Ordering::Acquire) {
+        return Err(SyncError::Paused);
+    }
+    let base = validate_endpoint(relay)?;
+    let url = base.join("/v1/mailbox").map_err(|_| SyncError::Invalid)?;
+    if url.origin() != base.origin() {
+        return Err(SyncError::Invalid);
+    }
+    let response = http
+        .post(url)
+        .bearer_auth(credential)
+        .json(envelope)
+        .send()
+        .map_err(|_| SyncError::Network)?;
+    if cancelled.load(Ordering::Acquire) {
+        return Err(SyncError::Paused);
+    }
+    if !response.status().is_success() {
+        return Err(SyncError::Relay(response.status().as_u16()));
+    }
+    if response
+        .content_length()
+        .is_some_and(|length| length > (MAILBOX_BATCH_BYTES + 8192) as u64)
+    {
+        return Err(SyncError::TooLarge);
+    }
+    let mut bytes = Zeroizing::new(Vec::new());
+    response
+        .take((MAILBOX_BATCH_BYTES + 8193) as u64)
+        .read_to_end(&mut bytes)
+        .map_err(|_| SyncError::Network)?;
+    if bytes.len() > MAILBOX_BATCH_BYTES + 8192 {
+        return Err(SyncError::TooLarge);
+    }
+    Ok(serde_json::from_slice(&bytes)?)
+}
+
 impl SyncClient {
     pub fn open(mut store: DeviceStore) -> Result<Self> {
         let identity = match store.get("identity")? {
@@ -164,12 +227,7 @@ impl SyncClient {
                 .as_ref()
                 .map(|pending| Self::configuration_for_pending_join(pending, pending.enabled)),
         };
-        let http = Client::builder()
-            .redirect(reqwest::redirect::Policy::none())
-            .connect_timeout(std::time::Duration::from_secs(5))
-            .timeout(std::time::Duration::from_secs(12))
-            .build()
-            .map_err(|_| SyncError::Network)?;
+        let http = shared_http_client()?;
         Ok(Self {
             store,
             identity,
@@ -998,17 +1056,19 @@ impl SyncClient {
             }
         }
         // File traffic has a separate bounded budget and runs after ordinary clips.
-        // The relay mailbox is oldest-first; each delivered chunk is durably staged
-        // and acknowledged before the next frame is made visible.
+        // Keep manifests serial so the receiver stores transfer metadata before its
+        // chunks; pairs of chunk POSTs may arrive out of sequence safely.
         let file_drain_started = Instant::now();
         let mut sent_jobs = 0usize;
         let mut file_progress = false;
         let mut blocked_recipients = std::collections::HashSet::new();
         let excluded: Vec<_> = capacity_retries.keys().cloned().collect();
-        for job in self
+        let jobs = self
             .store
-            .pending_file_jobs_excluding(FILE_JOB_MAX_CHECKS_PER_TICK, &excluded)?
-        {
+            .pending_file_jobs_excluding(FILE_JOB_MAX_CHECKS_PER_TICK, &excluded)?;
+        let mut job_index = 0usize;
+        while job_index < jobs.len() {
+            let job = jobs[job_index].clone();
             if sent_jobs >= FILE_JOB_MAX_SENDS_PER_TICK
                 || file_drain_started.elapsed() >= FILE_JOB_TIME_BUDGET
                 || self.cancelled.load(Ordering::Acquire)
@@ -1016,18 +1076,27 @@ impl SyncClient {
                 break;
             }
             if blocked_recipients.contains(&job.recipient) {
+                job_index += 1;
                 continue;
             }
             let Ok(recipient) = roster.member(&job.recipient) else {
                 self.store
                     .mark_file_job(&job.transfer, &job.recipient, job.index, "revoked")?;
+                job_index += 1;
                 continue;
             };
-            let state: String = self.auth_request(
-                Method::GET,
-                &format!("/v1/delivery/{}/{}", job.event, job.recipient),
-                None,
-            )?;
+            // The attempted marker is committed before POST. A new job cannot
+            // already be in the relay; ambiguous/restarted submissions still
+            // reconcile durable delivery state before any retry.
+            let state: String = if job.first_attempted_at.is_none() {
+                "missing".into()
+            } else {
+                self.auth_request(
+                    Method::GET,
+                    &format!("/v1/delivery/{}/{}", job.event, job.recipient),
+                    None,
+                )?
+            };
             match state.as_str() {
                 "missing" => {
                     if job.first_attempted_at.is_some_and(|first| {
@@ -1040,6 +1109,114 @@ impl SyncClient {
                             "failed",
                         )?;
                         self.store.put("delivery-failure", &"expired")?;
+                        job_index += 1;
+                        continue;
+                    }
+                    if job.index >= 0 && job.first_attempted_at.is_none() {
+                        let mut batch = vec![job.clone()];
+                        if sent_jobs + 1 < FILE_JOB_MAX_SENDS_PER_TICK
+                            && let Some(next) = jobs.get(job_index + 1)
+                            && next.index >= 0
+                            && next.first_attempted_at.is_none()
+                            && next.recipient == job.recipient
+                            && !blocked_recipients.contains(&next.recipient)
+                        {
+                            batch.push(next.clone());
+                        }
+                        let mut prepared = Vec::with_capacity(batch.len());
+                        for candidate in &batch {
+                            let target = roster.member(&candidate.recipient)?;
+                            self.store.mark_file_job_attempted(candidate, unix_time())?;
+                            let frame = self.store.file_frame(candidate)?;
+                            let envelope = seal_file_frame(
+                                &cfg.workspace,
+                                roster.epoch,
+                                &self.identity,
+                                target,
+                                &candidate.event,
+                                candidate.sequence,
+                                &frame,
+                            )?;
+                            prepared.push((candidate.clone(), serde_json::to_value(envelope)?));
+                        }
+
+                        let responses = if prepared.len() == 2 {
+                            let http = self.http.clone();
+                            let relay = cfg.relay.clone();
+                            let credential = Zeroizing::new(cfg.credential.clone());
+                            let cancelled = self.cancelled.clone();
+                            std::thread::scope(|scope| {
+                                let handles: Vec<_> = prepared
+                                    .into_iter()
+                                    .map(|(candidate, envelope)| {
+                                        let http = http.clone();
+                                        let relay = relay.clone();
+                                        let credential = credential.clone();
+                                        let cancelled = cancelled.clone();
+                                        scope.spawn(move || {
+                                            let response = post_file_mailbox(
+                                                &http,
+                                                &relay,
+                                                &credential,
+                                                &cancelled,
+                                                &envelope,
+                                            );
+                                            (candidate, response)
+                                        })
+                                    })
+                                    .collect();
+                                handles.into_iter().map(|handle| handle.join()).collect()
+                            })
+                        } else {
+                            let (candidate, envelope) = prepared.into_iter().next().unwrap();
+                            vec![Ok((
+                                candidate,
+                                self.auth_request(Method::POST, "/v1/mailbox", Some(&envelope)),
+                            ))]
+                        };
+
+                        let mut post_error = None;
+                        for response in responses {
+                            let (candidate, submitted) = match response {
+                                Ok(response) => response,
+                                Err(_) => {
+                                    post_error.get_or_insert(SyncError::Network);
+                                    continue;
+                                }
+                            };
+                            let outcome: Result<()> = match submitted {
+                                Ok(_) => {
+                                    let result = self.store.defer_file_job(
+                                        &candidate,
+                                        unix_time().saturating_add(FILE_RECEIPT_RECHECK_SECS),
+                                    );
+                                    if result.is_ok() {
+                                        sent_jobs += 1;
+                                        file_progress = true;
+                                    }
+                                    result
+                                }
+                                Err(SyncError::Relay(507)) => {
+                                    let retry_at =
+                                        unix_time().saturating_add(FILE_QUEUE_RETRY_DELAY_SECS);
+                                    capacity_retries.insert(candidate.recipient.clone(), retry_at);
+                                    blocked_recipients.insert(candidate.recipient.clone());
+                                    self.store
+                                        .put(RECIPIENT_CAPACITY_RETRIES, &capacity_retries)
+                                }
+                                Err(error) => {
+                                    post_error.get_or_insert(error);
+                                    Ok(())
+                                }
+                            };
+                            if let Err(error) = outcome {
+                                post_error.get_or_insert(error);
+                            }
+                        }
+                        if let Some(error) = post_error {
+                            return Err(error);
+                        }
+                        job_index += batch.len();
                         continue;
                     }
                     self.store.mark_file_job_attempted(&job, unix_time())?;
@@ -1060,6 +1237,10 @@ impl SyncClient {
                     );
                     match submitted {
                         Ok(_) => {
+                            self.store.defer_file_job(
+                                &job,
+                                unix_time().saturating_add(FILE_RECEIPT_RECHECK_SECS),
+                            )?;
                             sent_jobs += 1;
                             file_progress = true;
                         }
@@ -1073,10 +1254,9 @@ impl SyncClient {
                         Err(error) => return Err(error),
                     }
                 }
-                "pending" => self.store.defer_file_job(
-                    &job,
-                    unix_time().saturating_add(FILE_QUEUE_RETRY_DELAY_SECS),
-                )?,
+                "pending" => self
+                    .store
+                    .defer_file_job(&job, unix_time().saturating_add(FILE_RECEIPT_RECHECK_SECS))?,
                 "delivered" => {
                     self.store.mark_file_job(
                         &job.transfer,
@@ -1093,6 +1273,7 @@ impl SyncClient {
                 }
                 _ => return Err(SyncError::Invalid),
             }
+            job_index += 1;
         }
         for cursor in self.store.acknowledgements()? {
             let endpoint = if self.store.receipt_rejected(cursor)? {
@@ -1211,7 +1392,22 @@ impl SyncClient {
             }
         }
         status = self.status()?;
-        status.continue_file_transfer = file_progress;
+        // A receiver can briefly catch up between bounded sender batches. Keep
+        // polling through that gap instead of sleeping for the five-second idle
+        // interval. Persist the short grace because the native bridge reopens
+        // this client each call; offline peers and clock rollback cannot extend it.
+        let now = unix_time();
+        if file_progress {
+            self.store
+                .put(FILE_POLL_UNTIL, &now.saturating_add(FILE_POLL_GRACE_SECS))?;
+        }
+        let remaining = self
+            .store
+            .get::<i64>(FILE_POLL_UNTIL)?
+            .unwrap_or(0)
+            .saturating_sub(now);
+        status.continue_file_transfer =
+            file_progress || (1..=FILE_POLL_GRACE_SECS).contains(&remaining);
         status.requests = self.pairing_requests()?;
         status.state = if self.store.overflow_count()? > 0 {
             "Sharing backlog full; retry local clips in Devices"
