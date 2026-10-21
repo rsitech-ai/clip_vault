@@ -23,6 +23,9 @@ pub const FILE_CHUNK_BYTES: usize = 1024 * 1024;
 pub const MAX_FILE_BYTES: u64 = u32::MAX as u64 * FILE_CHUNK_BYTES as u64;
 const FILE_DISK_HEADROOM: u64 = 1024 * 1024 * 1024;
 const MAX_ACTIVE_FILES: usize = 10;
+// Successful submissions await the authenticated whole-file outcome. Per-chunk
+// status lookups are only a bounded recovery path if that outcome is delayed.
+pub(crate) const FILE_RECEIPT_RECHECK_SECS: i64 = 30;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -900,7 +903,7 @@ impl DeviceStore {
             rusqlite::types::Value::Integer(limit as i64),
         ];
         args.extend(excluded.iter().cloned().map(rusqlite::types::Value::Text));
-        let mut query = self.db.prepare(&format!("SELECT transfer,recipient,idx,frame_event,sequence,first_attempted_at FROM file_jobs WHERE status='pending' AND (attempted_at IS NULL OR attempted_at<=?1 OR attempted_at>?1+2){filter} ORDER BY COALESCE(attempted_at,0),rowid LIMIT ?2"))?;
+        let mut query = self.db.prepare(&format!("SELECT transfer,recipient,idx,frame_event,sequence,first_attempted_at FROM file_jobs WHERE status='pending' AND (attempted_at IS NULL OR attempted_at<=?1 OR attempted_at>?1+{FILE_RECEIPT_RECHECK_SECS}){filter} ORDER BY COALESCE(attempted_at,0),rowid LIMIT ?2"))?;
         Ok(query
             .query_map(rusqlite::params_from_iter(args), |r| {
                 Ok(FileJob {

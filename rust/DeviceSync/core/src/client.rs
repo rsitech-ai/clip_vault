@@ -20,6 +20,8 @@ const FILE_JOB_MAX_CHECKS_PER_TICK: usize = 128;
 const FILE_JOB_TIME_BUDGET: Duration = Duration::from_secs(2);
 const FILE_QUEUE_RETRY_DELAY_SECS: i64 = 2;
 const RECIPIENT_CAPACITY_RETRIES: &str = "recipient-capacity-retries";
+const FILE_POLL_UNTIL: &str = "file-poll-until";
+const FILE_POLL_GRACE_SECS: i64 = 10;
 
 #[derive(Clone, Serialize, Deserialize)]
 struct Configuration {
@@ -1023,11 +1025,18 @@ impl SyncClient {
                     .mark_file_job(&job.transfer, &job.recipient, job.index, "revoked")?;
                 continue;
             };
-            let state: String = self.auth_request(
-                Method::GET,
-                &format!("/v1/delivery/{}/{}", job.event, job.recipient),
-                None,
-            )?;
+            // The attempted marker is committed before POST. A new job cannot
+            // already be in the relay; ambiguous/restarted submissions still
+            // reconcile durable delivery state before any retry.
+            let state: String = if job.first_attempted_at.is_none() {
+                "missing".into()
+            } else {
+                self.auth_request(
+                    Method::GET,
+                    &format!("/v1/delivery/{}/{}", job.event, job.recipient),
+                    None,
+                )?
+            };
             match state.as_str() {
                 "missing" => {
                     if job.first_attempted_at.is_some_and(|first| {
@@ -1060,6 +1069,10 @@ impl SyncClient {
                     );
                     match submitted {
                         Ok(_) => {
+                            self.store.defer_file_job(
+                                &job,
+                                unix_time().saturating_add(FILE_RECEIPT_RECHECK_SECS),
+                            )?;
                             sent_jobs += 1;
                             file_progress = true;
                         }
@@ -1073,10 +1086,9 @@ impl SyncClient {
                         Err(error) => return Err(error),
                     }
                 }
-                "pending" => self.store.defer_file_job(
-                    &job,
-                    unix_time().saturating_add(FILE_QUEUE_RETRY_DELAY_SECS),
-                )?,
+                "pending" => self
+                    .store
+                    .defer_file_job(&job, unix_time().saturating_add(FILE_RECEIPT_RECHECK_SECS))?,
                 "delivered" => {
                     self.store.mark_file_job(
                         &job.transfer,
@@ -1211,7 +1223,22 @@ impl SyncClient {
             }
         }
         status = self.status()?;
-        status.continue_file_transfer = file_progress;
+        // A receiver can briefly catch up between bounded sender batches. Keep
+        // polling through that gap instead of sleeping for the five-second idle
+        // interval. Persist the short grace because the native bridge reopens
+        // this client each call; offline peers and clock rollback cannot extend it.
+        let now = unix_time();
+        if file_progress {
+            self.store
+                .put(FILE_POLL_UNTIL, &now.saturating_add(FILE_POLL_GRACE_SECS))?;
+        }
+        let remaining = self
+            .store
+            .get::<i64>(FILE_POLL_UNTIL)?
+            .unwrap_or(0)
+            .saturating_sub(now);
+        status.continue_file_transfer =
+            file_progress || (1..=FILE_POLL_GRACE_SECS).contains(&remaining);
         status.requests = self.pairing_requests()?;
         status.state = if self.store.overflow_count()? > 0 {
             "Sharing backlog full; retry local clips in Devices"

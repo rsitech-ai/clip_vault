@@ -47,6 +47,27 @@ fn command(client: &mut Option<SyncClient>, input: &Value) -> Result<Value, Erro
             client.approve(field(input, "id")?, field(input, "words")?)?;
             json!(true)
         }
+        "file_stage" => {
+            json!(client.stage_file(std::path::Path::new(field(input, "path")?), || false)?)
+        }
+        "file_commit" => {
+            let file: clipvault_sync_core::FileDescriptor =
+                serde_json::from_value(input["file"].clone())?;
+            let event = client
+                .capture(clipvault_sync_core::PortableClip::attachment(&file), None)?
+                .ok_or("capture paused")?;
+            client.commit_file(&file.id, &event)?;
+            json!(event)
+        }
+        "files" => json!(client.file_transfers()?),
+        "file_save" => {
+            client.store.save_file(
+                field(input, "id")?,
+                std::path::Path::new(field(input, "path")?),
+                || false,
+            )?;
+            json!(true)
+        }
         "capture" => json!(client.capture(serde_json::from_value(input["clip"].clone())?, None)?),
         "tick" => json!(client.tick(input["apply"].as_bool().unwrap_or(false))?),
         "status" => json!(client.status()?),

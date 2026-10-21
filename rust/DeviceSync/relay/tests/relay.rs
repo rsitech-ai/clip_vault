@@ -785,12 +785,15 @@ fn streamed_http_transfer_resumes_and_hashes(size: u64) {
         runtime.block_on(async move {
             let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
             address_tx.send(listener.local_addr().unwrap()).unwrap();
-            axum::serve(listener, router(relay_store))
-                .with_graceful_shutdown(async {
-                    let _ = stop_rx.await;
-                })
-                .await
-                .unwrap();
+            axum::serve(
+                clipvault_sync_relay::low_latency_listener(listener),
+                router(relay_store),
+            )
+            .with_graceful_shutdown(async {
+                let _ = stop_rx.await;
+            })
+            .await
+            .unwrap();
         });
     });
     let relay_url = format!("http://{}", address_rx.recv().unwrap());
@@ -1571,4 +1574,16 @@ fn mailbox_quota_rejects_without_eviction_and_acknowledgement_releases_capacity(
     ));
     store.ack(&receiver_auth, first_cursor.unwrap()).unwrap();
     assert!(store.submit(&sender_auth, &rejected, now + 2).is_ok());
+}
+
+#[tokio::test]
+async fn production_listener_disables_nagle_on_accepted_connections() {
+    use axum::serve::Listener;
+    let socket = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = socket.local_addr().unwrap();
+    let mut listener = clipvault_sync_relay::low_latency_listener(socket);
+    let (connected, (accepted, _)) =
+        tokio::join!(tokio::net::TcpStream::connect(address), listener.accept());
+    connected.unwrap();
+    assert!(accepted.nodelay().unwrap());
 }

@@ -46,6 +46,18 @@ fn now() -> i64 {
 fn lock(state: &Shared) -> std::result::Result<std::sync::MutexGuard<'_, RelayStore>, Error> {
     state.lock().map_err(|_| Error(SyncError::Invalid))
 }
+/// Keep small delivery/ACK responses from waiting behind Nagle's algorithm.
+pub fn low_latency_listener(
+    listener: tokio::net::TcpListener,
+) -> impl axum::serve::Listener<Io = tokio::net::TcpStream, Addr = std::net::SocketAddr> {
+    use axum::serve::ListenerExt;
+    listener.tap_io(|stream| {
+        if let Err(error) = stream.set_nodelay(true) {
+            eprintln!("ClipVault relay could not set TCP_NODELAY: {error}");
+        }
+    })
+}
+
 pub fn router(store: RelayStore) -> Router {
     let state = Arc::new(Mutex::new(store));
     let maintenance_state = state.clone();
