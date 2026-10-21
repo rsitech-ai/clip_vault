@@ -762,8 +762,17 @@ fn old_relay_without_capabilities_keeps_text_sync_and_rejects_file_commit_locall
 #[test]
 #[ignore = "explicit 100 MiB HTTP relay and receiver restart validation"]
 fn exactly_100_mib_http_transfer_resumes_after_receiver_restart_and_hashes() {
+    streamed_http_transfer_resumes_and_hashes(100 * 1024 * 1024);
+}
+
+#[test]
+#[ignore = "explicit 600 MiB HTTP/restart gate, above both former file/cache limits"]
+fn six_hundred_mib_http_transfer_exceeds_old_cache_cap_and_hashes() {
+    streamed_http_transfer_resumes_and_hashes(600 * 1024 * 1024);
+}
+
+fn streamed_http_transfer_resumes_and_hashes(size: u64) {
     use std::io::{Read, Write};
-    const SIZE: u64 = 100 * 1024 * 1024;
     let dir = tempfile::tempdir().unwrap();
     let relay_store = RelayStore::open(&dir.path().join("large-relay.db"), "registration").unwrap();
     let (address_tx, address_rx) = std::sync::mpsc::channel();
@@ -805,13 +814,13 @@ fn exactly_100_mib_http_transfer_resumes_after_receiver_restart_and_hashes() {
     let source = dir.path().join("exactly-100-mib.bin");
     let mut file = std::fs::File::create(&source).unwrap();
     let block = vec![0x6d; 1024 * 1024];
-    for _ in 0..100 {
+    for _ in 0..size / (1024 * 1024) {
         file.write_all(&block).unwrap();
     }
     file.sync_all().unwrap();
     let descriptor = mac.stage_file(&source, || false).unwrap();
-    assert_eq!(descriptor.size, SIZE);
-    assert_eq!(descriptor.chunk_count, 100);
+    assert_eq!(descriptor.size, size);
+    assert_eq!(u64::from(descriptor.chunk_count), size / (1024 * 1024));
     let event_id = mac
         .capture(PortableClip::attachment(&descriptor), None)
         .unwrap()
@@ -829,8 +838,8 @@ fn exactly_100_mib_http_transfer_resumes_after_receiver_restart_and_hashes() {
     // Production deliberately limits each drain by elapsed time as well as frame
     // count. A loaded debug/emulated runner can send fewer frames per tick; the
     // acceptance condition is verified completion within a bounded wall time.
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(300);
-    let resume_ticks = (1..=128)
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(600);
+    let resume_ticks = (1..=1024)
         .take_while(|_| std::time::Instant::now() < deadline)
         .find(|tick| {
             let started = std::time::Instant::now();
@@ -839,7 +848,8 @@ fn exactly_100_mib_http_transfer_resumes_after_receiver_restart_and_hashes() {
             let transfers = ubuntu.file_transfers().unwrap();
             let transfer = transfers.iter().find(|item| item.id == descriptor.id);
             eprintln!(
-                "100 MiB resume tick {tick}: {:?}, elapsed {:?}",
+                "{} MiB resume tick {tick}: {:?}, elapsed {:?}",
+                size / (1024 * 1024),
                 transfer,
                 started.elapsed()
             );
@@ -847,10 +857,11 @@ fn exactly_100_mib_http_transfer_resumes_after_receiver_restart_and_hashes() {
         });
     assert!(
         resume_ticks.is_some(),
-        "Ubuntu did not finish and verify the restarted 100 MiB receive within 300 seconds / 128 ticks"
+        "Ubuntu did not finish and verify the restarted 100 MiB receive within 600 seconds / 1024 ticks"
     );
     eprintln!(
-        "Verified the restarted 100 MiB receive in {} post-restart sync ticks",
+        "Verified the restarted {} MiB receive in {} post-restart sync ticks",
+        size / (1024 * 1024),
         resume_ticks.unwrap()
     );
     let destination = dir.path().join("received-100-mib.bin");
@@ -1072,7 +1083,7 @@ fn maintenance_retains_terminal_status_for_37_days_and_never_prunes_pending() {
 }
 
 #[test]
-fn retained_delivery_metadata_has_a_hard_global_row_cap() {
+fn delivered_receipt_cache_reclaims_at_cap_but_never_evicts_pending_data() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("relay.db");
     let mut store = RelayStore::open(&path, "registration").unwrap();
@@ -1115,10 +1126,93 @@ fn retained_delivery_metadata_has_a_hard_global_row_cap() {
         PortableClip::text("one too many", unix_time()),
     );
     let envelope = seal_event("space", 2, &sender, &receiver.member("Device"), &event).unwrap();
+    let cursor = store.submit(&auth, &envelope, unix_time()).unwrap();
+    let db = rusqlite::Connection::open(&path).unwrap();
+    let retained: u64 = db
+        .query_row("SELECT COUNT(*) FROM deliveries", [], |r| r.get(0))
+        .unwrap();
+    assert!(retained <= MAX_RETAINED_DELIVERIES);
+    assert!(matches!(
+        store.ack(&auth, cursor),
+        Err(SyncError::Authentication)
+    ));
+    assert!(matches!(
+        store.reject(&auth, cursor),
+        Err(SyncError::Authentication)
+    ));
+    let recipient_auth = store.authenticate("receiver").unwrap();
+    store.ack(&recipient_auth, cursor).unwrap();
+    assert!(matches!(
+        store.reject(&recipient_auth, cursor),
+        Err(SyncError::Authentication)
+    ));
+    // Lost ACK response, followed by cache eviction: the stale cursor must
+    // complete idempotently instead of blocking all subsequent mailbox reads.
+    db.execute("DELETE FROM deliveries WHERE cursor=?1", [cursor])
+        .unwrap();
+    store.ack(&recipient_auth, cursor).unwrap();
+    store.reject(&recipient_auth, cursor).unwrap();
+    assert!(store.ack(&recipient_auth, 0).is_err());
+    assert!(store.reject(&recipient_auth, -1).is_err());
+    let tx = db.unchecked_transaction().unwrap();
+    tx.execute("UPDATE deliveries SET status='pending',terminal_at=NULL,envelope='opaque',envelope_bytes=6",[]).unwrap();
+    let retained: u64 = tx
+        .query_row("SELECT COUNT(*) FROM deliveries", [], |r| r.get(0))
+        .unwrap();
+    for index in retained..MAX_RETAINED_DELIVERIES {
+        tx.execute("INSERT INTO deliveries(workspace,sender,recipient,event,envelope,status,created,envelope_bytes) VALUES('other','s','r',?1,'opaque','pending',?2,6)",rusqlite::params![format!("pending-{index}"),unix_time()]).unwrap();
+    }
+    tx.commit().unwrap();
     assert!(matches!(
         store.submit(&auth, &envelope, unix_time()),
         Err(SyncError::Capacity)
     ));
+    assert_eq!(
+        db.query_row(
+            "SELECT COUNT(*) FROM deliveries WHERE status='pending' AND envelope='opaque'",
+            [],
+            |r| r.get::<_, u64>(0)
+        )
+        .unwrap(),
+        MAX_RETAINED_DELIVERIES
+    );
+}
+
+#[test]
+fn legacy_byte_accounting_migration_is_atomic_and_counts_utf8_bytes() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("legacy.db");
+    let db = rusqlite::Connection::open(&path).unwrap();
+    db.execute_batch("CREATE TABLE deliveries(cursor INTEGER PRIMARY KEY AUTOINCREMENT, workspace TEXT NOT NULL, sender TEXT NOT NULL, recipient TEXT NOT NULL, event TEXT NOT NULL, envelope TEXT, status TEXT NOT NULL, created INTEGER NOT NULL, terminal_at INTEGER, UNIQUE(workspace,event,recipient));
+        CREATE TRIGGER fail_migration BEFORE UPDATE ON deliveries BEGIN SELECT RAISE(ABORT,'migration fault'); END;").unwrap();
+    let opaque = "opaque UTF-8 fixture — zażółć";
+    db.execute("INSERT INTO deliveries(workspace,sender,recipient,event,envelope,status,created) VALUES('space','s','r','event',?1,'pending',?2)",rusqlite::params![opaque,unix_time()]).unwrap();
+    assert!(RelayStore::open(&path, "registration").is_err());
+    let has_column:bool = db.query_row("SELECT EXISTS(SELECT 1 FROM pragma_table_info('deliveries') WHERE name='envelope_bytes')",[],|r|r.get(0)).unwrap();
+    assert!(
+        !has_column,
+        "a failed backfill must roll back the schema addition too"
+    );
+    db.execute_batch("DROP TRIGGER fail_migration").unwrap();
+    let store = RelayStore::open(&path, "registration").unwrap();
+    let (size, body, status): (u64, String, String) = db
+        .query_row(
+            "SELECT envelope_bytes,envelope,status FROM deliveries",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!(size, opaque.len() as u64);
+    assert_eq!(body, opaque);
+    assert_eq!(status, "pending");
+    drop(store);
+    RelayStore::open(&path, "registration").unwrap();
+    assert_eq!(
+        db.query_row("SELECT envelope_bytes FROM deliveries", [], |r| r
+            .get::<_, u64>(0))
+            .unwrap(),
+        size
+    );
 }
 
 #[test]

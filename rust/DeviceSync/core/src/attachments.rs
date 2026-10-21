@@ -18,9 +18,10 @@ use std::{
 };
 use zeroize::Zeroizing;
 
-pub const MAX_FILE_BYTES: u64 = 100 * 1024 * 1024;
 pub const FILE_CHUNK_BYTES: usize = 1024 * 1024;
-pub const MAX_FILE_STORE_BYTES: u64 = 512 * 1024 * 1024;
+/// Representational bound of the existing chunk index, not a product size tier.
+pub const MAX_FILE_BYTES: u64 = u32::MAX as u64 * FILE_CHUNK_BYTES as u64;
+const FILE_DISK_HEADROOM: u64 = 1024 * 1024 * 1024;
 const MAX_ACTIVE_FILES: usize = 10;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -163,6 +164,8 @@ impl FileFrame {
     pub fn message_type(&self) -> &'static str {
         match self {
             Self::Outcome(_) => "file-outcome-v1",
+            Self::Manifest(m) if m.descriptor.chunk_count > 100 => "file-large-v1",
+            Self::Chunk(c) if c.chunk_count > 100 => "file-large-v1",
             _ => "file-v1",
         }
     }
@@ -180,7 +183,6 @@ impl FileFrame {
                 if uuid::Uuid::parse_str(&chunk.transfer).is_err()
                     || uuid::Uuid::parse_str(&chunk.origin).is_err()
                     || chunk.chunk_count == 0
-                    || chunk.chunk_count > 100
                     || chunk.index >= chunk.chunk_count
                     || chunk.bytes.is_empty()
                     || chunk.bytes.len() > FILE_CHUNK_BYTES
@@ -265,7 +267,7 @@ pub fn open_file_frame(
         || h.recipient != recipient.id
         || h.sender != sender.id
         || h.epoch == 0
-        || !["file-v1", "file-outcome-v1"].contains(&h.message_type.as_str())
+        || !["file-v1", "file-large-v1", "file-outcome-v1"].contains(&h.message_type.as_str())
         || envelope.ciphertext.len() > crate::MAX_WIRE_BYTES
     {
         return Err(SyncError::Invalid);
@@ -376,7 +378,73 @@ fn metadata_unchanged(before: &std::fs::Metadata, after: &std::fs::Metadata) -> 
     }
 }
 
+fn file_disk_bytes(size: u64) -> Result<u64> {
+    // Include SQLite page overhead, encryption tags and the final partial page.
+    size.checked_add(size / 50)
+        .and_then(|n| n.checked_add(size.div_ceil(FILE_CHUNK_BYTES as u64) * 128))
+        .ok_or(SyncError::DiskSpace)
+}
+
+fn check_file_space(available: u64, reusable: u64, required: u64) -> Result<()> {
+    if available < FILE_DISK_HEADROOM
+        || required
+            > available
+                .saturating_sub(FILE_DISK_HEADROOM)
+                .saturating_add(reusable)
+    {
+        return Err(SyncError::DiskSpace);
+    }
+    Ok(())
+}
+
 impl DeviceStore {
+    /// Reserve room for in-flight files as well as this new write. Ready file
+    /// bytes already occupy the database and are reflected in filesystem space.
+    fn reserved_file_bytes(&self, additional: u64) -> Result<u64> {
+        let mut statement = self.db.prepare(
+            "SELECT id,payload,transferred FROM file_transfers WHERE state IN ('staging','receiving')",
+        )?;
+        let mut reserved = additional;
+        for row in statement.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, Vec<u8>>(1)?,
+                r.get::<_, u64>(2)?,
+            ))
+        })? {
+            let (id, payload, transferred) = row?;
+            let transfer: StoredTransfer = self.unseal(&format!("file-meta:{id}"), &payload)?;
+            reserved = reserved
+                .checked_add(file_disk_bytes(
+                    transfer.descriptor.size.saturating_sub(transferred),
+                )?)
+                .ok_or(SyncError::DiskSpace)?;
+        }
+        Ok(reserved)
+    }
+
+    fn ensure_file_space(&self, additional: u64) -> Result<()> {
+        let reserved = self.reserved_file_bytes(additional)?;
+        let path = std::ffi::CString::new(self.path.as_os_str().as_encoded_bytes())
+            .map_err(|_| SyncError::Invalid)?;
+        let mut stat = std::mem::MaybeUninit::<libc::statvfs>::uninit();
+        // SAFETY: path is NUL-terminated; stat points to writable output space.
+        if unsafe { libc::statvfs(path.as_ptr(), stat.as_mut_ptr()) } != 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        // SAFETY: statvfs initialized the structure after returning success.
+        let stat = unsafe { stat.assume_init() };
+        // Darwin exposes narrower counters than Linux. Widen before multiplying.
+        #[allow(clippy::unnecessary_cast)]
+        let available = (stat.f_bavail as u64).saturating_mul(stat.f_frsize as u64);
+        #[cfg(test)]
+        let available = self.file_space_override.unwrap_or(available);
+        let free_pages: u64 = self
+            .db
+            .query_row("PRAGMA freelist_count", [], |r| r.get(0))?;
+        let page_size: u64 = self.db.query_row("PRAGMA page_size", [], |r| r.get(0))?;
+        check_file_space(available, free_pages.saturating_mul(page_size), reserved)
+    }
     /// Remove abandoned partial transfers after the relay's full retry lifetime.
     /// Completed local files are retained until the user deletes them.
     pub(crate) fn prune_incomplete_files(&mut self, now: i64) -> Result<()> {
@@ -451,6 +519,7 @@ impl DeviceStore {
         if before.len() > MAX_FILE_BYTES {
             return Err(SyncError::TooLarge);
         }
+        self.ensure_file_space(file_disk_bytes(before.len())?)?;
         let active: usize = self.db.query_row(
             "SELECT COUNT(*) FROM file_transfers WHERE state IN ('staging','receiving','pending','sending','verifying')", [], |r| r.get(0))?;
         if active >= MAX_ACTIVE_FILES {
@@ -492,17 +561,10 @@ impl DeviceStore {
                 source.read_exact(&mut buffer[..amount])?;
                 hasher.update(&buffer[..amount]);
                 let encrypted = self.seal_raw(&context(&id, index), &buffer[..amount])?;
+                self.ensure_file_space(0)?;
                 let tx = self
                     .db
                     .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-                let used: u64 = tx.query_row(
-                    "SELECT COALESCE(SUM(LENGTH(payload)),0) FROM file_chunks",
-                    [],
-                    |r| r.get(0),
-                )?;
-                if used.saturating_add(encrypted.len() as u64) > MAX_FILE_STORE_BYTES {
-                    return Err(SyncError::Capacity);
-                }
                 tx.execute(
                     "INSERT INTO file_chunks(transfer,idx,payload) VALUES(?1,?2,?3)",
                     params![id, index, encrypted],
@@ -814,10 +876,33 @@ impl DeviceStore {
         )?)
     }
 
+    #[cfg(test)]
     pub(crate) fn pending_file_jobs(&self, limit: usize) -> Result<Vec<FileJob>> {
-        let mut query = self.db.prepare("SELECT transfer,recipient,idx,frame_event,sequence,first_attempted_at FROM file_jobs WHERE status='pending' AND (attempted_at IS NULL OR attempted_at<=?1 OR attempted_at>?1+2) ORDER BY rowid LIMIT ?2")?;
+        self.pending_file_jobs_excluding(limit, &[])
+    }
+
+    pub(crate) fn pending_file_jobs_excluding(
+        &self,
+        limit: usize,
+        excluded: &[String],
+    ) -> Result<Vec<FileJob>> {
+        let filter = if excluded.is_empty() {
+            String::new()
+        } else {
+            let placeholders = (3..3 + excluded.len())
+                .map(|i| format!("?{i}"))
+                .collect::<Vec<_>>()
+                .join(",");
+            format!(" AND recipient NOT IN ({placeholders})")
+        };
+        let mut args = vec![
+            rusqlite::types::Value::Integer(crate::unix_time()),
+            rusqlite::types::Value::Integer(limit as i64),
+        ];
+        args.extend(excluded.iter().cloned().map(rusqlite::types::Value::Text));
+        let mut query = self.db.prepare(&format!("SELECT transfer,recipient,idx,frame_event,sequence,first_attempted_at FROM file_jobs WHERE status='pending' AND (attempted_at IS NULL OR attempted_at<=?1 OR attempted_at>?1+2){filter} ORDER BY COALESCE(attempted_at,0),rowid LIMIT ?2"))?;
         Ok(query
-            .query_map(params![crate::unix_time(), limit as i64], |r| {
+            .query_map(rusqlite::params_from_iter(args), |r| {
                 Ok(FileJob {
                     transfer: r.get(0)?,
                     recipient: r.get(1)?,
@@ -838,14 +923,10 @@ impl DeviceStore {
         Ok(())
     }
 
-    pub(crate) fn defer_file_jobs_for_recipient(
-        &mut self,
-        recipient: &str,
-        retry_at: i64,
-    ) -> Result<()> {
+    pub(crate) fn defer_file_job(&mut self, job: &FileJob, retry_at: i64) -> Result<()> {
         self.db.execute(
-            "UPDATE file_jobs SET attempted_at=?2 WHERE recipient=?1 AND status='pending'",
-            params![recipient, retry_at],
+            "UPDATE file_jobs SET attempted_at=?4 WHERE transfer=?1 AND recipient=?2 AND idx=?3 AND status='pending'",
+            params![job.transfer, job.recipient, job.index, retry_at],
         )?;
         Ok(())
     }
@@ -911,18 +992,7 @@ impl DeviceStore {
                     }
                     return Ok(None);
                 }
-                let used: u64 = self.db.query_row(
-                    "SELECT COALESCE(SUM(LENGTH(payload)),0) FROM file_chunks",
-                    [],
-                    |r| r.get(0),
-                )?;
-                if used
-                    .saturating_add(descriptor.size)
-                    .saturating_add(descriptor.chunk_count as u64 * 28)
-                    > MAX_FILE_STORE_BYTES
-                {
-                    return Err(SyncError::Capacity);
-                }
+                self.ensure_file_space(file_disk_bytes(descriptor.size)?)?;
                 let active:usize=self.db.query_row("SELECT COUNT(*) FROM file_transfers WHERE state IN ('staging','receiving','pending','sending','verifying')",[],|r|r.get(0))?;
                 if active >= MAX_ACTIVE_FILES {
                     return Err(SyncError::Capacity);
@@ -988,34 +1058,31 @@ impl DeviceStore {
                 } else {
                     let encrypted =
                         self.seal_raw(&context(&chunk.transfer, chunk.index), &chunk.bytes)?;
+                    if let Err(error) = self.ensure_file_space(0) {
+                        if matches!(error, SyncError::DiskSpace) {
+                            self.fail_incoming(descriptor, recipient)?;
+                        }
+                        return Err(error);
+                    }
                     let tx = self
                         .db
                         .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-                    let used: u64 = tx.query_row(
-                        "SELECT COALESCE(SUM(LENGTH(payload)),0) FROM file_chunks",
-                        [],
-                        |r| r.get(0),
-                    )?;
-                    if used.saturating_add(encrypted.len() as u64) > MAX_FILE_STORE_BYTES {
-                        return Err(SyncError::Capacity);
-                    }
                     tx.execute(
                         "INSERT INTO file_chunks(transfer,idx,payload) VALUES(?1,?2,?3)",
                         params![chunk.transfer, chunk.index, encrypted],
                     )?;
-                    let total:u64=tx.query_row("SELECT COALESCE(SUM(LENGTH(payload)-28),0) FROM file_chunks WHERE transfer=?1",[&chunk.transfer],|r|r.get(0))?;
                     tx.execute(
-                        "UPDATE file_transfers SET transferred=?2 WHERE id=?1",
-                        params![chunk.transfer, total],
+                        "UPDATE file_transfers SET transferred=transferred+?2 WHERE id=?1",
+                        params![chunk.transfer, chunk.bytes.len() as u64],
                     )?;
                     tx.commit()?;
                 }
-                let got: u32 = self.db.query_row(
-                    "SELECT COUNT(*) FROM file_chunks WHERE transfer=?1",
+                let transferred: u64 = self.db.query_row(
+                    "SELECT transferred FROM file_transfers WHERE id=?1",
                     [&chunk.transfer],
                     |r| r.get(0),
                 )?;
-                if got == descriptor.chunk_count {
+                if transferred == descriptor.size {
                     let history_event = transfer.history_event.ok_or(SyncError::Attachment)?;
                     let history_sequence =
                         transfer.history_sequence.ok_or(SyncError::Attachment)?;
@@ -1068,6 +1135,10 @@ impl DeviceStore {
             "UPDATE file_targets SET status=?3 WHERE transfer=?1 AND recipient=?2",
             params![outcome.transfer, sender, outcome.outcome],
         )?;
+        // An authenticated whole-file outcome covers every frame for this
+        // recipient, including receipts whose status check was deferred.
+        tx.execute("UPDATE file_jobs SET status=?3 WHERE transfer=?1 AND recipient=?2 AND status='pending'",
+            params![outcome.transfer,sender,if outcome.outcome == "ready" { "delivered" } else { "cancelled" }])?;
         let failed:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM file_targets WHERE transfer=?1 AND status IN ('failed','unsupported'))",[&outcome.transfer],|r|r.get(0))?;
         let pending: u64 = tx.query_row(
             "SELECT COUNT(*) FROM file_targets WHERE transfer=?1 AND status!='ready'",
@@ -1267,12 +1338,12 @@ impl DeviceStore {
             [transfer],
             |r| r.get(0),
         )?;
-        let remaining: i64 = self.db.query_row(
-            "SELECT COUNT(*) FROM file_jobs WHERE transfer=?1 AND status='pending'",
+        let remaining: bool = self.db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM file_jobs WHERE transfer=?1 AND status='pending')",
             [transfer],
             |r| r.get(0),
         )?;
-        if remaining == 0 && direction == "outgoing" {
+        if !remaining && direction == "outgoing" {
             let jobs_failed:bool=self.db.query_row("SELECT EXISTS(SELECT 1 FROM file_jobs WHERE transfer=?1 AND status IN ('failed','revoked','cancelled'))",[transfer],|r|r.get(0))?;
             let target_failed:bool=self.db.query_row("SELECT EXISTS(SELECT 1 FROM file_targets WHERE transfer=?1 AND status IN ('failed','unsupported'))",[transfer],|r|r.get(0))?;
             let next = if jobs_failed || target_failed {
@@ -1289,6 +1360,259 @@ impl DeviceStore {
 #[cfg(test)]
 mod unit_tests {
     use super::*;
+    #[test]
+    fn concurrent_file_reservations_survive_restart_and_release_on_delete() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("store.db");
+        let key = crate::random_secret();
+        let mut store = DeviceStore::open(&path, key).unwrap();
+        let receiver = DeviceIdentity::generate();
+        let make = |size: u64| FileManifest {
+            descriptor: FileDescriptor {
+                id: uuid::Uuid::new_v4().to_string(),
+                origin: uuid::Uuid::new_v4().to_string(),
+                filename: "capacity.bin".into(),
+                size,
+                sha256: "a".repeat(64),
+                chunk_count: size.div_ceil(FILE_CHUNK_BYTES as u64) as u32,
+                created_at: 1,
+            },
+            history_event: uuid::Uuid::new_v4().to_string(),
+            history_sequence: 1,
+        };
+        let first = make(FILE_CHUNK_BYTES as u64);
+        let second = make(2 * FILE_CHUNK_BYTES as u64);
+        for manifest in [&first, &second] {
+            store
+                .receive_file_frame(
+                    &FileFrame::Manifest(manifest.clone()),
+                    &receiver.id,
+                    "Sender",
+                )
+                .unwrap();
+        }
+        let reserved = file_disk_bytes(first.descriptor.size).unwrap()
+            + file_disk_bytes(second.descriptor.size).unwrap();
+        assert_eq!(store.reserved_file_bytes(0).unwrap(), reserved);
+        drop(store);
+        let mut store = DeviceStore::open(&path, key).unwrap();
+        assert_eq!(store.reserved_file_bytes(0).unwrap(), reserved);
+        store.delete_file(&first.descriptor.id).unwrap();
+        assert_eq!(
+            store.reserved_file_bytes(0).unwrap(),
+            file_disk_bytes(second.descriptor.size).unwrap()
+        );
+        // A valid but unfulfillable manifest fails before allocating its bytes.
+        let impossible = make(MAX_FILE_BYTES);
+        assert!(matches!(
+            store.receive_file_frame(&FileFrame::Manifest(impossible), &receiver.id, "Sender"),
+            Err(SyncError::DiskSpace)
+        ));
+        assert!(store.history().unwrap().is_empty());
+    }
+
+    #[test]
+    fn failed_stage_write_keeps_source_and_removes_partial_transfer() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store =
+            DeviceStore::open(&dir.path().join("store.db"), crate::random_secret()).unwrap();
+        let source = dir.path().join("source.bin");
+        std::fs::write(&source, b"source survives failed storage").unwrap();
+        store.db.execute_batch("CREATE TRIGGER fail_chunk BEFORE INSERT ON file_chunks BEGIN SELECT RAISE(ABORT,'storage fault'); END;").unwrap();
+        assert!(
+            store
+                .stage_file(&source, &uuid::Uuid::new_v4().to_string(), || false)
+                .is_err()
+        );
+        assert!(store.file_transfers().unwrap().is_empty());
+        assert_eq!(
+            std::fs::read(source).unwrap(),
+            b"source survives failed storage"
+        );
+    }
+
+    #[test]
+    fn disk_loss_mid_receive_fails_durably_and_releases_partial_reservation() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("receiver.db");
+        let key = crate::random_secret();
+        let mut store = DeviceStore::open(&path, key).unwrap();
+        let sender = DeviceIdentity::generate();
+        let recipient = DeviceIdentity::generate();
+        let bytes = vec![0x39; 2 * FILE_CHUNK_BYTES];
+        let descriptor = FileDescriptor {
+            id: uuid::Uuid::new_v4().to_string(),
+            origin: sender.id.clone(),
+            filename: "partial.bin".into(),
+            size: bytes.len() as u64,
+            sha256: hex::encode(Sha256::digest(&bytes)),
+            chunk_count: 2,
+            created_at: crate::unix_time(),
+        };
+        let manifest = FileFrame::Manifest(FileManifest {
+            descriptor: descriptor.clone(),
+            history_event: uuid::Uuid::new_v4().to_string(),
+            history_sequence: 1,
+        });
+        store
+            .receive_file_frame(&manifest, &recipient.id, "Sender")
+            .unwrap();
+        let chunk = |index: u32| {
+            FileFrame::Chunk(FileChunk {
+                transfer: descriptor.id.clone(),
+                origin: sender.id.clone(),
+                index,
+                chunk_count: 2,
+                bytes: vec![0x39; FILE_CHUNK_BYTES],
+            })
+        };
+        store
+            .receive_file_frame(&chunk(0), &recipient.id, "Sender")
+            .unwrap();
+        store.file_space_override = Some(FILE_DISK_HEADROOM);
+        assert!(matches!(
+            store.receive_file_frame(&chunk(1), &recipient.id, "Sender"),
+            Err(SyncError::DiskSpace)
+        ));
+        assert_eq!(store.reserved_file_bytes(0).unwrap(), 0);
+        assert_eq!(
+            store
+                .db
+                .query_row("SELECT COUNT(*) FROM file_chunks", [], |r| r
+                    .get::<_, u64>(0))
+                .unwrap(),
+            0
+        );
+        assert!(store.history().unwrap().is_empty());
+        drop(store);
+        let mut store = DeviceStore::open(&path, key).unwrap();
+        assert_eq!(store.file_transfers().unwrap()[0].status, "failed");
+        assert!(store.is_file_tombstoned(&descriptor.id).unwrap());
+        assert!(
+            store
+                .receive_file_frame(&chunk(1), &recipient.id, "Sender")
+                .is_err()
+        );
+        assert!(store.history().unwrap().is_empty());
+    }
+
+    #[test]
+    fn deferred_old_pending_frames_cannot_hide_new_recipient_work() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store =
+            DeviceStore::open(&dir.path().join("store.db"), crate::random_secret()).unwrap();
+        let tx = store.db.transaction().unwrap();
+        for index in 0..129 {
+            tx.execute("INSERT INTO file_jobs(transfer,recipient,idx,frame_event,sequence,status) VALUES('transfer',?1,?2,?3,?4,'pending')",
+                params![if index<128 {"offline"} else {"healthy"},index,uuid::Uuid::new_v4().to_string(),index+1]).unwrap();
+        }
+        tx.commit().unwrap();
+        let old = store.pending_file_jobs(128).unwrap();
+        assert_eq!(old.len(), 128);
+        for job in old {
+            store.defer_file_job(&job, crate::unix_time() + 2).unwrap();
+        }
+        let next = store.pending_file_jobs(128).unwrap();
+        // Emulation can outlast the deadlines while this batch is deferred.
+        // Unchecked work must still precede previously checked rows.
+        assert_eq!(next[0].recipient, "healthy");
+    }
+
+    #[test]
+    fn capacity_backoff_skips_thousands_of_jobs_without_rewriting_rows() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store =
+            DeviceStore::open(&dir.path().join("store.db"), crate::random_secret()).unwrap();
+        let tx = store.db.transaction().unwrap();
+        for index in 0..2049 {
+            tx.execute("INSERT INTO file_jobs(transfer,recipient,idx,frame_event,sequence,status) VALUES('transfer',?1,?2,?3,?4,'pending')",
+                params![if index<2048 {"full"} else {"healthy"},index,uuid::Uuid::new_v4().to_string(),index+1]).unwrap();
+        }
+        tx.commit().unwrap();
+        let next = store
+            .pending_file_jobs_excluding(128, &["full".into()])
+            .unwrap();
+        assert_eq!(next.len(), 1);
+        assert_eq!(next[0].recipient, "healthy");
+        assert_eq!(
+            store
+                .db
+                .query_row(
+                    "SELECT COUNT(*) FROM file_jobs WHERE attempted_at IS NOT NULL",
+                    [],
+                    |r| r.get::<_, u64>(0)
+                )
+                .unwrap(),
+            0
+        );
+    }
+    #[test]
+    fn disk_budget_reserves_headroom_and_reuses_free_sqlite_pages() {
+        assert!(check_file_space(FILE_DISK_HEADROOM + 10, 20, 30).is_ok());
+        assert!(matches!(
+            check_file_space(FILE_DISK_HEADROOM + 10, 20, 31),
+            Err(SyncError::DiskSpace)
+        ));
+        assert!(check_file_space(FILE_DISK_HEADROOM - 1, u64::MAX, 1).is_err());
+        assert!(file_disk_bytes(u64::MAX).is_err());
+    }
+
+    #[test]
+    fn size_class_is_bound_to_manifest_chunks_and_authenticated_header() {
+        let sender = DeviceIdentity::generate();
+        let receiver = DeviceIdentity::generate();
+        let mut descriptor = FileDescriptor {
+            id: uuid::Uuid::new_v4().to_string(),
+            origin: sender.id.clone(),
+            filename: "large.bin".into(),
+            size: MAX_FILE_BYTES,
+            chunk_count: u32::MAX,
+            sha256: "a".repeat(64),
+            created_at: 1,
+        };
+        assert!(descriptor.validate().is_ok());
+        descriptor.size += 1;
+        assert!(descriptor.validate().is_err());
+        for (size, count, kind) in [
+            (100 * FILE_CHUNK_BYTES as u64, 100, "file-v1"),
+            (100 * FILE_CHUNK_BYTES as u64 + 1, 101, "file-large-v1"),
+        ] {
+            descriptor.size = size;
+            descriptor.chunk_count = count;
+            let manifest = FileFrame::Manifest(FileManifest {
+                descriptor: descriptor.clone(),
+                history_event: uuid::Uuid::new_v4().to_string(),
+                history_sequence: 1,
+            });
+            let chunk = FileFrame::Chunk(FileChunk {
+                transfer: descriptor.id.clone(),
+                origin: sender.id.clone(),
+                index: 0,
+                chunk_count: count,
+                bytes: vec![1; FILE_CHUNK_BYTES],
+            });
+            for frame in [manifest, chunk] {
+                assert_eq!(frame.message_type(), kind);
+                let mut envelope = seal_file_frame(
+                    "space",
+                    1,
+                    &sender,
+                    &receiver.member("Receiver"),
+                    &uuid::Uuid::new_v4().to_string(),
+                    2,
+                    &frame,
+                )
+                .unwrap();
+                assert_eq!(envelope.header.message_type, kind);
+                open_file_frame("space", &receiver, &sender.member("Sender"), &envelope).unwrap();
+                envelope.header.message_type = "file-outcome-v1".into();
+                assert!(
+                    open_file_frame("space", &receiver, &sender.member("Sender"), &envelope)
+                        .is_err()
+                );
+            }
+        }
+    }
     #[test]
     fn descriptor_rejects_path_and_malformed_hash() {
         let d = FileDescriptor {

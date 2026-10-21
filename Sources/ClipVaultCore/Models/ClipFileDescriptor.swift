@@ -3,7 +3,8 @@ import Foundation
 /// Only this small descriptor crosses the platform store/FFI boundary.
 /// File bytes remain encrypted in the portable transfer store until explicit Save.
 public struct ClipFileDescriptor: Codable, Sendable, Equatable {
-    public static let maximumBytes: UInt64 = 100 * 1024 * 1024
+    // The chunk index is UInt32 on the wire. There is no smaller product size cap.
+    public static let maximumBytes: UInt64 = UInt64(UInt32.max) * 1_048_576
     public var id: String
     public var origin: String
     public var filename: String

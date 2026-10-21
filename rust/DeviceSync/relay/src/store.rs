@@ -5,10 +5,10 @@ use std::path::Path;
 use subtle::ConstantTimeEq;
 
 pub const PAIRING_CLOCK_SKEW_SECONDS: i64 = 60;
-/// Terminal state remains queryable for the 30-day pending lifetime plus a
-/// seven-day grace period, so a sender returning after acknowledgement sees it.
+/// Terminal state expires after the pending lifetime plus a seven-day grace.
+/// Delivered receipt metadata can be reclaimed earlier under row pressure.
 pub const TERMINAL_DELIVERY_RETENTION: i64 = DELIVERY_TTL + 7 * 24 * 60 * 60;
-/// Hard ceiling across all workspaces; reaching it rejects new submissions.
+/// Hard ceiling across all workspaces; pending data is never evicted to admit work.
 pub const MAX_RETAINED_DELIVERIES: u64 = 100_000;
 pub const MAX_TOTAL_PENDING_BYTES: u64 = 1024 * 1024 * 1024;
 pub const MAX_ENROLLMENT_RECEIPTS: u64 = 100_000;
@@ -65,6 +65,26 @@ impl RelayStore {
                 [],
             )?;
         }
+        let has_envelope_bytes: bool = db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('deliveries') WHERE name='envelope_bytes')",
+            [], |r| r.get(0),
+        )?;
+        if !has_envelope_bytes {
+            let tx = db.unchecked_transaction()?;
+            tx.execute(
+                "ALTER TABLE deliveries ADD COLUMN envelope_bytes INTEGER NOT NULL DEFAULT 0",
+                [],
+            )?;
+            // This one-time migration counts bytes (not UTF-8 characters).
+            // Admission must never rescan all encrypted JSON payloads per chunk.
+            tx.execute(
+                "UPDATE deliveries SET envelope_bytes=COALESCE(LENGTH(CAST(envelope AS BLOB)),0)",
+                [],
+            )?;
+            tx.commit()?;
+        }
+        db.execute_batch("CREATE INDEX IF NOT EXISTS deliveries_pending_bytes ON deliveries(workspace,recipient,envelope_bytes) WHERE status='pending';")?;
+        db.execute_batch("CREATE INDEX IF NOT EXISTS deliveries_completed ON deliveries(terminal_at,cursor) WHERE status='delivered' AND terminal_at IS NOT NULL;")?;
         let has_completed_at: bool = db.query_row(
             "SELECT EXISTS(SELECT 1 FROM pragma_table_info('enrollments') WHERE name='completed_at')",
             [],
@@ -154,7 +174,11 @@ impl RelayStore {
         Ok(serde_json::from_str(&data)?)
     }
     pub fn publish_capabilities(&mut self, auth: &Auth, features: &[String]) -> Result<()> {
-        if features.len() > 8 || features.iter().any(|feature| feature != "file-v1") {
+        if features.len() > 8
+            || features
+                .iter()
+                .any(|feature| !["file-v1", "file-large-v1"].contains(&feature.as_str()))
+        {
             return Err(SyncError::Invalid);
         }
         let tx = self.db.transaction()?;
@@ -436,7 +460,8 @@ impl RelayStore {
         let roster = self.roster(auth)?;
         let h = &envelope.header;
         if h.version != 1
-            || !["clip", "file-v1", "file-outcome-v1"].contains(&h.message_type.as_str())
+            || !["clip", "file-v1", "file-large-v1", "file-outcome-v1"]
+                .contains(&h.message_type.as_str())
             || h.workspace != auth.workspace
             || h.sender != auth.device
             || h.epoch != roster.epoch
@@ -454,6 +479,12 @@ impl RelayStore {
                 if !supported {
                     return Err(SyncError::Invalid);
                 }
+                if h.message_type == "file-large-v1" {
+                    let large: bool = self.db.query_row("SELECT EXISTS(SELECT 1 FROM capabilities WHERE workspace=?1 AND device=?2 AND feature='file-large-v1')", params![auth.workspace,device], |r| r.get(0))?;
+                    if !large {
+                        return Err(SyncError::Unsupported);
+                    }
+                }
             }
         }
         let body = serde_json::to_string(envelope)?;
@@ -470,21 +501,26 @@ impl RelayStore {
         }
         let retained: u64 = tx.query_row("SELECT COUNT(*) FROM deliveries", [], |r| r.get(0))?;
         if retained >= MAX_RETAINED_DELIVERIES {
-            return Err(SyncError::Capacity);
+            // Completed receipt metadata is a bounded cache. A draining stream
+            // must not hit an implicit size limit from already-delivered chunks.
+            let pruned = tx.execute("DELETE FROM deliveries WHERE cursor IN (SELECT cursor FROM deliveries WHERE status='delivered' AND terminal_at IS NOT NULL ORDER BY terminal_at,cursor LIMIT 1024)", [])?;
+            if pruned == 0 || retained.saturating_sub(pruned as u64) >= MAX_RETAINED_DELIVERIES {
+                return Err(SyncError::Capacity);
+            }
         }
-        let used:u64 = tx.query_row("SELECT COALESCE(SUM(LENGTH(envelope)),0) FROM deliveries WHERE workspace=?1 AND recipient=?2 AND status='pending'",params![auth.workspace,h.recipient],|r|r.get(0))?;
+        let used:u64 = tx.query_row("SELECT COALESCE(SUM(envelope_bytes),0) FROM deliveries WHERE workspace=?1 AND recipient=?2 AND status='pending'",params![auth.workspace,h.recipient],|r|r.get(0))?;
         if used.saturating_add(body.len() as u64) > MAX_QUEUE_BYTES {
             return Err(SyncError::Capacity);
         }
         let total_used: u64 = tx.query_row(
-            "SELECT COALESCE(SUM(LENGTH(envelope)),0) FROM deliveries WHERE status='pending'",
+            "SELECT COALESCE(SUM(envelope_bytes),0) FROM deliveries WHERE status='pending'",
             [],
             |r| r.get(0),
         )?;
         if total_used.saturating_add(body.len() as u64) > MAX_TOTAL_PENDING_BYTES {
             return Err(SyncError::Capacity);
         }
-        tx.execute("INSERT INTO deliveries(workspace,sender,recipient,event,envelope,status,created) VALUES(?1,?2,?3,?4,?5,'pending',?6)",params![auth.workspace,auth.device,h.recipient,h.event,body,now])?;
+        tx.execute("INSERT INTO deliveries(workspace,sender,recipient,event,envelope,status,created,envelope_bytes) VALUES(?1,?2,?3,?4,?5,'pending',?6,?7)",params![auth.workspace,auth.device,h.recipient,h.event,body,now,body.len() as u64])?;
         let cursor = tx.last_insert_rowid();
         tx.commit()?;
         Ok(cursor)
@@ -518,18 +554,34 @@ impl RelayStore {
         Ok(items)
     }
     pub fn ack(&mut self, auth: &Auth, cursor: i64) -> Result<()> {
+        if cursor <= 0 {
+            return Err(SyncError::Invalid);
+        }
         let count=self.db.execute("UPDATE deliveries SET envelope=NULL,status='delivered',terminal_at=COALESCE(terminal_at,?4) WHERE workspace=?1 AND recipient=?2 AND cursor=?3 AND status IN ('pending','delivered')",params![auth.workspace,auth.device,cursor,super::now()])?;
-        if count == 0 {
+        if count == 0 && self.delivery_cursor_exists(cursor)? {
             return Err(SyncError::Authentication);
         }
         Ok(())
     }
     pub fn reject(&mut self, auth: &Auth, cursor: i64) -> Result<()> {
+        if cursor <= 0 {
+            return Err(SyncError::Invalid);
+        }
         let count=self.db.execute("UPDATE deliveries SET envelope=NULL,status='rejected',terminal_at=COALESCE(terminal_at,?4) WHERE workspace=?1 AND recipient=?2 AND cursor=?3 AND status IN ('pending','rejected')",params![auth.workspace,auth.device,cursor,super::now()])?;
-        if count == 0 {
+        if count == 0 && self.delivery_cursor_exists(cursor)? {
             return Err(SyncError::Authentication);
         }
         Ok(())
+    }
+    fn delivery_cursor_exists(&self, cursor: i64) -> Result<bool> {
+        // Lost ACK responses can leave the client retrying a delivered cursor
+        // after its cache row was reclaimed. Existing foreign/incompatible rows
+        // still fail; an absent cursor is an idempotent no-op.
+        Ok(self.db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM deliveries WHERE cursor=?1)",
+            [cursor],
+            |r| r.get(0),
+        )?)
     }
     pub fn delivery_status(
         &mut self,

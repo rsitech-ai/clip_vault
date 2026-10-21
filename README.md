@@ -18,7 +18,7 @@ ClipVault is a pre-1.0 release candidate maintained by [RSI Tech](https://rsitec
 - Copies a selected clip back to the pasteboard from the workspace or menu bar.
 - Offers on-device prompt enhancement through Apple Foundation Models when the model is available.
 
-An experimental device-sharing layer supports new text and image clips and actual files up to 100 MiB through a self-hosted relay after explicit pairing. Received files require an explicit Save action. Update both clients and the relay for file support; installed-device validation limits are recorded in the verification report. There is no hosted sync service, account system, team workspace, or cloud AI fallback. See [Linux and encrypted sharing](docs/LINUX_AND_SYNC.md) for build instructions, compatibility limits, and setup. Foundation Models actions explain their unavailable state instead of sending content elsewhere.
+An experimental device-sharing layer supports new text and image clips and actual files without a fixed product size cap through a self-hosted relay after explicit pairing. Received files require an explicit Save action. Update both clients and the relay for file support; installed-device validation limits are recorded in the verification report. There is no hosted sync service, account system, team workspace, or cloud AI fallback. See [Linux and encrypted sharing](docs/LINUX_AND_SYNC.md) for build instructions, compatibility limits, and setup. Foundation Models actions explain their unavailable state instead of sending content elsewhere.
 
 ## Requirements
 

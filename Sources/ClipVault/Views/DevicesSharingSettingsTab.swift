@@ -25,7 +25,7 @@ struct DevicesSharingSettingsTab: View {
                         .disabled(sync.busy)
                         .help("Explicitly retry locally stored shares now that encrypted sharing has capacity")
                 }
-                Text("Received clips appear in history. Use Copy for text and images, or Save File for attachments up to 100 MiB. Notes, folders, pins and old file references stay local. File contents are not screened for secrets.")
+                Text("Received clips appear in history. Use Copy for text and images, or Save File for attachments. File size is limited by available storage. Notes, folders, pins and old file references stay local. File contents are not screened for secrets.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             if sync.status.members.isEmpty {

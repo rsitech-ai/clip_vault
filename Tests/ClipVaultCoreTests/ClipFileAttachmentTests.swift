@@ -27,11 +27,15 @@ struct ClipFileAttachmentTests {
         #expect(try ClipFileDescriptor.from(payload: portable.payloadValue())?.size == 104_857_600)
     }
 
-    @Test("empty files are valid; oversize, paths and malformed descriptors are rejected")
+    @Test("large and empty files are valid; unrepresentable sizes and malformed descriptors are rejected")
     func validation() throws {
         #expect(try descriptor(size: 0).payload().metadata["file_size"] == "0")
         #expect(try descriptor(filename: "Family 👨‍👩‍👧‍👦.zip").payload().displayText == "Family 👨‍👩‍👧‍👦.zip")
-        #expect(throws: ClipSyncError.self) { try descriptor(size: 104_857_601).payload() }
+        #expect(try descriptor(size: 104_857_601).payload().metadata["file_size"] == "104857601")
+        #expect(try descriptor(size: 2_147_483_648).payload().metadata["file_size"] == "2147483648")
+        var unrepresentable = descriptor()
+        unrepresentable.size = UInt64.max
+        #expect(throws: ClipSyncError.self) { try unrepresentable.payload() }
         for name in ["../secret", "a/b", "a\\b", ".", "..", "", "a\u{0}b", "a\u{85}b"] {
             #expect(throws: ClipSyncError.self) { try descriptor(filename: name).payload() }
         }

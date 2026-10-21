@@ -46,7 +46,8 @@ final class ClipVaultSyncController {
                     await self.cleanUpLocalCopies()
                     if self.status.enabled, !self.busy { await self.synchronize() }
                 } else { return }
-                try? await Task.sleep(for: .seconds(5))
+                let transferring = self?.status.enabled == true && self?.status.continueFileTransfer == true
+                try? await Task.sleep(for: .milliseconds(transferring ? 250 : 5_000))
             }
         }
     }
@@ -114,7 +115,10 @@ final class ClipVaultSyncController {
             let failures = try syncStore.syncExportFailures()
             if let first = waiting.first { message = "\(waiting.count) clips waiting to share: \(first)" }
             else { message = failures.isEmpty ? nil : "\(failures.count) clips remain local: \(failures[0])" }
-        } catch { message = error.localizedDescription }
+        } catch {
+            status.continueFileTransfer = false
+            message = error.localizedDescription
+        }
     }
 
     func retryOverflow() {

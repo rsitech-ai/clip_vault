@@ -36,7 +36,7 @@ final class ClipVaultFileController {
         busy = true
         let panel = NSOpenPanel()
         panel.title = "Add Files to ClipVault"
-        panel.message = "Choose up to 10 files, each up to 100 MiB. Paired devices receive the actual files. File contents are not screened for sensitive information."
+        panel.message = "Choose up to 10 files. Paired devices receive encrypted copies. Available disk space determines how much you can send. File contents are not screened for sensitive information."
         panel.prompt = "Add Files"
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
@@ -116,7 +116,7 @@ final class ClipVaultFileController {
             } catch {
                 if isCapture && version != captureGeneration { return }
                 message = isCapture
-                    ? "Could not add \(url.lastPathComponent). Use Add File to grant access, or check the 100 MiB limit. \(error.localizedDescription)"
+                    ? "Could not add \(url.lastPathComponent). Use Add File to grant access, or check available disk space. \(error.localizedDescription)"
                     : "Could not add \(url.lastPathComponent). \(error.localizedDescription)"
             }
         }

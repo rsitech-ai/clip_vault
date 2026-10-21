@@ -16,6 +16,9 @@ const MAX_EVENT_BATCH_BYTES: usize = MAX_WIRE_BYTES + 1024;
 
 pub struct DeviceStore {
     pub(crate) db: Connection,
+    pub(crate) path: std::path::PathBuf,
+    #[cfg(test)]
+    pub(crate) file_space_override: Option<u64>,
     key: Zeroizing<[u8; 32]>,
     queue_limit: u64,
 }
@@ -45,6 +48,8 @@ impl DeviceStore {
             CREATE TABLE IF NOT EXISTS file_jobs (transfer TEXT NOT NULL, recipient TEXT NOT NULL, idx INTEGER NOT NULL, frame_event TEXT NOT NULL, sequence INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'pending', attempted_at INTEGER, first_attempted_at INTEGER, PRIMARY KEY(transfer,recipient,idx), UNIQUE(frame_event,recipient));
             CREATE TABLE IF NOT EXISTS file_targets (transfer TEXT NOT NULL, recipient TEXT NOT NULL, status TEXT NOT NULL, PRIMARY KEY(transfer,recipient));
             CREATE TABLE IF NOT EXISTS file_tombstones (transfer TEXT PRIMARY KEY, origin TEXT NOT NULL, deleted_at INTEGER NOT NULL);")?;
+        db.execute_batch("CREATE INDEX IF NOT EXISTS file_jobs_pending ON file_jobs(transfer,status);
+            CREATE INDEX IF NOT EXISTS file_jobs_scheduling ON file_jobs(status,COALESCE(attempted_at,0));")?;
         let has_attempted: bool = db.query_row(
             "SELECT EXISTS(SELECT 1 FROM pragma_table_info('targets') WHERE name='attempted_at')",
             [],
@@ -72,6 +77,9 @@ impl DeviceStore {
         }
         let mut store = Self {
             db,
+            path: path.to_path_buf(),
+            #[cfg(test)]
+            file_space_override: None,
             key: Zeroizing::new(key),
             queue_limit: MAX_QUEUE_BYTES,
         };
@@ -217,14 +225,21 @@ impl DeviceStore {
         Ok(cancelled)
     }
     pub fn next_sequence(&mut self) -> Result<u64> {
-        let next = self
-            .get::<u64>("sequence")?
-            .unwrap_or(0)
-            .checked_add(1)
+        self.reserve_sequences(1)
+    }
+    /// Reserve a durable sequence range once, rather than fsync for every chunk.
+    /// Gaps after an interrupted commit are harmless; sequence reuse is not.
+    pub(crate) fn reserve_sequences(&mut self, count: u64) -> Result<u64> {
+        if count == 0 {
+            return Err(SyncError::Invalid);
+        }
+        let previous = self.get::<u64>("sequence")?.unwrap_or(0);
+        let next = previous
+            .checked_add(count)
             .filter(|n| *n <= i64::MAX as u64)
             .ok_or(SyncError::Invalid)?;
         self.put("sequence", &next)?;
-        Ok(next)
+        Ok(previous + 1)
     }
     pub fn capture(&mut self, event: &ClipEvent) -> Result<bool> {
         self.insert(event, 1, None, &[])

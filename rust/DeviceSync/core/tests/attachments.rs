@@ -73,20 +73,35 @@ fn exactly_100_mib_streams_in_bounded_chunks_and_round_trips() {
 }
 
 #[test]
-fn rejects_empty_plus_one_limit_symlinks_and_directories_without_staging() {
+fn files_above_the_old_product_limit_stage_and_save_without_loading_the_whole_file() {
     let dir = tempfile::tempdir().unwrap();
-    let too_large = dir.path().join("too-large.bin");
-    let file = std::fs::File::create(&too_large).unwrap();
-    file.set_len(LIMIT + 1).unwrap();
+    let source = dir.path().join("above-old-limit.bin");
+    let size = LIMIT + 1;
+    std::fs::File::create(&source)
+        .unwrap()
+        .set_len(size)
+        .unwrap();
+    let mut store = new_store(&dir.path().join("state.db"));
+    let descriptor = store.stage_file(&source, &origin(), || false).unwrap();
+    assert_eq!(descriptor.size, size);
+    assert_eq!(descriptor.chunk_count, 101);
+    let destination = dir.path().join("saved.bin");
+    store
+        .save_file(&descriptor.id, &destination, || false)
+        .unwrap();
+    assert_eq!(digest_file(&source), digest_file(&destination));
+}
+
+#[test]
+fn rejects_symlinks_and_directories_without_staging() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("source.bin");
+    std::fs::write(&source, b"controlled source").unwrap();
     let link = dir.path().join("link.bin");
-    std::os::unix::fs::symlink(&too_large, &link).unwrap();
+    std::os::unix::fs::symlink(&source, &link).unwrap();
     let mut store = new_store(&dir.path().join("state.db"));
 
     let origin = origin();
-    assert!(matches!(
-        store.stage_file(&too_large, &origin, || false),
-        Err(SyncError::TooLarge)
-    ));
     assert!(store.stage_file(&link, &origin, || false).is_err());
     assert!(store.stage_file(dir.path(), &origin, || false).is_err());
     assert!(store.file_transfers().unwrap().is_empty());
@@ -181,7 +196,13 @@ fn cancellation_and_destination_collision_leave_no_partial_file() {
         Err(SyncError::Paused)
     ));
     assert!(!cancelled.exists());
-    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 3);
+    assert!(!std::fs::read_dir(dir.path()).unwrap().any(|entry| {
+        entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .ends_with(".partial")
+    }));
 }
 
 #[test]

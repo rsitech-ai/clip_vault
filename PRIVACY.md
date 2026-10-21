@@ -1,6 +1,6 @@
 # ClipVault Privacy Policy
 
-Last updated: 2026-10-20
+Last updated: 2026-10-21
 
 ClipVault is a local-first clipboard workspace for macOS, with an experimental Ubuntu/GNOME client and optional encrypted device sharing.
 
@@ -18,14 +18,16 @@ ClipVault does not begin watching the clipboard until the user accepts an in-app
 
 Sharing is disabled until explicitly configured. Pairing does not upload existing history. After pairing and enabling sharing, new portable text, rich text, code, links, and PNG clips pass through your configured relay. You may explicitly share a selected older Mac clip. Content, source device names, and source application context travel inside authenticated encrypted envelopes; the relay sees network addresses, opaque device/workspace identifiers, event identifiers, sequence/epoch routing data, timing, sizes, and delivery state. It can delay or drop delivery. No developer relay is configured automatically.
 
-The self-hosted relay expires pending encrypted payloads after 30 days; startup/periodic maintenance removes them, with up to 60 seconds of delay while running. Recipient mailboxes are limited to 256 MiB and total pending ciphertext to 1 GiB. Delivery metadata is retained for 37 days after acknowledgement, rejection, revocation or expiry for idempotency and status. Compact invitation identifiers remain as single-use tombstones, bounded to 100,000 lifetime IDs. Acknowledgement logically removes payload bytes; SQLite pages, filesystem snapshots and backups do not provide a physical-erasure guarantee. Sender and recipient stores retain minimal event receipts to prevent duplicate delivery or resurrection after deletion. Local sync queues and identities are encrypted with a device-local key in Keychain on macOS or GNOME Secret Service on Linux. Operational local sync identifiers and receipt state remain plaintext in the private database. Device encryption keys are not sent to the relay.
+The self-hosted relay expires pending encrypted payloads after 30 days; startup/periodic maintenance removes them, with up to 60 seconds of delay while running. Recipient mailboxes are limited to 256 MiB and total pending ciphertext to 1 GiB. Delivery metadata is retained for up to 37 days after acknowledgement, rejection, revocation or expiry for idempotency and status. At the 100,000-row relay limit, the oldest acknowledged receipts may be reclaimed early; pending payloads and rejected, revoked or expired states are not evicted to make room. Retrying a missing acknowledgement or rejection is idempotent. Compact invitation identifiers remain as single-use tombstones, bounded to 100,000 lifetime IDs. Acknowledgement logically removes payload bytes; SQLite pages, filesystem snapshots and backups do not provide a physical-erasure guarantee. Sender and recipient stores retain minimal event receipts to prevent duplicate delivery or resurrection after deletion. Local sync queues and identities are encrypted with a device-local key in Keychain on macOS or GNOME Secret Service on Linux. Operational local sync identifiers and receipt state remain plaintext in the private database. Device encryption keys are not sent to the relay.
 
 Pause sharing stops subsequent requests. A request already accepted cannot be recalled. Device removal prevents subsequent delivery once current membership is known; it does not erase copies already received. There is no claim of forward secrecy following static device-key compromise, or remote erasure.
 
 Cloud or BYO AI providers remain disabled. Sharing does not enable cloud AI.
 
-The file-sharing extension supports individual regular files up to 100 MiB
-(104,857,600 bytes). File contents, base filenames, hashes and
+The file-sharing extension supports individual regular files without a fixed
+product size cap. Available disk space, temporary storage for Save, and protocol
+representation determine practical capacity. Transfers reserve space for active
+files and retain 1 GiB of disk headroom. File contents, base filenames, hashes and
 manifests are encrypted for paired devices. Source paths remain local. File chunks
 are encrypted in local transfer staging; only a small descriptor enters history.
 The relay can distinguish clip frames from file-transfer frames and observe their

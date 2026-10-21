@@ -8,7 +8,7 @@ public enum ClipSyncError: Error, LocalizedError {
         case .invalidPayload: "The shared clip has invalid or unsupported content."
         case .unsupportedFile: "File references stay on this device."
         case .tooLarge: "This clip exceeds the 10 MiB sharing limit."
-        case .fileTooLarge: "This file exceeds the 100 MiB sharing limit."
+        case .fileTooLarge: "This file exceeds the transfer format's capacity."
         }
     }
 }

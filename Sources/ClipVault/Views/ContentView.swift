@@ -31,7 +31,7 @@ struct ContentView: View {
                     Label("Add File", systemImage: "doc.badge.plus")
                 }
                 .disabled(model.files.busy)
-                .help("Add files up to 100 MiB to share with paired devices")
+                .help("Add files to share with paired devices")
 
                 Button {
                     model.toggleCapture()

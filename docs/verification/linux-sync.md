@@ -1,8 +1,156 @@
 # Linux and encrypted sharing verification
 
-Date: 2026-10-20
+Date: 2026-10-21
 
-**Verdict: HOLD merge and file-sharing readiness.** The earlier clipboard-sync review passed, but the new 100 MiB attachment and Ubuntu UI scope is under validation and independent review. The canonical Mac app has been upgraded locally and its complete prior history verified. The audited Ubuntu client and relay are installed, and the actual Mac and Ubuntu apps are paired after a user-confirmed comparison code. Mac-to-Ubuntu Unicode text/Copy, client-offline catch-up and image display are verified. The genuine active Ubuntu GNOME capture path and Ubuntu-to-Mac automatic clipboard delivery still require acceptance. This report does not claim a published release, long-term uptime, or an error-free environment.
+**Current verdict: larger-file installed-device verification in progress.** Both
+Macs run signed build 12 and Ubuntu runs preview5 with the updated relay. All
+three devices remain paired. A real 600 MiB file has reached verified-ready state
+on Ubuntu; native receiving Save hashes are pending on the two receivers. Fresh
+Unicode clips from both peers arrived in this Mac's actual history during that
+transfer, including a recorded GNOME Capture call after the update. Existing
+small/100 MiB native Save receipts cover all six directed device routes. New
+source checks and independent reviews pass; the expanded change is not merged.
+Earlier dated sections below record the previous cohorts, not current device
+versions. This report does not claim long-term uptime or warning-free OS logs.
+
+## Larger files and transfer scheduling, 2026-10-21
+
+The user expanded the file scope beyond 100 MiB and requested faster transfers
+without a second transport. The implementation removes the 100 MiB per-file and
+512 MiB local-store product caps. It retains 1 MiB encrypted chunks, bounded
+working memory and relay pending quotas. Disk capacity includes durable unfinished
+reservations, storage overhead and 1 GiB headroom. The finite u32 chunk-count
+encoding represents about 4 PiB; physical storage and resources remain practical
+limits. A failed mid-receive disk-space check cleans up partial data and publishes
+an authenticated failure, never a ready history entry.
+
+Files above the former limit require authenticated `file-large-v1` capability
+from every peer and the current relay. Old-relay fallback preserves text and
+small-file support. Active progress polls after 250 ms; idle/backoff polls remain
+at five seconds. Job insertion streams into one transaction after one durable
+sequence-range reservation. Pending-job selection excludes capacity-blocked
+recipients before LIMIT. Indexed integer relay byte accounting replaces scans of
+ciphertext. At row pressure, only oldest delivered receipts may be reclaimed;
+lost-response ACK/REJECT retries remain idempotent across receiver restart.
+
+Observed validation:
+
+- `./script/test.sh`: 266 core and 18 app tests passed.
+- `./script/test_device_sync.sh`: native workspace tests, formatting and strict
+  all-target Clippy passed. Final focused core, relay, capability/recovery,
+  delayed-mailbox, text-capacity and three-device targets also passed.
+- AMD64 full workspace tests, strict Clippy and optimized client/relay builds
+  passed. The earlier fairness fixture asserted an exact job count across a
+  two-second deadline and failed under emulation; its final invariant asserts
+  that unchecked healthy work is first, and the complete rerun passed.
+- Actual isolated HTTP 600 MiB transfer, receiver reopen, exact Save/hash and
+  authenticated sender-ready outcome passed in 236.99 seconds (58 resumed ticks).
+  The explicit 256 MiB quota/release gate passed in 3.76 seconds.
+- Lost HTTP ACK response followed by delivered-cache reclamation and receiver
+  reopen passed: pending ACK recovered, a new clip arrived, duplicate file replay
+  did not duplicate history, and Save retained exact bytes.
+- Preview5 installed-package startup and single-instance activation passed on
+  disposable Ubuntu 26.10. Xvfb Mesa DRI3 warnings remain. The reused harness's
+  final label says preview4, but the installation log proves preview5 was tested.
+- Independent core/relay and Mac/Linux source reviews passed with no P1/P2.
+  A separate read-only review passed the frozen one-use Ubuntu updater.
+
+Both signed Mac executables are
+`8a076c6f7e87529e0ceb99d458bb556ef7c0bc1be2790b36f27dc89ba3d24e8e`.
+Build 12's actual General window shows **895 original clips and 12 folders
+preserved**, 926 indexed clips, capture on and scheduled cleanup paused. Devices
+settings retains the three-device roster, sharing enabled and Up to date status.
+
+Ubuntu updater exit 0 preserved stopped-owner client/relay snapshots, prior
+binaries, package, service configuration and the existing relay secret in
+`/root/clipvault-fast-files-update.Ix2waF/rollback`. Installed preview5 client SHA
+is `38cae8a99613b45683df05522281e2b862b6dfe19b7a88a9b37b717624624190`;
+relay SHA is `3c33e0f92351a0d6db62f585f4f62a8f9aeb64c80465a01b895075e45d1c3a0d`.
+Client/relay/proxy are active, NRestarts=0, exit status=0; GNOME extension is
+ACTIVE. Private certificate-verified HTTPS is healthy. No Docker restart or
+forced desktop logout occurred. Harmless archive extended-attribute warnings and
+the existing Tailscale client/daemon version warning are recorded, not hidden.
+
+The controlled installed-app 600 MiB source has 629145600 bytes and SHA-256
+`1f0bf5e3506b93c708b7b4e6d5e401c30af9cce92f9dfe0848badf503bf316fb`.
+Actual Razer progress samples rose from 102 MiB to 538 MiB in about 188 seconds
+while sending to both peers. A concurrent 32 MiB SSH stream measured about
+9.85 MiB/s to Razer and 11.78 MiB/s to Sii; this is a contended path check, not an
+isolated benchmark. Tailscale reported a direct LAN path to Razer at 5 ms.
+Native Save/hash and the reverse larger-file check remain execution gates.
+
+Do not infer a raw-engine speedup from the isolated test: the earlier optimized
+100 MiB run was 22.57 seconds and the indexed-quota run was 26.54 seconds under
+different build load. A WAL experiment was slower and was reverted. The final
+code retains DELETE journaling and durability settings. No second file server,
+peer discovery or public ingress was introduced.
+
+Evidence is retained under `dist/final-audit/20261020/`: `unlimited-*.log`,
+`mac-build12.log`, `sii-build12-installed.log`, `ubuntu-installed-preview5.log`,
+`linux-preview5-startup.log`, `large-file-source-receipt.json`, and the Capture
+method-name-only profile. No secret tokens or clipboard payloads are in that
+profile. The directory date preserves the existing audit chronology.
+
+## Final installed-device checks, 2026-10-21
+
+The user confirmed the third Mac's received text with the Unicode line intact.
+SSH inspection of the controlled saved test files on that Mac independently
+verified:
+
+| Saved fixture | Bytes | SHA-256 |
+| --- | ---: | --- |
+| File sent by Ubuntu | 91 | `48a1877ea4b60c8e3fe559e8cb8657b5e30e5dc33202105f0a6288645b1d8c80` |
+| 100 MiB file sent by this Mac | 104857600 | `33e821198f614ceca2f829519162952b84f7f94576991a05ccb97e8c5298e057` |
+
+This Mac also saved the Ubuntu 91-byte and third-Mac 89-byte files with matching
+hashes. The third-Mac file hash is
+`c5e0ca8ece45dbf9cb569c25ed86416cdd94e1043a12243a3f05b857c4049950`.
+The earlier Ubuntu-to-Mac 100 MiB native Save matched the same large-file hash.
+These are actual native app Save results, separate from authenticated ready
+outcomes in the encrypted transfer store.
+
+Ubuntu's client-only preview4 update completed with exit 0. Its installed client
+SHA-256 is `741df47eb34dd1103c10ae2c86c5b05f3ae0cec77b2537edf3c30436e80cdc5e`.
+The package SHA-256 is
+`559166a8b3d5b3ed779d377efd92c25b7dec3058271c3234502490fc0df68d5d`.
+Only the package version and client executable differ from preview3. The reviewed
+root updater stopped the actual desktop-launched client before backing up its
+state, checked that it remained stopped, and verified the installed executable
+and restarted user service. Root-only rollback is retained. Relay/proxy binaries,
+configuration, authentication and processes were not replaced by this update.
+Both system services and the client are active with zero automatic restarts and
+exit status 0; private certificate-verified HTTPS returns `ok`. GNOME capture is
+still ACTIVE. The fresh 100 MiB fixture saved on Ubuntu matches size and SHA-256.
+
+Both signed Mac executables match
+`a2f4b781fe6084db5176a49b7a40e4c65cf844b2627fd8a784379cf055a48997`.
+The canonical Mac's live General settings after the latest restart still show
+**895 original clips and 12 folders preserved**, 919 indexed clips, capture on,
+and scheduled cleanup paused. The three-device roster and Up to date status
+persisted across the Mac update/restart.
+
+Final receive-timer validation at `69f54e3`:
+
+- Native Rust workspace tests, formatting and strict all-target Clippy passed.
+- AMD64 final delayed-mailbox, stale-membership, three-device fan-out and
+  text-capacity integration targets passed; strict workspace Clippy and optimized
+  Linux client build passed. The preceding full AMD64 run passed the other
+  workspace suites but failed the earlier 2 MiB delayed-mailbox fixture's trailing
+  text assertion under emulation after file readiness. The final 8 KiB fixture
+  preserves the delayed-GET reproduction while avoiding CPU processing-budget
+  exhaustion; final targeted rerun passed in 3.64 seconds.
+- Disposable Ubuntu 26.10 preview4 installation, startup and single-instance
+  activation passed. The first startup harness used absent `gdbus`/`rg` tools;
+  it was corrected to the available `dbus-send` and shell assertion. Mesa virtual
+  DRI3 warnings remain, as in the earlier package smoke.
+- Hosted Mac verify run `39565469080` and Linux run `39565469086` both succeeded.
+- Independent narrow source review and deployment-script safety review passed
+  with no confirmed P1/P2. Reviews do not replace the device receipts.
+
+Evidence is retained under `dist/final-audit/20261020/`, including
+`sii-current-downloads-receipt.json`, `three-device-mac-saved-receipts.json`,
+`ubuntu-installed-preview4.log`, and `slow-mailbox-linux-final.log`.
+The older directory date is retained to keep the audit evidence together.
 
 ## Three-device receive correction, 2026-10-21 morning
 

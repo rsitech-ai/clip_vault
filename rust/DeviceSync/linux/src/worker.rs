@@ -97,6 +97,7 @@ pub fn start(
             Err(error) => (vec![], Some(error.to_string())),
         };
         let mut last_tick = std::time::Instant::now() - std::time::Duration::from_secs(6);
+        let mut poll_interval = std::time::Duration::from_secs(5);
         let mut request_cache = vec![];
         let mut message = pending_file_commit_error;
         let mut pairing = None;
@@ -105,7 +106,7 @@ pub fn start(
         let mut previous_signature = None;
         let mut history = Arc::new(vec![]);
         loop {
-            let command = rx.recv_timeout(std::time::Duration::from_secs(1));
+            let command = rx.recv_timeout(poll_interval.min(std::time::Duration::from_secs(1)));
             let is_stage_files = matches!(&command, Ok(Work::StageFiles(_, _)));
             let is_save_file = matches!(&command, Ok(Work::SaveFile(_, _)));
             let rejected_file_count = matches!(
@@ -346,15 +347,21 @@ pub fn start(
             if let Err(error) = result {
                 message = Some(error.to_string());
             }
-            let tick_due = last_tick.elapsed() >= std::time::Duration::from_secs(5);
+            let tick_due = last_tick.elapsed() >= poll_interval;
             let (mut status, tick_succeeded) = if tick_due {
                 last_tick = std::time::Instant::now();
                 match client.tick(true) {
                     Ok(status) => {
+                        poll_interval = if status.continue_file_transfer {
+                            std::time::Duration::from_millis(250)
+                        } else {
+                            std::time::Duration::from_secs(5)
+                        };
                         request_cache = status.requests.clone();
                         (status, true)
                     }
                     Err(error) => {
+                        poll_interval = std::time::Duration::from_secs(5);
                         message = Some(error.to_string());
                         (client.status().unwrap_or_default(), false)
                     }

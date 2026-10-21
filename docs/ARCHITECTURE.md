@@ -61,13 +61,19 @@ The Linux client uses encrypted SQLite payloads and GNOME Secret Service credent
 
 
 Attachments use separate versioned authenticated manifest/chunk/outcome frames,
-with 1 MiB chunks and a 100 MiB per-file limit. The platform history and C ABI
+with 1 MiB chunks and no fixed per-file product cap. Disk-space checks include
+active transfer reservations, encrypted-storage overhead and 1 GiB headroom.
+The u32 chunk count is the finite wire representation bound (about 4 PiB). The platform history and C ABI
 carry only a small descriptor; encrypted file bytes stay in the portable store.
 Outgoing data is staged before a history descriptor/outbox is committed. Every
-paired device must advertise file support before transmission. Incoming chunks
+paired device must advertise file support before transmission; files above the
+legacy 100 MiB limit also require file-large-v1 support from every peer and
+the current relay. Incoming chunks
 are acknowledged after encrypted persistence; a separate authenticated outcome
 confirms complete length/hash verification before history publication. Explicit
 Save streams and verifies again, then publishes without overwriting a destination.
 Ordinary clip work and incoming mail continue while an attachment is waiting for
-an update or recipient capacity. See the [file design](design/file-sharing-and-linux-ui.md)
+an update or recipient capacity. Active progress schedules the next poll after
+250 ms; idle and backoff polling retain the five-second interval. Relay pending
+byte quotas use indexed integer sizes rather than rescanning ciphertext text. See the [file design](design/file-sharing-and-linux-ui.md)
 for resource bounds, consent generations, sandbox access and recovery behavior.

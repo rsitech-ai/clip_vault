@@ -1,7 +1,7 @@
 # Encrypted file sharing and a simpler Ubuntu interface
 
-Approved scope: actual files copied on macOS or Ubuntu, up to 100 MiB
-(104,857,600 bytes) each. The UI uses the precise 100 MiB limit. A receiving device offers
+Approved scope (expanded 2026-10-21): actual files copied on macOS or Ubuntu,
+without a fixed product size cap. Available disk space determines practical capacity. A receiving device offers
 an explicit Save action. Never open or execute a received file automatically.
 This extends `linux-encrypted-sync.md`; ordinary clips retain their 10 MiB cap.
 
@@ -19,18 +19,25 @@ This extends `linux-encrypted-sync.md`; ordinary clips retain their 10 MiB cap.
   JSON, binary data in SwiftData, or chunk rows in normal history. Stream reads,
   hashing and encryption with bounded buffers. The source is opened without
   following symlinks, verified as a regular file, and checked for changes. Reject
-  directories, named pipes and oversize files. Open Unix sources with
+  directories, named pipes and files outside the wire representation. Open Unix sources with
   O_NONBLOCK before checking the opened descriptor is a regular file, so a FIFO
-  cannot stall the worker before validation. Bound each copy to ten files and the local
-  encrypted file store to 512 MiB including partial incoming/outgoing transfers.
+  cannot stall the worker before validation. Bound each copy to ten files. Replace
+  the former 512 MiB local cache cap with free-disk checks, unfinished-transfer
+  reservations, encryption/storage overhead and 1 GiB headroom. The u32 chunk
+  count represents up to (2^32-1) MiB, about 4 PiB; this is a wire-format bound,
+  not an advertised storage guarantee. Mid-receive storage failure discards the
+  partial transfer and returns an authenticated failure without publishing history.
 - Stage chunks incrementally in short transactions. Only a final, short commit
   makes a complete outgoing transfer eligible. Cancellation/consent generation
   is checked during reads and before that commit. Retry reads immutable encrypted
   staging, never the original source path. A failed/unsupported send retains a
   readable local copy and a visible status; it never silently drops a partial file.
-- Advertise file-v1 support through an authenticated device capability endpoint;
+- Advertise file-v1 and file-large-v1 support through an authenticated device capability endpoint;
   do not change the existing signed roster or ordinary clip serialization.
-  Keep a file local until every paired member advertises support; retain its
+  Files above the former 100 MiB limit use authenticated file-large-v1 frames.
+  Keep a file local until every paired member and the current relay advertise the
+  required support (including an old-relay fallback that preserves small-file
+  and ordinary-clip compatibility); retain its
   retry marker with an explicit update-needed status. An unsupported file must
   never prevent ordinary exports, mailbox draining or incoming history imports.
   A relay lie about capability
@@ -46,8 +53,10 @@ This extends `linux-encrypted-sync.md`; ordinary clips retain their 10 MiB cap.
 - Existing relay TTL, replay protection, membership checks, rejection, backoff and
   quotas apply per frame. Drain receive/ACK work with count/byte/time bounds and
   pause checks; send ordinary clips first and use a bounded file-frame budget.
-  Capacity failures retain/retry staged work. Do not reserve or upload a second
-  complete 100 MiB transfer when an existing one exhausts a recipient's quota.
+  Capacity failures retain/retry staged work. Recipient backoff excludes its jobs
+  before the bounded SQL job selection, so one full recipient cannot starve
+  others or require rewriting every chunk job. Reserve outbound sequence ranges
+  once and insert file jobs transactionally with bounded memory.
 - Enforce incoming aggregate capacity before accepting a frame. Garbage-collect
   incomplete `staging`/`receiving` transfers after 30 days and discard cancelled staging;
   retain completed chunks while their history descriptor exists. Deleting a
@@ -55,8 +64,9 @@ This extends `linux-encrypted-sync.md`; ordinary clips retain their 10 MiB cap.
   Revocation cancels pending recipient work; no new frames go to revoked peers.
   A complete local `staged` transfer is retained even before sharing is committed:
   its descriptor may already be in the platform history while sharing is off.
-  Explicit discard removes abandoned completed staging; the 512 MiB quota also
-  bounds orphaned chunks after a crash between the two stores' commits.
+  Explicit discard removes abandoned completed staging. Completed local chunks
+  consume actual disk space until their descriptor is removed; crash-orphaned
+  staged data is retained for explicit recovery/discard.
 - Save streams decrypted chunks to a private 0600 temporary file on the selected
   volume, rechecks length/hash, flushes/syncs, then publishes without silently
   overwriting an existing file. Remove the temporary file on error/cancellation.
@@ -65,6 +75,20 @@ This extends `linux-encrypted-sync.md`; ordinary clips retain their 10 MiB cap.
   URL, then an exclusive atomic rename to that exact URL: the sandbox grant does
   not cover arbitrary sibling temporary files. The portable store's temporary
   publish currently requires hard-link support (validated APFS/ext4).
+
+Active progress polls again after 250 ms instead of waiting five seconds. Idle,
+failed and backoff polls retain the existing interval. Keep the bounded HTTP,
+frame-count, byte and processing-time budgets. Start the receive processing
+clock after the mailbox HTTP request returns, so download time does not discard
+the rest of a healthy response. Retain the existing private relay transport;
+there is no new peer-discovery service or second file server.
+
+Relay quotas remain 256 MiB pending ciphertext per recipient and 1 GiB total.
+An indexed integer byte count replaces repeated scans of queued ciphertext.
+At 100,000 delivery rows, reclaim at most 1,024 oldest acknowledged receipts per
+submission, preserving pending/rejected/revoked/expired rows. A missing positive
+cursor ACK/REJECT retry succeeds idempotently, including after receipt eviction
+and recipient restart. The 37-day retention is a maximum under row pressure.
 
 ## Platform flow
 
@@ -104,11 +128,12 @@ disconnect confirmation. Never hide consent or error states in the simplificatio
 
 ## Acceptance and evidence
 
-Test zero bytes, exactly 100 MiB, 100 MiB plus one, multiple files, source changes,
+Test zero bytes, the legacy 100 MiB boundary and one byte above, files above
+the former 512 MiB local-store cap, multiple files, source changes,
 symlinks/directories/nonlocal URIs, duplicate/reordered/missing/corrupt chunks,
 restart/resume, pause/revoke, queue exhaustion and save cancellation/collision.
 Prove ordinary clip compatibility and unchanged legacy history. Measure large-file
-RSS and duration. Test actual small and 100 MiB files between the installed apps
+RSS and duration. Test actual small, 100 MiB and larger files between the installed apps
 with matching SHA-256 in each direction, including an offline receiver. Capture
 fresh synthetic Ubuntu before/after screenshots and launch the rebuilt Mac app.
 Report physical GNOME capture separately: the user's current session must not be

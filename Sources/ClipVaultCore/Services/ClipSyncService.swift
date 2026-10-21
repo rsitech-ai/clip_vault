@@ -30,6 +30,7 @@ public struct ClipSyncStatus: Codable, Sendable {
     public var rejected: Int
     public var members: [ClipSyncMember]
     public var requests: [ClipSyncPairRequest]
+    public var continueFileTransfer: Bool?
     public init() {
         state = "Sharing off"; deviceID = ""; isOwner = false; enabled = false
         pending = 0; rejected = 0; members = []; requests = []
@@ -37,6 +38,7 @@ public struct ClipSyncStatus: Codable, Sendable {
     enum CodingKeys: String, CodingKey {
         case state, enabled, pending, rejected, members, requests
         case deviceID = "device_id", isOwner = "is_owner"
+        case continueFileTransfer = "continue_file_transfer"
     }
 }
 public struct ClipSyncServiceError: Error, LocalizedError, Sendable {

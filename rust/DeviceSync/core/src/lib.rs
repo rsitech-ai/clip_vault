@@ -32,6 +32,8 @@ pub enum SyncError {
     Membership,
     #[error("Sharing backlog is full; clips remain local")]
     Capacity,
+    #[error("Not enough free storage for this file; free disk space and try again")]
+    DiskSpace,
     #[error("Invitation expired or was already used")]
     Invitation,
     #[error("Local sync storage failed")]

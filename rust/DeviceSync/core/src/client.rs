@@ -86,6 +86,8 @@ pub struct ClientStatus {
     pub rejected: usize,
     pub members: Vec<Member>,
     pub requests: Vec<PairRequestView>,
+    #[serde(default)]
+    pub continue_file_transfer: bool,
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub struct PairRequestView {
@@ -651,11 +653,31 @@ impl SyncClient {
         self.store.stage_file(path, &self.identity.id, cancelled)
     }
 
+    fn publish_file_capabilities(&self) -> Result<bool> {
+        let published = self.auth_request(
+            Method::POST,
+            "/v1/capabilities",
+            Some(&serde_json::json!({"features":["file-v1", "file-large-v1"]})),
+        );
+        if matches!(&published, Err(SyncError::Relay(400))) {
+            // Earlier relays reject unknown feature names. Preserve text/small
+            // file operation while all devices and the relay are being updated.
+            return self
+                .auth_request::<bool>(
+                    Method::POST,
+                    "/v1/capabilities",
+                    Some(&serde_json::json!({"features":["file-v1"]})),
+                )
+                .map(|_| false);
+        }
+        published
+    }
+
     /// Bind an already persisted small attachment-history event to encrypted chunk frames.
     /// No file frame becomes sendable before this method returns successfully.
     pub fn commit_file(&mut self, id: &str, event_id: &str) -> Result<PortableClip> {
         let cfg = self.configuration.as_ref().ok_or(SyncError::Membership)?;
-        if !cfg.enabled {
+        if !cfg.enabled || self.cancelled.load(Ordering::Acquire) {
             return Err(SyncError::Paused);
         }
         let roster = cfg.roster.as_ref().ok_or(SyncError::Membership)?;
@@ -692,11 +714,7 @@ impl SyncClient {
                 Err(SyncError::Authentication)
             };
         }
-        let published = self.auth_request::<bool>(
-            Method::POST,
-            "/v1/capabilities",
-            Some(&serde_json::json!({"features":["file-v1"]})),
-        );
+        let published = self.publish_file_capabilities();
         if matches!(&published, Err(SyncError::Relay(404))) {
             self.store.db.execute(
                 "UPDATE file_transfers SET state='unsupported' WHERE id=?1",
@@ -704,12 +722,24 @@ impl SyncClient {
             )?;
             return Err(SyncError::Unsupported);
         }
-        published?;
+        let relay_supports_large = published?;
+        if descriptor.chunk_count > 100 && !relay_supports_large {
+            self.store.db.execute(
+                "UPDATE file_transfers SET state='unsupported' WHERE id=?1",
+                [id],
+            )?;
+            return Err(SyncError::Unsupported);
+        }
         let capabilities: Vec<crate::DeviceCapabilities> =
             self.auth_request(Method::GET, "/v1/capabilities", None)?;
+        let feature = if descriptor.chunk_count > 100 {
+            "file-large-v1"
+        } else {
+            "file-v1"
+        };
         let advertised: std::collections::HashSet<&str> = capabilities
             .iter()
-            .filter(|cap| cap.features.iter().any(|f| f == "file-v1"))
+            .filter(|cap| cap.features.iter().any(|f| f == feature))
             .map(|cap| cap.device.as_str())
             .collect();
         let peers: Vec<String> = roster
@@ -726,27 +756,37 @@ impl SyncClient {
             return Err(SyncError::Unsupported);
         }
         let recipients = peers;
-        let mut jobs = Vec::with_capacity(recipients.len() * (descriptor.chunk_count as usize + 1));
-        for recipient in &recipients {
-            for index in -1..i64::from(descriptor.chunk_count) {
-                let frame_event = uuid::Uuid::new_v4().to_string();
-                let sequence = self.store.next_sequence()?;
-                jobs.push((recipient.clone(), index, frame_event, sequence));
-            }
-        }
-        let unsupported = jobs.is_empty();
+        let job_count = (recipients.len() as u64)
+            .checked_mul(u64::from(descriptor.chunk_count) + 1)
+            .ok_or(SyncError::Invalid)?;
+        let mut sequence = self.store.reserve_sequences(job_count)?;
+        let chunk_count = descriptor.chunk_count;
         let mut stored = transfer;
         stored.history_event = Some(event.id.clone());
         stored.history_sequence = Some(event.sequence);
         let payload = self.store.seal(&format!("file-meta:{id}"), &stored)?;
+        let cancel = self.cancelled.clone();
         let tx = self.store.db.transaction()?;
         for recipient in &recipients {
             tx.execute("INSERT OR IGNORE INTO file_targets(transfer,recipient,status) VALUES(?1,?2,'pending')",rusqlite::params![id,recipient])?;
         }
-        for (recipient, index, frame_event, sequence) in jobs {
-            tx.execute("INSERT INTO file_jobs(transfer,recipient,idx,frame_event,sequence,status) VALUES(?1,?2,?3,?4,?5,'pending')", rusqlite::params![id,recipient,index,frame_event,sequence])?;
+        for recipient in &recipients {
+            for index in -1..i64::from(chunk_count) {
+                if index % 128 == 0 && cancel.load(Ordering::Acquire) {
+                    return Err(SyncError::Paused);
+                }
+                let frame_event = uuid::Uuid::new_v4().to_string();
+                tx.execute("INSERT INTO file_jobs(transfer,recipient,idx,frame_event,sequence,status) VALUES(?1,?2,?3,?4,?5,'pending')", rusqlite::params![id,recipient,index,frame_event,sequence])?;
+                sequence += 1;
+            }
         }
-        tx.execute("UPDATE file_transfers SET payload=?2,committed=1,event_id=?3,state=?4 WHERE id=?1 AND committed=0", rusqlite::params![id,payload,event.id,if unsupported { "unsupported" } else { "pending" }])?;
+        if cancel.load(Ordering::Acquire) {
+            return Err(SyncError::Paused);
+        }
+        tx.execute("UPDATE file_transfers SET payload=?2,committed=1,event_id=?3,state='pending' WHERE id=?1 AND committed=0", rusqlite::params![id,payload,event.id])?;
+        if cancel.load(Ordering::Acquire) {
+            return Err(SyncError::Paused);
+        }
         tx.commit()?;
         Ok(event.clip)
     }
@@ -802,6 +842,7 @@ impl SyncClient {
                 .and_then(|c| c.roster.as_ref())
                 .map_or(vec![], |r| r.members.clone()),
             requests: vec![],
+            continue_file_transfer: false,
         })
     }
     pub fn tick(&mut self, auto_apply: bool) -> Result<ClientStatus> {
@@ -867,11 +908,7 @@ impl SyncClient {
         // delivery or mailbox polling during independent client/relay rollouts.
         // Only a missing route is compatible; authentication and server errors
         // still fail the network cycle normally.
-        let capabilities_published = self.auth_request::<bool>(
-            Method::POST,
-            "/v1/capabilities",
-            Some(&serde_json::json!({"features":["file-v1"]})),
-        );
+        let capabilities_published = self.publish_file_capabilities();
         if !matches!(&capabilities_published, Err(SyncError::Relay(404))) {
             capabilities_published?;
         }
@@ -964,23 +1001,23 @@ impl SyncClient {
         // The relay mailbox is oldest-first; each delivered chunk is durably staged
         // and acknowledged before the next frame is made visible.
         let file_drain_started = Instant::now();
-        let mut checked_jobs = 0usize;
         let mut sent_jobs = 0usize;
-        let mut checked = std::collections::HashSet::new();
-        while checked_jobs < FILE_JOB_MAX_CHECKS_PER_TICK
-            && sent_jobs < FILE_JOB_MAX_SENDS_PER_TICK
-            && file_drain_started.elapsed() < FILE_JOB_TIME_BUDGET
-            && !self.cancelled.load(Ordering::Acquire)
+        let mut file_progress = false;
+        let mut blocked_recipients = std::collections::HashSet::new();
+        let excluded: Vec<_> = capacity_retries.keys().cloned().collect();
+        for job in self
+            .store
+            .pending_file_jobs_excluding(FILE_JOB_MAX_CHECKS_PER_TICK, &excluded)?
         {
-            let job = self
-                .store
-                .pending_file_jobs(FILE_JOB_MAX_CHECKS_PER_TICK)?
-                .into_iter()
-                .find(|job| {
-                    checked.insert((job.transfer.clone(), job.recipient.clone(), job.index))
-                });
-            let Some(job) = job else { break };
-            checked_jobs += 1;
+            if sent_jobs >= FILE_JOB_MAX_SENDS_PER_TICK
+                || file_drain_started.elapsed() >= FILE_JOB_TIME_BUDGET
+                || self.cancelled.load(Ordering::Acquire)
+            {
+                break;
+            }
+            if blocked_recipients.contains(&job.recipient) {
+                continue;
+            }
             let Ok(recipient) = roster.member(&job.recipient) else {
                 self.store
                     .mark_file_job(&job.transfer, &job.recipient, job.index, "revoked")?;
@@ -1022,27 +1059,33 @@ impl SyncClient {
                         Some(&serde_json::to_value(envelope)?),
                     );
                     match submitted {
-                        Ok(_) => sent_jobs += 1,
+                        Ok(_) => {
+                            sent_jobs += 1;
+                            file_progress = true;
+                        }
                         Err(SyncError::Relay(507)) => {
                             let retry_at = unix_time().saturating_add(FILE_QUEUE_RETRY_DELAY_SECS);
+                            capacity_retries.insert(job.recipient.clone(), retry_at);
                             self.store
-                                .defer_file_jobs_for_recipient(&job.recipient, retry_at)?;
-                            checked.insert((
-                                job.transfer.clone(),
-                                job.recipient.clone(),
-                                job.index,
-                            ));
+                                .put(RECIPIENT_CAPACITY_RETRIES, &capacity_retries)?;
+                            blocked_recipients.insert(job.recipient.clone());
                         }
                         Err(error) => return Err(error),
                     }
                 }
-                "pending" => {}
-                "delivered" => self.store.mark_file_job(
-                    &job.transfer,
-                    &job.recipient,
-                    job.index,
-                    "delivered",
+                "pending" => self.store.defer_file_job(
+                    &job,
+                    unix_time().saturating_add(FILE_QUEUE_RETRY_DELAY_SECS),
                 )?,
+                "delivered" => {
+                    self.store.mark_file_job(
+                        &job.transfer,
+                        &job.recipient,
+                        job.index,
+                        "delivered",
+                    )?;
+                    file_progress = true;
+                }
                 "expired" | "revoked" | "rejected" => {
                     self.store
                         .mark_file_job(&job.transfer, &job.recipient, job.index, "failed")?;
@@ -1103,7 +1146,14 @@ impl SyncClient {
                     Ok(())
                 })();
                 match received {
-                    Ok(()) => {}
+                    Ok(()) => {
+                        file_progress = true;
+                    }
+                    Err(SyncError::DiskSpace) => {
+                        self.store.reject(item.cursor)?;
+                        self.store
+                            .put("delivery-failure", &"not enough free disk space")?;
+                    }
                     Err(
                         SyncError::Authentication
                         | SyncError::Invalid
@@ -1161,6 +1211,7 @@ impl SyncClient {
             }
         }
         status = self.status()?;
+        status.continue_file_transfer = file_progress;
         status.requests = self.pairing_requests()?;
         status.state = if self.store.overflow_count()? > 0 {
             "Sharing backlog full; retry local clips in Devices"

@@ -44,7 +44,7 @@ fn build(app: &adw::Application) {
     let header = adw::HeaderBar::new();
     header.set_title_widget(Some(&gtk::Label::new(Some("ClipVault"))));
     let add_file = gtk::Button::from_icon_name("document-open-symbolic");
-    add_file.set_tooltip_text(Some("Add files up to 100 MiB each"));
+    add_file.set_tooltip_text(Some("Add files to share"));
     add_file.update_property(&[gtk::accessible::Property::Label("Add file")]);
     header.pack_start(&add_file);
     let settings = gtk::Button::from_icon_name("preferences-system-symbolic");
@@ -539,7 +539,7 @@ fn entry(body: &gtk::Box, title: &str, secret: bool) -> gtk::Entry {
 fn add_file_dialog(parent: &adw::ApplicationWindow, tx: &Sender<Work>) {
     #[allow(deprecated)]
     let chooser = gtk::FileChooserNative::new(
-        Some("Add files up to 100 MiB each"),
+        Some("Add files to share; available storage determines the size"),
         Some(parent),
         gtk::FileChooserAction::Open,
         Some("Add files"),
