@@ -12,7 +12,14 @@ A source release requires:
 - a successful GitHub-hosted CI run on the exact commit;
 - accurate README, changelog, support, security, contribution, and release notes;
 - public repository security settings and default-branch rules verified;
-- an annotated `v0.1.0` tag and GitHub source release created only after explicit publication approval.
+- an annotated semantic-version tag and GitHub source release created only after explicit publication approval.
+
+The current publication candidate is `v0.2.0-preview.8`. Source and Linux assets
+may be published as a clearly marked prerelease when their own gates pass. A
+source/Linux prerelease does not qualify or include a public macOS binary.
+Linux assets require the matching AMD64 build/runtime evidence, project license,
+NOTICE, third-party notices, exact artifact checksums and explicit target limits.
+See [the preview status](release/0.2.0-preview.8/RELEASE_STATUS.md).
 
 ## 2. Direct-download macOS release
 
@@ -79,7 +86,11 @@ When distribution identities are available, package with the environment variabl
 
 ## Versioning
 
-Before the first public tag, `0.1.0` is the proposed version. After release, use semantic versioning for the source/API contract and increment the macOS build number for every uploaded binary.
+Use semantic versioning for the source/API contract and a prerelease suffix for
+experimental client/protocol releases. The current candidate is `0.2.0-preview.8`;
+its Linux package version is `0.2.0~preview8`. The deployed Mac build is version
+`0.2.0`, build `16`; no Mac binary is uploaded by this source/Linux release.
+Increment the macOS build number before uploading a new Mac distribution binary.
 
 ## Rollback
 

@@ -1,6 +1,6 @@
 # Linux preview and encrypted sharing
 
-ClipVault now includes an experimental Ubuntu/GNOME client and opt-in encrypted device sharing. These changes are source-level preview work, not a published release or a hosted sync service. Existing Mac history remains local until explicitly shared.
+ClipVault now includes an experimental Ubuntu/GNOME client and opt-in encrypted device sharing. The source-and-Ubuntu preview is prepared as `v0.2.0-preview.8`; check the [releases page](https://github.com/rsitech-ai/clip_vault/releases) for publication and checksums. This is an experimental self-hosted preview, with no hosted sync service or notarized macOS download. Existing Mac history remains local until explicitly shared.
 
 ## Existing Mac history during upgrade
 
@@ -22,9 +22,9 @@ Linux capture OFF closes the clipboard-read gate even while synchronization is b
 
 ## Ubuntu build
 
-The requested target is Ubuntu 26.10 with GNOME on an Intel/AMD (x86_64) laptop. Ubuntu's [26.10 release notes](https://documentation.ubuntu.com/release-notes/26.10/) identify GNOME 51, so the preview extension declares Shell 51. Its clipboard and selection calls were checked against the published GNOME 51 APIs. This declares the intended target; actual GNOME 51 Wayland capture remains unverified until tested on that desktop. Other Shell versions are not declared.
+The requested target is Ubuntu 26.10 with GNOME on an Intel/AMD (x86_64) laptop. Ubuntu's [26.10 release notes](https://documentation.ubuntu.com/release-notes/26.10/) identify GNOME 51, so the preview extension declares Shell 51. Its clipboard and selection calls were checked against the published GNOME 51 APIs. This declares the intended target; GNOME 51 Wayland capture was subsequently exercised on the target desktop, with the extension ACTIVE. Other Shell versions are not declared. See the [current verification report](verification/file-transfer-performance.md) for installed and isolated test boundaries.
 
-The portable engine and GTK client have a separate Linux build lane. Its Ubuntu 24.04 CI runner and Debian 12 virtual-display checks cover the GTK baseline; neither establishes compatibility with the requested Ubuntu 26.10 desktop. Disposable Ubuntu 26.10 package/runtime checks are recorded separately in the verification report. The target laptop was measured as Ubuntu 26.10 x86_64, GNOME Shell 51.0 on Wayland. The active user session still needs the first-install extension discovery step.
+The portable engine and GTK client have a separate Linux build lane. Its Ubuntu 24.04 CI runner and Debian 12 virtual-display checks cover the GTK baseline; neither establishes compatibility with the requested Ubuntu 26.10 desktop. Disposable Ubuntu 26.10 package/runtime checks are recorded separately in the verification report. The target laptop was measured as Ubuntu 26.10 x86_64, GNOME Shell 51.0 on Wayland. A fresh desktop session was used to discover and activate the extension on the target laptop. New installations may also need to sign out and back in once before enabling it.
 
 Install a current Rust toolchain and the build libraries:
 
