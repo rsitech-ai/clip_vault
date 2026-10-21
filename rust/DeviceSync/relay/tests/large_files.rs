@@ -411,3 +411,341 @@ async fn fresh_file_chunks_skip_status_probe_but_lost_submit_is_reconciled_after
     server.abort();
     result.unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fresh_file_posts_overlap_with_a_two_request_bound_and_save_exact_bytes() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+    let in_flight = Arc::new(AtomicUsize::new(0));
+    let max_in_flight = Arc::new(AtomicUsize::new(0));
+    let barrier = Arc::new(tokio::sync::Barrier::new(2));
+    let file_posts = Arc::new(AtomicUsize::new(0));
+    let completion_order = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let (active, middleware_max, gate, post_count, completions) = (
+        in_flight.clone(),
+        max_in_flight.clone(),
+        barrier.clone(),
+        file_posts.clone(),
+        completion_order.clone(),
+    );
+    let relay = router(RelayStore::open(&root.join("relay.db"), "registration").unwrap()).layer(
+        middleware::from_fn(move |request: Request<Body>, next: Next| {
+            let (active, max_active, gate, post_count, completions) = (
+                active.clone(),
+                middleware_max.clone(),
+                gate.clone(),
+                post_count.clone(),
+                completions.clone(),
+            );
+            async move {
+                if request.method() != Method::POST || request.uri().path() != "/v1/mailbox" {
+                    return next.run(request).await;
+                }
+                let (parts, body) = request.into_parts();
+                let bytes = to_bytes(body, 8 * 1024 * 1024).await.unwrap();
+                let envelope: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+                let request = Request::from_parts(parts, Body::from(bytes));
+                if envelope["header"]["message_type"] != "file-v1" {
+                    return next.run(request).await;
+                }
+                // Keep the first file-v1 manifest serial. The following chunk
+                // frames may then reach the relay out of sequence.
+                let post_index = post_count.fetch_add(1, Ordering::SeqCst);
+                if post_index == 0 {
+                    return next.run(request).await;
+                }
+                let now = active.fetch_add(1, Ordering::SeqCst) + 1;
+                max_active.fetch_max(now, Ordering::SeqCst);
+                // A serial client proceeds after the bounded wait and then fails
+                // the overlap assertion; a concurrent pair releases immediately.
+                if post_index <= 2 {
+                    let _ =
+                        tokio::time::timeout(std::time::Duration::from_secs(1), gate.wait()).await;
+                }
+                if post_index == 1 {
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                }
+                let response = next.run(request).await;
+                completions.lock().unwrap().push(post_index);
+                active.fetch_sub(1, Ordering::SeqCst);
+                response
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move { axum::serve(listener, relay).await.unwrap() });
+    let result = tokio::task::spawn_blocking(move || {
+        let mut sender =
+            SyncClient::open(DeviceStore::open(&root.join("sender.db"), random_secret()).unwrap())
+                .unwrap();
+        let mut receiver = SyncClient::open(
+            DeviceStore::open(&root.join("receiver.db"), random_secret()).unwrap(),
+        )
+        .unwrap();
+        sender
+            .create_workspace(&endpoint, "registration", "Sender")
+            .unwrap();
+        let words = receiver
+            .join(&sender.create_invite().unwrap(), "Receiver")
+            .unwrap();
+        let request = sender.pairing_requests().unwrap().remove(0);
+        sender.approve(&request.id, &words).unwrap();
+        receiver.tick(true).unwrap();
+        sender.tick(true).unwrap();
+
+        let source = root.join("parallel.bin");
+        let bytes: Vec<u8> = (0..(2 * FILE_CHUNK_BYTES + 37))
+            .map(|index| (index.wrapping_mul(37) % 251) as u8)
+            .collect();
+        std::fs::write(&source, &bytes).unwrap();
+        let file = sender.stage_file(&source, || false).unwrap();
+        let event = sender
+            .capture(PortableClip::attachment(&file), None)
+            .unwrap()
+            .unwrap();
+        sender.commit_file(&file.id, &event).unwrap();
+        sender.tick(true).unwrap();
+        assert!(
+            max_in_flight.load(Ordering::SeqCst) >= 2,
+            "two fresh file POSTs should overlap"
+        );
+        assert!(
+            max_in_flight.load(Ordering::SeqCst) <= 2,
+            "file POST concurrency must remain bounded at two"
+        );
+        assert_eq!(
+            file_posts.load(Ordering::SeqCst),
+            4,
+            "manifest plus all three chunks, including the partial final chunk"
+        );
+        let completion_order = completion_order.lock().unwrap();
+        assert_eq!(
+            &completion_order[..2],
+            &[2, 1],
+            "first pair of chunks should reach the relay out of sequence"
+        );
+        drop(completion_order);
+
+        for _ in 0..8 {
+            receiver.tick(true).unwrap();
+            sender.tick(true).unwrap();
+        }
+        let destination = root.join("parallel-saved.bin");
+        receiver
+            .store
+            .save_file(&file.id, &destination, || false)
+            .unwrap();
+        assert_eq!(std::fs::read(destination).unwrap(), bytes);
+    })
+    .await;
+    server.abort();
+    result.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn pausing_during_parallel_file_posts_joins_both_before_tick_returns() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+    let post_count = Arc::new(AtomicUsize::new(0));
+    let in_flight = Arc::new(AtomicUsize::new(0));
+    let both_entered = Arc::new(tokio::sync::Notify::new());
+    let release = Arc::new(tokio::sync::Semaphore::new(0));
+    let (posts, active, entered, release_posts) = (
+        post_count.clone(),
+        in_flight.clone(),
+        both_entered.clone(),
+        release.clone(),
+    );
+    let relay = router(RelayStore::open(&root.join("relay.db"), "registration").unwrap()).layer(
+        middleware::from_fn(move |request: Request<Body>, next: Next| {
+            let (posts, active, entered, release_posts) = (
+                posts.clone(),
+                active.clone(),
+                entered.clone(),
+                release_posts.clone(),
+            );
+            async move {
+                if request.method() != Method::POST || request.uri().path() != "/v1/mailbox" {
+                    return next.run(request).await;
+                }
+                let (parts, body) = request.into_parts();
+                let bytes = to_bytes(body, 8 * 1024 * 1024).await.unwrap();
+                let envelope: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+                let request = Request::from_parts(parts, Body::from(bytes));
+                if envelope["header"]["message_type"] != "file-v1"
+                    || posts.fetch_add(1, Ordering::SeqCst) == 0
+                {
+                    return next.run(request).await;
+                }
+                let current = active.fetch_add(1, Ordering::SeqCst) + 1;
+                if current == 2 {
+                    entered.notify_one();
+                }
+                let permit = release_posts.acquire().await.unwrap();
+                permit.forget();
+                let response = next.run(request).await;
+                active.fetch_sub(1, Ordering::SeqCst);
+                response
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move { axum::serve(listener, relay).await.unwrap() });
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let client_cancel = cancelled.clone();
+    let tick = tokio::task::spawn_blocking(move || {
+        let mut sender =
+            SyncClient::open(DeviceStore::open(&root.join("sender.db"), random_secret()).unwrap())
+                .unwrap();
+        let mut receiver = SyncClient::open(
+            DeviceStore::open(&root.join("receiver.db"), random_secret()).unwrap(),
+        )
+        .unwrap();
+        sender
+            .create_workspace(&endpoint, "registration", "Sender")
+            .unwrap();
+        let words = receiver
+            .join(&sender.create_invite().unwrap(), "Receiver")
+            .unwrap();
+        let request = sender.pairing_requests().unwrap().remove(0);
+        sender.approve(&request.id, &words).unwrap();
+        receiver.tick(true).unwrap();
+        sender.tick(true).unwrap();
+
+        let source = root.join("paused.bin");
+        std::fs::write(&source, vec![0x4b; 2 * FILE_CHUNK_BYTES + 17]).unwrap();
+        let file = sender.stage_file(&source, || false).unwrap();
+        let event = sender
+            .capture(PortableClip::attachment(&file), None)
+            .unwrap()
+            .unwrap();
+        sender.commit_file(&file.id, &event).unwrap();
+        sender.set_cancel_signal(client_cancel);
+        assert!(matches!(sender.tick(true), Err(SyncError::Paused)));
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(10), both_entered.notified())
+        .await
+        .expect("two chunk uploads should be concurrently waiting");
+    cancelled.store(true, Ordering::Release);
+    release.add_permits(2);
+    tick.await.unwrap();
+    assert_eq!(in_flight.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        post_count.load(Ordering::SeqCst),
+        3,
+        "manifest plus two chunks"
+    );
+    server.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn parallel_file_capacity_response_blocks_more_posts_for_that_recipient() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+    let file_posts = Arc::new(AtomicUsize::new(0));
+    let mailbox_polls = Arc::new(AtomicUsize::new(0));
+    let pair = Arc::new(tokio::sync::Barrier::new(2));
+    let (file_post_count, poll_count, pair_gate) =
+        (file_posts.clone(), mailbox_polls.clone(), pair.clone());
+    let relay = router(RelayStore::open(&root.join("relay.db"), "registration").unwrap()).layer(
+        middleware::from_fn(move |request: Request<Body>, next: Next| {
+            let (file_post_count, poll_count, pair_gate) = (
+                file_post_count.clone(),
+                poll_count.clone(),
+                pair_gate.clone(),
+            );
+            async move {
+                if request.method() == Method::GET && request.uri().path() == "/v1/mailbox" {
+                    poll_count.fetch_add(1, Ordering::SeqCst);
+                    return next.run(request).await;
+                }
+                if request.method() != Method::POST || request.uri().path() != "/v1/mailbox" {
+                    return next.run(request).await;
+                }
+                let (parts, body) = request.into_parts();
+                let bytes = to_bytes(body, 8 * 1024 * 1024).await.unwrap();
+                let envelope: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+                if envelope["header"]["message_type"] != "file-v1" {
+                    return next
+                        .run(Request::from_parts(parts, Body::from(bytes)))
+                        .await;
+                }
+                let post_index = file_post_count.fetch_add(1, Ordering::SeqCst);
+                let request = Request::from_parts(parts, Body::from(bytes));
+                if post_index == 0 {
+                    return next.run(request).await;
+                }
+                let _ =
+                    tokio::time::timeout(std::time::Duration::from_secs(1), pair_gate.wait()).await;
+                if post_index == 1 {
+                    StatusCode::INSUFFICIENT_STORAGE.into_response()
+                } else {
+                    next.run(request).await
+                }
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move { axum::serve(listener, relay).await.unwrap() });
+    let result = tokio::task::spawn_blocking(move || {
+        let mut sender =
+            SyncClient::open(DeviceStore::open(&root.join("sender.db"), random_secret()).unwrap())
+                .unwrap();
+        let mut receiver = SyncClient::open(
+            DeviceStore::open(&root.join("receiver.db"), random_secret()).unwrap(),
+        )
+        .unwrap();
+        sender
+            .create_workspace(&endpoint, "registration", "Sender")
+            .unwrap();
+        let words = receiver
+            .join(&sender.create_invite().unwrap(), "Receiver")
+            .unwrap();
+        let request = sender.pairing_requests().unwrap().remove(0);
+        sender.approve(&request.id, &words).unwrap();
+        receiver.tick(true).unwrap();
+        sender.tick(true).unwrap();
+
+        let source = root.join("capacity.bin");
+        std::fs::write(&source, vec![0x25; 2 * FILE_CHUNK_BYTES + 31]).unwrap();
+        let file = sender.stage_file(&source, || false).unwrap();
+        let event = sender
+            .capture(PortableClip::attachment(&file), None)
+            .unwrap()
+            .unwrap();
+        sender.commit_file(&file.id, &event).unwrap();
+        let first_tick_started = std::time::Instant::now();
+        sender.tick(true).unwrap();
+        assert!(
+            first_tick_started.elapsed() < std::time::Duration::from_secs(1),
+            "a capacity response must not spin on remaining blocked jobs"
+        );
+        assert_eq!(
+            file_posts.load(Ordering::SeqCst),
+            3,
+            "manifest plus both concurrent chunk submissions should be processed"
+        );
+        let polls_before_retry = mailbox_polls.load(Ordering::SeqCst);
+        let retry_tick_started = std::time::Instant::now();
+        sender.tick(true).unwrap();
+        assert_eq!(
+            file_posts.load(Ordering::SeqCst),
+            3,
+            "a capacity response must defer remaining work for this recipient"
+        );
+        assert!(
+            mailbox_polls.load(Ordering::SeqCst) > polls_before_retry,
+            "file capacity must not prevent normal mailbox polling"
+        );
+        assert!(
+            retry_tick_started.elapsed() < std::time::Duration::from_secs(1),
+            "blocked recipient jobs must advance instead of spinning to the file budget"
+        );
+    })
+    .await;
+    server.abort();
+    result.unwrap();
+}

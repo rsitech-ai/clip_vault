@@ -10,7 +10,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 use std::time::{Duration, Instant};
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 const MAILBOX_BATCH_BYTES: usize = 24 * 1024 * 1024;
 const FILE_MAILBOX_MAX_ITEMS: usize = 16;
@@ -143,6 +143,50 @@ pub fn unix_time() -> i64 {
 
 fn is_terminal_approval_error(error: &SyncError) -> bool {
     matches!(error, SyncError::Relay(400 | 403 | 410 | 422))
+}
+
+fn post_file_mailbox(
+    http: &Client,
+    relay: &str,
+    credential: &str,
+    cancelled: &AtomicBool,
+    envelope: &serde_json::Value,
+) -> Result<i64> {
+    if cancelled.load(Ordering::Acquire) {
+        return Err(SyncError::Paused);
+    }
+    let base = validate_endpoint(relay)?;
+    let url = base.join("/v1/mailbox").map_err(|_| SyncError::Invalid)?;
+    if url.origin() != base.origin() {
+        return Err(SyncError::Invalid);
+    }
+    let response = http
+        .post(url)
+        .bearer_auth(credential)
+        .json(envelope)
+        .send()
+        .map_err(|_| SyncError::Network)?;
+    if cancelled.load(Ordering::Acquire) {
+        return Err(SyncError::Paused);
+    }
+    if !response.status().is_success() {
+        return Err(SyncError::Relay(response.status().as_u16()));
+    }
+    if response
+        .content_length()
+        .is_some_and(|length| length > (MAILBOX_BATCH_BYTES + 8192) as u64)
+    {
+        return Err(SyncError::TooLarge);
+    }
+    let mut bytes = Zeroizing::new(Vec::new());
+    response
+        .take((MAILBOX_BATCH_BYTES + 8193) as u64)
+        .read_to_end(&mut bytes)
+        .map_err(|_| SyncError::Network)?;
+    if bytes.len() > MAILBOX_BATCH_BYTES + 8192 {
+        return Err(SyncError::TooLarge);
+    }
+    Ok(serde_json::from_slice(&bytes)?)
 }
 
 impl SyncClient {
@@ -1000,17 +1044,19 @@ impl SyncClient {
             }
         }
         // File traffic has a separate bounded budget and runs after ordinary clips.
-        // The relay mailbox is oldest-first; each delivered chunk is durably staged
-        // and acknowledged before the next frame is made visible.
+        // Keep manifests serial so the receiver stores transfer metadata before its
+        // chunks; pairs of chunk POSTs may arrive out of sequence safely.
         let file_drain_started = Instant::now();
         let mut sent_jobs = 0usize;
         let mut file_progress = false;
         let mut blocked_recipients = std::collections::HashSet::new();
         let excluded: Vec<_> = capacity_retries.keys().cloned().collect();
-        for job in self
+        let jobs = self
             .store
-            .pending_file_jobs_excluding(FILE_JOB_MAX_CHECKS_PER_TICK, &excluded)?
-        {
+            .pending_file_jobs_excluding(FILE_JOB_MAX_CHECKS_PER_TICK, &excluded)?;
+        let mut job_index = 0usize;
+        while job_index < jobs.len() {
+            let job = jobs[job_index].clone();
             if sent_jobs >= FILE_JOB_MAX_SENDS_PER_TICK
                 || file_drain_started.elapsed() >= FILE_JOB_TIME_BUDGET
                 || self.cancelled.load(Ordering::Acquire)
@@ -1018,11 +1064,13 @@ impl SyncClient {
                 break;
             }
             if blocked_recipients.contains(&job.recipient) {
+                job_index += 1;
                 continue;
             }
             let Ok(recipient) = roster.member(&job.recipient) else {
                 self.store
                     .mark_file_job(&job.transfer, &job.recipient, job.index, "revoked")?;
+                job_index += 1;
                 continue;
             };
             // The attempted marker is committed before POST. A new job cannot
@@ -1049,6 +1097,114 @@ impl SyncClient {
                             "failed",
                         )?;
                         self.store.put("delivery-failure", &"expired")?;
+                        job_index += 1;
+                        continue;
+                    }
+                    if job.index >= 0 && job.first_attempted_at.is_none() {
+                        let mut batch = vec![job.clone()];
+                        if sent_jobs + 1 < FILE_JOB_MAX_SENDS_PER_TICK
+                            && let Some(next) = jobs.get(job_index + 1)
+                            && next.index >= 0
+                            && next.first_attempted_at.is_none()
+                            && next.recipient == job.recipient
+                            && !blocked_recipients.contains(&next.recipient)
+                        {
+                            batch.push(next.clone());
+                        }
+                        let mut prepared = Vec::with_capacity(batch.len());
+                        for candidate in &batch {
+                            let target = roster.member(&candidate.recipient)?;
+                            self.store.mark_file_job_attempted(candidate, unix_time())?;
+                            let frame = self.store.file_frame(candidate)?;
+                            let envelope = seal_file_frame(
+                                &cfg.workspace,
+                                roster.epoch,
+                                &self.identity,
+                                target,
+                                &candidate.event,
+                                candidate.sequence,
+                                &frame,
+                            )?;
+                            prepared.push((candidate.clone(), serde_json::to_value(envelope)?));
+                        }
+
+                        let responses = if prepared.len() == 2 {
+                            let http = self.http.clone();
+                            let relay = cfg.relay.clone();
+                            let credential = Zeroizing::new(cfg.credential.clone());
+                            let cancelled = self.cancelled.clone();
+                            std::thread::scope(|scope| {
+                                let handles: Vec<_> = prepared
+                                    .into_iter()
+                                    .map(|(candidate, envelope)| {
+                                        let http = http.clone();
+                                        let relay = relay.clone();
+                                        let credential = credential.clone();
+                                        let cancelled = cancelled.clone();
+                                        scope.spawn(move || {
+                                            let response = post_file_mailbox(
+                                                &http,
+                                                &relay,
+                                                &credential,
+                                                &cancelled,
+                                                &envelope,
+                                            );
+                                            (candidate, response)
+                                        })
+                                    })
+                                    .collect();
+                                handles.into_iter().map(|handle| handle.join()).collect()
+                            })
+                        } else {
+                            let (candidate, envelope) = prepared.into_iter().next().unwrap();
+                            vec![Ok((
+                                candidate,
+                                self.auth_request(Method::POST, "/v1/mailbox", Some(&envelope)),
+                            ))]
+                        };
+
+                        let mut post_error = None;
+                        for response in responses {
+                            let (candidate, submitted) = match response {
+                                Ok(response) => response,
+                                Err(_) => {
+                                    post_error.get_or_insert(SyncError::Network);
+                                    continue;
+                                }
+                            };
+                            let outcome: Result<()> = match submitted {
+                                Ok(_) => {
+                                    let result = self.store.defer_file_job(
+                                        &candidate,
+                                        unix_time().saturating_add(FILE_RECEIPT_RECHECK_SECS),
+                                    );
+                                    if result.is_ok() {
+                                        sent_jobs += 1;
+                                        file_progress = true;
+                                    }
+                                    result
+                                }
+                                Err(SyncError::Relay(507)) => {
+                                    let retry_at =
+                                        unix_time().saturating_add(FILE_QUEUE_RETRY_DELAY_SECS);
+                                    capacity_retries.insert(candidate.recipient.clone(), retry_at);
+                                    blocked_recipients.insert(candidate.recipient.clone());
+                                    self.store
+                                        .put(RECIPIENT_CAPACITY_RETRIES, &capacity_retries)
+                                }
+                                Err(error) => {
+                                    post_error.get_or_insert(error);
+                                    Ok(())
+                                }
+                            };
+                            if let Err(error) = outcome {
+                                post_error.get_or_insert(error);
+                            }
+                        }
+                        if let Some(error) = post_error {
+                            return Err(error);
+                        }
+                        job_index += batch.len();
                         continue;
                     }
                     self.store.mark_file_job_attempted(&job, unix_time())?;
@@ -1105,6 +1261,7 @@ impl SyncClient {
                 }
                 _ => return Err(SyncError::Invalid),
             }
+            job_index += 1;
         }
         for cursor in self.store.acknowledgements()? {
             let endpoint = if self.store.receipt_rejected(cursor)? {
