@@ -18,6 +18,7 @@ final class ClipVaultFileController {
         var capturedAt: Date
         var generation: UInt64
         var engineGeneration: UInt64
+        var imageFallback: ClipboardCaptureService.ImageFallbackBuilder?
         weak var model: ClipVaultViewModel?
     }
     private var pendingCaptures: [PendingCapture] = []
@@ -61,14 +62,15 @@ final class ClipVaultFileController {
         capture(urls: urls, sourceApp: sourceApp, capturedAt: capturedAt, model: model)
     }
 
-    func capture(urls: [URL], sourceApp: String?, capturedAt: Date, model: ClipVaultViewModel) {
+    func capture(urls: [URL], sourceApp: String?, capturedAt: Date, model: ClipVaultViewModel,
+                 imageFallback: ClipboardCaptureService.ImageFallbackBuilder? = nil) {
         guard !urls.isEmpty, urls.count <= 10 else { message = "Choose up to 10 files at a time."; return }
         guard pendingCaptures.reduce(0, { $0 + $1.urls.count }) + urls.count <= 10 else {
             message = "The file capture queue is full. Copy the remaining files again after it finishes."
             return
         }
         pendingCaptures.append(PendingCapture(urls: urls, sourceApp: sourceApp, capturedAt: capturedAt,
-            generation: captureGeneration, engineGeneration: service.captureGeneration(), model: model))
+            generation: captureGeneration, engineGeneration: service.captureGeneration(), imageFallback: imageFallback, model: model))
         drainCaptures()
     }
 
@@ -82,13 +84,14 @@ final class ClipVaultFileController {
                 guard pending.generation == captureGeneration, let model = pending.model else { continue }
                 await stage(urls: pending.urls, sourceApp: pending.sourceApp, capturedAt: pending.capturedAt,
                     isCapture: true, model: model, observedGeneration: pending.generation,
-                    engineGeneration: pending.engineGeneration)
+                    engineGeneration: pending.engineGeneration, imageFallback: pending.imageFallback)
             }
         }
     }
 
     func stage(urls: [URL], sourceApp: String?, capturedAt: Date, isCapture: Bool, model: ClipVaultViewModel,
-               observedGeneration: UInt64? = nil, engineGeneration expectedEngineGeneration: UInt64? = nil) async {
+               observedGeneration: UInt64? = nil, engineGeneration expectedEngineGeneration: UInt64? = nil,
+               imageFallback: ClipboardCaptureService.ImageFallbackBuilder? = nil) async {
         let version = observedGeneration ?? captureGeneration
         guard !isCapture || version == captureGeneration else { return }
         guard !busy else { message = "A file operation is in progress. Try again when it finishes."; return }
@@ -115,6 +118,15 @@ final class ClipVaultFileController {
                 }
             } catch {
                 if isCapture && version != captureGeneration { return }
+                if isCapture, urls.count == 1, let imageFallback {
+                    let payload = await imageFallback()
+                    guard version == captureGeneration else { return }
+                    if let payload, payload.kind == .image,
+                       model.ingest(payload: payload, sourceApp: sourceApp, capturedAt: capturedAt) {
+                        message = "Captured an image instead. Use Add File to share the original file."
+                        continue
+                    }
+                }
                 message = isCapture
                     ? "Could not add \(url.lastPathComponent). Use Add File to grant access, or check available disk space. \(error.localizedDescription)"
                     : "Could not add \(url.lastPathComponent). \(error.localizedDescription)"

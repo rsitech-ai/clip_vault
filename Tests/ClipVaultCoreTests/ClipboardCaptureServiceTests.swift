@@ -5,6 +5,88 @@ import Testing
 @Suite("Clipboard capture service")
 struct ClipboardCaptureServiceTests {
     @MainActor
+    @Test("a single file capture retains its JPEG snapshot for lazy fallback after the pasteboard changes")
+    func fileCaptureRetainsObservedJPEGFallback() async throws {
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        let imageBytes = Data([0xff, 0xd8, 0xff, 0xd9])
+        let service = ClipboardCaptureService(pasteboard: pasteboard) { snapshot in
+            guard snapshot.jpegData == imageBytes else { return nil }
+            return ClipPayload(kind: .image, displayText: "Image", extractedText: "",
+                metadata: ["ocrStatus": "unavailable"], previewData: snapshot.jpegData,
+                uniformTypeIdentifiers: snapshot.uniformTypeIdentifiers)
+        }
+        var fallback: ClipboardCaptureService.ImageFallbackBuilder?
+        var capturedURLs: [URL] = []
+        service.onFilesCaptured = { urls, _, _, builder in
+            capturedURLs = urls
+            fallback = builder
+        }
+        service.start(interval: 60)
+        defer { service.stop() }
+        let file = URL(fileURLWithPath: "/tmp/unavailable-image.jpg")
+        pasteboard.clearContents()
+        #expect(pasteboard.writeObjects([file as NSURL]))
+        pasteboard.setData(imageBytes, forType: NSPasteboard.PasteboardType("public.jpeg"))
+
+        service.poll()
+        #expect(capturedURLs == [file])
+        #expect(fallback != nil)
+
+        pasteboard.clearContents()
+        pasteboard.setString("new clipboard owner", forType: .string)
+        let recovered = await fallback?()
+        #expect(recovered?.kind == .image)
+        #expect(recovered?.previewData == imageBytes)
+    }
+
+    @MainActor
+    @Test("multiple file captures do not carry an image fallback")
+    func multipleFileCaptureHasNoImageFallback() throws {
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        let service = ClipboardCaptureService(pasteboard: pasteboard)
+        var fallbackWasAttached = true
+        service.onFilesCaptured = { _, _, _, fallback in fallbackWasAttached = fallback != nil }
+        service.start(interval: 60)
+        defer { service.stop() }
+        pasteboard.clearContents()
+        #expect(pasteboard.writeObjects([
+            URL(fileURLWithPath: "/tmp/one.jpg") as NSURL,
+            URL(fileURLWithPath: "/tmp/two.jpg") as NSURL
+        ]))
+        let bitmap = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 2, pixelsHigh: 2,
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 8, bitsPerPixel: 32))
+        pasteboard.setData(bitmap.representation(using: .jpeg, properties: [:]),
+            forType: NSPasteboard.PasteboardType("public.jpeg"))
+        service.poll()
+        #expect(fallbackWasAttached == false)
+    }
+
+    @MainActor
+    @Test("private file pasteboard items are not delivered with an image fallback")
+    func privateFileCaptureIsRejected() throws {
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        let service = ClipboardCaptureService(pasteboard: pasteboard)
+        var captures = 0
+        service.onFilesCaptured = { _, _, _, _ in captures += 1 }
+        service.start(interval: 60)
+        defer { service.stop() }
+        pasteboard.clearContents()
+        #expect(pasteboard.writeObjects([URL(fileURLWithPath: "/tmp/private.jpg") as NSURL]))
+        pasteboard.setData(Data(), forType: NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType"))
+        let bitmap = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 2, pixelsHigh: 2,
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 8, bitsPerPixel: 32))
+        pasteboard.setData(bitmap.representation(using: .jpeg, properties: [:]),
+            forType: NSPasteboard.PasteboardType("public.jpeg"))
+        service.poll()
+        #expect(captures == 0)
+    }
+
+    @MainActor
     @Test("oversized file selections report an error without delivering partial capture")
     func rejectsOversizedSelectionBeforeCapture() throws {
         let pasteboard = NSPasteboard.withUniqueName()
@@ -12,7 +94,7 @@ struct ClipboardCaptureServiceTests {
         let service = ClipboardCaptureService(pasteboard: pasteboard)
         var captures = 0
         var errors: [String] = []
-        service.onFilesCaptured = { _, _, _ in captures += 1 }
+        service.onFilesCaptured = { _, _, _, _ in captures += 1 }
         service.onClipCaptured = { _, _, _ in captures += 1 }
         service.onFileCaptureError = { errors.append($0) }
         service.start(interval: 60)
@@ -421,7 +503,7 @@ struct ClipboardCaptureServiceTests {
         pasteboard.clearContents()
         let service = ClipboardCaptureService(pasteboard: pasteboard)
         var captured: [URL] = []
-        service.onFilesCaptured = { urls, _, _ in captured = urls }
+        service.onFilesCaptured = { urls, _, _, _ in captured = urls }
         service.start(interval: 60)
         defer { service.stop() }
         let file = URL(fileURLWithPath: "/tmp/file with spaces.txt")

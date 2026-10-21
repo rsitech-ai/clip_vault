@@ -7,9 +7,11 @@ import Vision
 @MainActor
 public final class ClipboardCaptureService {
     typealias PayloadBuilder = @Sendable (PasteboardSnapshot) async -> ClipPayload?
+    public typealias ImageFallbackBuilder = @Sendable () async -> ClipPayload?
+    private static let maximumFallbackImageBytes = 8 * 1024 * 1024
 
     public var onClipCaptured: (@MainActor (ClipPayload, String?, Date) -> Void)?
-    public var onFilesCaptured: (@MainActor ([URL], String?, Date) -> Void)?
+    public var onFilesCaptured: (@MainActor ([URL], String?, Date, ImageFallbackBuilder?) -> Void)?
     public var onFileCaptureError: (@MainActor (String) -> Void)?
     public private(set) var isRunning = false
 
@@ -113,7 +115,19 @@ public final class ClipboardCaptureService {
         if let onFilesCaptured, !snapshot.fileURLs.isEmpty {
             // Preserve URLs supplied by AppKit: rebuilding a URL from its path
             // would discard any security-scope information attached to it.
-            onFilesCaptured(snapshot.fileURLs, sourceApp, now)
+            let imageFallback: ImageFallbackBuilder?
+            if snapshot.fileURLs.count == 1, snapshot.hasFallbackImage {
+                imageFallback = { [snapshot, payloadBuilder] in
+                    var imageSnapshot = snapshot
+                    imageSnapshot.fileURLs = []
+                    imageSnapshot.filePaths = []
+                    guard let payload = await payloadBuilder(imageSnapshot), payload.kind == .image else { return nil }
+                    return payload
+                }
+            } else {
+                imageFallback = nil
+            }
+            onFilesCaptured(snapshot.fileURLs, sourceApp, now, imageFallback)
             return
         }
         let generation = lifecycleGeneration
@@ -166,13 +180,15 @@ public final class ClipboardCaptureService {
                 return PasteboardSnapshot(uniformTypeIdentifiers: types, string: nil, urlString: nil,
                     rtfData: nil, tiffData: nil, pngData: nil, objectImageData: nil, filePaths: [])
             }
+            let representations = fileURLs.count == 1 ? imageRepresentations(from: pasteboard) : nil
             return PasteboardSnapshot(
                 uniformTypeIdentifiers: types,
                 string: nil,
                 urlString: nil,
                 rtfData: nil,
-                tiffData: nil,
-                pngData: nil,
+                tiffData: representations?.tiff,
+                pngData: representations?.png,
+                jpegData: representations?.jpeg,
                 objectImageData: nil,
                 filePaths: fileURLs.map(\.path),
                 fileURLs: fileURLs
@@ -187,9 +203,28 @@ public final class ClipboardCaptureService {
             rtfData: pasteboard.data(forType: .rtf),
             tiffData: pasteboard.data(forType: .tiff),
             pngData: pasteboard.data(forType: NSPasteboard.PasteboardType("public.png")),
+            jpegData: pasteboard.data(forType: NSPasteboard.PasteboardType("public.jpeg")),
             objectImageData: objectImageData,
             filePaths: fileURLs.map(\.path)
         )
+    }
+
+    private static func imageRepresentations(from pasteboard: NSPasteboard) -> (tiff: Data?, png: Data?, jpeg: Data?)? {
+        let candidates: [(NSPasteboard.PasteboardType, String)] = [
+            (NSPasteboard.PasteboardType("public.jpeg"), "jpeg"),
+            (NSPasteboard.PasteboardType("public.png"), "png"),
+            (.tiff, "tiff")
+        ]
+        for (type, format) in candidates {
+            guard let data = pasteboard.data(forType: type), !data.isEmpty,
+                  data.count <= maximumFallbackImageBytes else { continue }
+            switch format {
+            case "jpeg": return (nil, nil, data)
+            case "png": return (nil, data, nil)
+            default: return (data, nil, nil)
+            }
+        }
+        return nil
     }
 
     nonisolated static func payload(
@@ -251,6 +286,7 @@ public final class ClipboardCaptureService {
         let imageData: [(Data?, String)] = [
             (snapshot.tiffData, NSPasteboard.PasteboardType.tiff.rawValue),
             (snapshot.pngData, "public.png"),
+            (snapshot.jpegData, "public.jpeg"),
             (snapshot.objectImageData, NSPasteboard.PasteboardType.tiff.rawValue)
         ]
 
@@ -372,6 +408,7 @@ struct PasteboardSnapshot: Sendable {
     var rtfData: Data?
     var tiffData: Data?
     var pngData: Data?
+    var jpegData: Data? = nil
     var objectImageData: Data?
     var filePaths: [String]
     var fileURLs: [URL] = []
@@ -379,7 +416,11 @@ struct PasteboardSnapshot: Sendable {
 
     var hasReadableContent: Bool {
         string?.isEmpty == false || urlString?.isEmpty == false || !filePaths.isEmpty
-            || [rtfData, tiffData, pngData, objectImageData].contains { $0?.isEmpty == false }
+            || [rtfData, tiffData, pngData, jpegData, objectImageData].contains { $0?.isEmpty == false }
+    }
+
+    var hasFallbackImage: Bool {
+        [tiffData, pngData, jpegData, objectImageData].contains { $0?.isEmpty == false }
     }
 
     var hasSupportedRepresentation: Bool {
