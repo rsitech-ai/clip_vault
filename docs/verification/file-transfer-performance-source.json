@@ -65,7 +65,7 @@
     },
     {
       "path": "rust/DeviceSync/relay/tests/large_files.rs",
-      "sha256": "e1eef2c2e88b09411db98e6efffd760549e56c0f8e0c59aa1240ae40f11a9b89"
+      "sha256": "77f069d749e90ffe511c13070de8e5fe1ef720bf5d05cd4545a2c44a5ec6069f"
     },
     {
       "path": "rust/DeviceSync/relay/tests/relay.rs",

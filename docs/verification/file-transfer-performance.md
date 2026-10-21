@@ -222,7 +222,13 @@ FIFO test whose three-second watchdog included subprocess startup and encrypted
 store creation while other large fixtures competed for disk. Its watchdog is now
 30 seconds, preserving detection of an indefinite FIFO open (PRE_EXISTING test
 threshold defect, addressed in this PR). CI must pass on the exact final PR head
-before merge. No production code or installed binary changed for this fix.
+before merge. No production code or installed binary changed for these test fixes.
+The following CI run also demonstrated that a valid two-second send budget can
+leave the final partial chunk for a later tick. The overlap/capacity/pause tests
+now allow up to four bounded ticks; exact counts, maximum two requests and saved
+bytes remain asserted. A notification after the second arriving request commits
+replaces a sleep for reverse-completion ordering, with a deadlock watchdog below
+the client's request timeout (CODE_FAILURE test assumption, corrected).
 
 Earlier validation setup failures were INFRA_FAILURE: a corrupted fresh macOS
 Cargo cache, absent Python in the headless smoke image, and stale headless Xvfb

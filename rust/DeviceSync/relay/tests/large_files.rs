@@ -418,13 +418,13 @@ async fn fresh_file_posts_overlap_with_a_two_request_bound_and_save_exact_bytes(
     let root = dir.path().to_path_buf();
     let in_flight = Arc::new(AtomicUsize::new(0));
     let max_in_flight = Arc::new(AtomicUsize::new(0));
-    let barrier = Arc::new(tokio::sync::Barrier::new(2));
+    let second_completed = Arc::new(tokio::sync::Notify::new());
     let file_posts = Arc::new(AtomicUsize::new(0));
     let completion_order = Arc::new(std::sync::Mutex::new(Vec::new()));
     let (active, middleware_max, gate, post_count, completions) = (
         in_flight.clone(),
         max_in_flight.clone(),
-        barrier.clone(),
+        second_completed.clone(),
         file_posts.clone(),
         completion_order.clone(),
     );
@@ -456,17 +456,19 @@ async fn fresh_file_posts_overlap_with_a_two_request_bound_and_save_exact_bytes(
                 }
                 let now = active.fetch_add(1, Ordering::SeqCst) + 1;
                 max_active.fetch_max(now, Ordering::SeqCst);
-                // A serial client proceeds after the bounded wait and then fails
-                // the overlap assertion; a concurrent pair releases immediately.
-                if post_index <= 2 {
-                    let _ =
-                        tokio::time::timeout(std::time::Duration::from_secs(1), gate.wait()).await;
-                }
+                // Hold the first chunk until the second has committed. A serial
+                // client fails the watchdog; correctness never depends on a
+                // short sleep or on the runner's encryption/database speed.
                 if post_index == 1 {
-                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                    tokio::time::timeout(std::time::Duration::from_secs(8), gate.notified())
+                        .await
+                        .expect("the second chunk POST must finish while the first waits");
                 }
                 let response = next.run(request).await;
                 completions.lock().unwrap().push(post_index);
+                if post_index == 2 {
+                    gate.notify_one();
+                }
                 active.fetch_sub(1, Ordering::SeqCst);
                 response
             }
@@ -505,7 +507,14 @@ async fn fresh_file_posts_overlap_with_a_two_request_bound_and_save_exact_bytes(
             .unwrap()
             .unwrap();
         sender.commit_file(&file.id, &event).unwrap();
-        sender.tick(true).unwrap();
+        // A tick deliberately stops after its file budget; slow debug runners
+        // need not fit the manifest and every chunk into the same tick.
+        for _ in 0..4 {
+            sender.tick(true).unwrap();
+            if file_posts.load(Ordering::SeqCst) >= 4 {
+                break;
+            }
+        }
         assert!(
             max_in_flight.load(Ordering::SeqCst) >= 2,
             "two fresh file POSTs should overlap"
@@ -523,7 +532,7 @@ async fn fresh_file_posts_overlap_with_a_two_request_bound_and_save_exact_bytes(
         assert_eq!(
             &completion_order[..2],
             &[2, 1],
-            "first pair of chunks should reach the relay out of sequence"
+            "the first two arriving chunk requests must complete in reverse arrival order"
         );
         drop(completion_order);
 
@@ -623,9 +632,16 @@ async fn pausing_during_parallel_file_posts_joins_both_before_tick_returns() {
             .unwrap();
         sender.commit_file(&file.id, &event).unwrap();
         sender.set_cancel_signal(client_cancel);
-        assert!(matches!(sender.tick(true), Err(SyncError::Paused)));
+        for _ in 0..4 {
+            match sender.tick(true) {
+                Err(SyncError::Paused) => return,
+                Ok(_) => {}
+                Err(error) => panic!("unexpected sync error: {error}"),
+            }
+        }
+        panic!("parallel posts were not paused within four bounded ticks");
     });
-    tokio::time::timeout(std::time::Duration::from_secs(10), both_entered.notified())
+    tokio::time::timeout(std::time::Duration::from_secs(30), both_entered.notified())
         .await
         .expect("two chunk uploads should be concurrently waiting");
     cancelled.store(true, Ordering::Release);
@@ -717,7 +733,12 @@ async fn parallel_file_capacity_response_blocks_more_posts_for_that_recipient() 
             .unwrap()
             .unwrap();
         sender.commit_file(&file.id, &event).unwrap();
-        sender.tick(true).unwrap();
+        for _ in 0..4 {
+            sender.tick(true).unwrap();
+            if file_posts.load(Ordering::SeqCst) >= 3 {
+                break;
+            }
+        }
         assert_eq!(
             file_posts.load(Ordering::SeqCst),
             3,
