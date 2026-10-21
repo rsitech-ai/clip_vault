@@ -14,6 +14,9 @@ pub const MAX_TOTAL_PENDING_BYTES: u64 = 1024 * 1024 * 1024;
 pub const MAX_ENROLLMENT_RECEIPTS: u64 = 100_000;
 pub const MAX_INVITE_IDENTIFIERS: u64 = 100_000;
 
+const EXPIRE_DELIVERIES: &str = "UPDATE deliveries SET envelope=NULL,status='expired',terminal_at=?2 WHERE status='pending' AND created<=?1";
+const DELETE_TERMINAL_DELIVERIES: &str = "DELETE FROM deliveries WHERE status!='pending' AND terminal_at IS NOT NULL AND terminal_at<=?1";
+
 pub struct RelayStore {
     db: Connection,
     registration_hash: String,
@@ -85,6 +88,10 @@ impl RelayStore {
         }
         db.execute_batch("CREATE INDEX IF NOT EXISTS deliveries_pending_bytes ON deliveries(workspace,recipient,envelope_bytes) WHERE status='pending';")?;
         db.execute_batch("CREATE INDEX IF NOT EXISTS deliveries_completed ON deliveries(terminal_at,cursor) WHERE status='delivered' AND terminal_at IS NOT NULL;")?;
+        // Maintenance runs on the request path. Seek due metadata rather than
+        // scanning queued ciphertext, whose overflow pages can be megabytes.
+        db.execute_batch("CREATE INDEX IF NOT EXISTS deliveries_pending_expiry ON deliveries(created) WHERE status='pending';
+            CREATE INDEX IF NOT EXISTS deliveries_terminal_expiry ON deliveries(terminal_at) WHERE status!='pending' AND terminal_at IS NOT NULL;")?;
         let has_completed_at: bool = db.query_row(
             "SELECT EXISTS(SELECT 1 FROM pragma_table_info('enrollments') WHERE name='completed_at')",
             [],
@@ -433,12 +440,10 @@ impl RelayStore {
         Ok(())
     }
     pub fn maintain(&mut self, now: i64) -> Result<()> {
+        self.db
+            .execute(EXPIRE_DELIVERIES, params![now - DELIVERY_TTL, now])?;
         self.db.execute(
-            "UPDATE deliveries SET envelope=NULL,status='expired',terminal_at=?2 WHERE status='pending' AND created<=?1",
-            params![now - DELIVERY_TTL, now],
-        )?;
-        self.db.execute(
-            "DELETE FROM deliveries WHERE status!='pending' AND terminal_at IS NOT NULL AND terminal_at<=?1",
+            DELETE_TERMINAL_DELIVERIES,
             [now.saturating_sub(TERMINAL_DELIVERY_RETENTION)],
         )?;
         self.db.execute(
@@ -603,4 +608,89 @@ fn validate_hash(hash: &str) -> Result<()> {
 }
 fn uuid_invalid(value: &str) -> bool {
     value.len() != 36 || !value.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-')
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rusqlite::StatementStatus;
+
+    #[test]
+    fn maintenance_skips_live_ciphertext_and_preserves_expiry_boundaries() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("relay.sqlite");
+        let store = RelayStore::open(&path, "registration").unwrap();
+        // Exercise upgrading an existing database, not only fresh creation.
+        store
+            .db
+            .execute_batch(
+                "DROP INDEX deliveries_pending_expiry; DROP INDEX deliveries_terminal_expiry;",
+            )
+            .unwrap();
+        drop(store);
+        let mut store = RelayStore::open(&path, "registration").unwrap();
+        let now = super::super::now();
+        let expiry = now - DELIVERY_TTL;
+        let terminal_cutoff = now - TERMINAL_DELIVERY_RETENTION;
+        // Simulate queued chunk payloads: cleanup must not walk them on every
+        // POST, mailbox poll, or receipt check when none is due to expire.
+        let tx = store.db.transaction().unwrap();
+        for event in 0..512 {
+            tx.execute("INSERT INTO deliveries(workspace,sender,recipient,event,envelope,status,created,envelope_bytes) VALUES('w','s','r',?1,zeroblob(8192),'pending',?2,8192)", params![event.to_string(), now]).unwrap();
+        }
+        tx.commit().unwrap();
+        let mut expire = store.db.prepare(EXPIRE_DELIVERIES).unwrap();
+        assert_eq!(expire.execute(params![expiry, now]).unwrap(), 0);
+        assert!(
+            expire.get_status(StatementStatus::VmStep) < 256,
+            "expiration scanned live chunks: {} VM steps",
+            expire.get_status(StatementStatus::VmStep)
+        );
+        drop(expire);
+        let mut delete = store.db.prepare(DELETE_TERMINAL_DELIVERIES).unwrap();
+        assert_eq!(delete.execute([terminal_cutoff]).unwrap(), 0);
+        assert!(
+            delete.get_status(StatementStatus::VmStep) < 256,
+            "retention scanned live chunks: {} VM steps",
+            delete.get_status(StatementStatus::VmStep)
+        );
+        drop(delete);
+        for (event, status, created, terminal) in [
+            ("expire", "pending", expiry, None),
+            ("live-boundary", "pending", expiry + 1, None),
+            ("delete", "delivered", now, Some(terminal_cutoff)),
+            ("retain", "rejected", now, Some(terminal_cutoff + 1)),
+        ] {
+            store.db.execute("INSERT INTO deliveries(workspace,sender,recipient,event,envelope,status,created,terminal_at,envelope_bytes) VALUES('w','s','r',?1,'ciphertext',?2,?3,?4,10)", params![event,status,created,terminal]).unwrap();
+        }
+        store.maintain(now).unwrap();
+        let rows: Vec<(String, String, Option<String>, Option<i64>)> = store.db.prepare("SELECT event,status,envelope,terminal_at FROM deliveries WHERE event IN ('expire','live-boundary','delete','retain') ORDER BY event").unwrap().query_map([], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).unwrap().collect::<rusqlite::Result<_>>().unwrap();
+        assert_eq!(
+            rows,
+            vec![
+                ("expire".into(), "expired".into(), None, Some(now)),
+                (
+                    "live-boundary".into(),
+                    "pending".into(),
+                    Some("ciphertext".into()),
+                    None
+                ),
+                (
+                    "retain".into(),
+                    "rejected".into(),
+                    Some("ciphertext".into()),
+                    Some(terminal_cutoff + 1)
+                ),
+            ]
+        );
+        let pending: u64 = store
+            .db
+            .query_row(
+                "SELECT COUNT(*) FROM deliveries WHERE status='pending'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(pending, 513);
+    }
 }
