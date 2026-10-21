@@ -1061,12 +1061,15 @@ impl SyncClient {
                 self.auth_request(Method::POST, &format!("/v1/{endpoint}/{cursor}"), None)?;
             self.store.mark_acknowledged(cursor)?;
         }
-        let drain_started = Instant::now();
         let mailbox: Vec<MailItem> = self.auth_request(
             Method::GET,
             &format!("/v1/mailbox?limit={FILE_MAILBOX_MAX_ITEMS}"),
             None,
         )?;
+        // Download latency has its own request timeout. Counting it against the
+        // processing budget can discard almost an entire healthy response and
+        // repeatedly download the same large frames on slower connections.
+        let drain_started = Instant::now();
         for (index, item) in mailbox.into_iter().enumerate() {
             if self.cancelled.load(Ordering::Acquire)
                 || (index > 0 && drain_started.elapsed() >= FILE_MAILBOX_TIME_BUDGET)

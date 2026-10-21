@@ -252,7 +252,7 @@
     },
     {
       "path": "rust/DeviceSync/core/src/client.rs",
-      "sha256": "98e4e2a2b672c6d89a0ac835c4583d6a7ec635743bddac26436273fd02c11114"
+      "sha256": "1ff9993ad75b411dbe9063882cfe7333a8700ded4e7ae07f43e7d9e6106429c6"
     },
     {
       "path": "rust/DeviceSync/core/src/credentials.rs",
@@ -413,6 +413,10 @@
     {
       "path": "rust/DeviceSync/relay/tests/retry.rs",
       "sha256": "1a0230704a35619f4bd8b383ed14145e0404862cf6bcb4a8f2764c4d91f83e4a"
+    },
+    {
+      "path": "rust/DeviceSync/relay/tests/slow_mailbox.rs",
+      "sha256": "3969f91b056e2dfd732332d12e355242341bb79b3477494dda56a107e0032bee"
     },
     {
       "path": "rust/DeviceSync/relay/tests/stale_membership.rs",

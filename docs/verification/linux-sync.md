@@ -4,6 +4,52 @@ Date: 2026-10-20
 
 **Verdict: HOLD merge and file-sharing readiness.** The earlier clipboard-sync review passed, but the new 100 MiB attachment and Ubuntu UI scope is under validation and independent review. The canonical Mac app has been upgraded locally and its complete prior history verified. The audited Ubuntu client and relay are installed, and the actual Mac and Ubuntu apps are paired after a user-confirmed comparison code. Mac-to-Ubuntu Unicode text/Copy, client-offline catch-up and image display are verified. The genuine active Ubuntu GNOME capture path and Ubuntu-to-Mac automatic clipboard delivery still require acceptance. This report does not claim a published release, long-term uptime, or an error-free environment.
 
+## Three-device receive correction, 2026-10-21 morning
+
+The user completed the preview3 administrator update and refreshed Ubuntu's
+session. Installed hashes matched the audited artifacts, client and relay/proxy
+were active, restart counters were zero, and private HTTPS health passed.
+The GNOME51 extension is now ACTIVE. The update retained the encrypted history,
+pairing and existing ready files. A new95-byte file added while Ubuntu was
+stopped arrived ready after restarting only its client.
+
+The third Mac joined after a user-confirmed comparison code. The owner roster
+contains three devices. Fresh small files from both peers arrived on this Mac;
+Save produced exact matching sizes/SHA256s (89 and91 bytes,mode0600). The earlier
+Ubuntu→Mac88-byte and100MiB files also passed independent native Save/hash checks.
+Fresh Unicode text from both peers is visible in this Mac's actual history.
+
+A new100MiB file sent from this Mac reached Ubuntu ready, but the third Mac was
+still at30percent after substantial redundant traffic. Sampling showed its
+network worker reading a mailbox response. Source review found the two-second
+frame-processing clock started **before** the bounded mailbox download. A
+healthy slow GET could consume that clock,process just the first item,then
+redownload most of the24MiB batch. A focused HTTP regression reproduced this
+with a2.2-second delayed GET. Starting the processing clock after GET passed the
+file-ready,trailing-text and byte-exact Save assertions. The final fixture is
+8KiB plus text so emulated CPU speed does not itself consume the test budget;
+the original2MiB variant also passed after the correction. Request timeout,
+response limits,cancellation and processing time limit are retained.
+
+Both signed Macs now run build11,executable SHA256
+`a2f4b781fe6084db5176a49b7a40e4c65cf844b2627fd8a784379cf055a48997`,
+with build10 rollback bundles and unchanged designated requirements. The third
+Mac resumed its existing partial receive; Ubuntu's formerly pending text
+outcomes119/118 then became delivered to both Macs. Native Rust workspace,
+formatting,strict Clippy,focused delayed-GET regression and signed Mac build
+passed. AMD64 workspace/release validation and Ubuntu client package update
+are still being completed for this narrow correction. The relay/proxy require
+no behavior change for this client receive-timer fix.
+
+Independent source re-review found no remaining P1/P2 in the narrow correction.
+It does not prove complete installed-device acceptance or a throughput bound.
+Processing that itself exhausts the budget can still defer remaining frames.
+Final receiving Save/hash on the third Mac,remaining installed routes and
+new-head CI remain gates. The PR stays draft and main unchanged. Current logs
+are `dist/final-audit/20261020/slow-mailbox-*` and the three-device receipts.
+Apple GenerativeModels availability errors were observed on the third Mac;
+no claim of universally clean operating-system logs is made.
+
 ## Audit continuation, 2026-10-21
 
 Merge remains **HOLD**. The source audit found and repaired additional recovery
