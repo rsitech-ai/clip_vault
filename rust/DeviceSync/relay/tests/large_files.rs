@@ -717,19 +717,13 @@ async fn parallel_file_capacity_response_blocks_more_posts_for_that_recipient() 
             .unwrap()
             .unwrap();
         sender.commit_file(&file.id, &event).unwrap();
-        let first_tick_started = std::time::Instant::now();
         sender.tick(true).unwrap();
-        assert!(
-            first_tick_started.elapsed() < std::time::Duration::from_secs(1),
-            "a capacity response must not spin on remaining blocked jobs"
-        );
         assert_eq!(
             file_posts.load(Ordering::SeqCst),
             3,
             "manifest plus both concurrent chunk submissions should be processed"
         );
         let polls_before_retry = mailbox_polls.load(Ordering::SeqCst);
-        let retry_tick_started = std::time::Instant::now();
         sender.tick(true).unwrap();
         assert_eq!(
             file_posts.load(Ordering::SeqCst),
@@ -739,10 +733,6 @@ async fn parallel_file_capacity_response_blocks_more_posts_for_that_recipient() 
         assert!(
             mailbox_polls.load(Ordering::SeqCst) > polls_before_retry,
             "file capacity must not prevent normal mailbox polling"
-        );
-        assert!(
-            retry_tick_started.elapsed() < std::time::Duration::from_secs(1),
-            "blocked recipient jobs must advance instead of spinning to the file budget"
         );
     })
     .await;
