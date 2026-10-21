@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::io::Read;
 use std::path::Path;
 use std::sync::{
-    Arc,
+    Arc, OnceLock,
     atomic::{AtomicBool, Ordering},
 };
 use std::time::{Duration, Instant};
@@ -22,6 +22,23 @@ const FILE_QUEUE_RETRY_DELAY_SECS: i64 = 2;
 const RECIPIENT_CAPACITY_RETRIES: &str = "recipient-capacity-retries";
 const FILE_POLL_UNTIL: &str = "file-poll-until";
 const FILE_POLL_GRACE_SECS: i64 = 10;
+
+static HTTP_CLIENT: OnceLock<Client> = OnceLock::new();
+
+fn shared_http_client() -> Result<Client> {
+    if let Some(client) = HTTP_CLIENT.get() {
+        return Ok(client.clone());
+    }
+    // Cache only success so a transient initialization failure can recover on
+    // the next command. Concurrent first opens converge on one shared pool.
+    let client = Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .connect_timeout(Duration::from_secs(5))
+        .timeout(Duration::from_secs(12))
+        .build()
+        .map_err(|_| SyncError::Network)?;
+    Ok(HTTP_CLIENT.get_or_init(|| client).clone())
+}
 
 #[derive(Clone, Serialize, Deserialize)]
 struct Configuration {
@@ -210,12 +227,7 @@ impl SyncClient {
                 .as_ref()
                 .map(|pending| Self::configuration_for_pending_join(pending, pending.enabled)),
         };
-        let http = Client::builder()
-            .redirect(reqwest::redirect::Policy::none())
-            .connect_timeout(std::time::Duration::from_secs(5))
-            .timeout(std::time::Duration::from_secs(12))
-            .build()
-            .map_err(|_| SyncError::Network)?;
+        let http = shared_http_client()?;
         Ok(Self {
             store,
             identity,
