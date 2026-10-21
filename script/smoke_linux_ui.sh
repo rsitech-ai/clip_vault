@@ -1,10 +1,47 @@
 #!/usr/bin/env bash
 set -euo pipefail
+command -v python3 >/dev/null 2>&1 || { echo "python3 is required for the ClipVault Linux UI smoke test." >&2; exit 1; }
+SMOKE_IMAGE_COPY_Y="${SMOKE_IMAGE_COPY_Y:-373}"
+if [[ ! "$SMOKE_IMAGE_COPY_Y" =~ ^[0-9]+$ ]]; then
+  echo "SMOKE_IMAGE_COPY_Y must be a non-negative integer." >&2
+  exit 1
+fi
 export DISPLAY=:99
 export GSK_RENDERER=cairo
 export GTK_A11Y=none
 export XDG_SESSION_TYPE=x11
 export XDG_CURRENT_DESKTOP=GNOME
+
+wait_for_window_focus() {
+  local expected_window_id="$1"
+  local focused_window_id
+  for attempt in $(seq 1 20); do
+    focused_window_id="$(xdotool getwindowfocus 2>/dev/null || true)"
+    if [[ "$focused_window_id" == "$expected_window_id" ]]; then
+      return 0
+    fi
+    sleep 0.25
+  done
+  echo "FAIL: window $expected_window_id did not receive focus (focused: ${focused_window_id:-none})." >&2
+  return 1
+}
+
+accept_visible_dialog_if_open() {
+  local title_regex="$1"
+  local dialog_id geometry dialog_width dialog_height
+  dialog_id="$(xdotool search --onlyvisible --name "$title_regex" 2>/dev/null | head -1 || true)"
+  [[ -n "$dialog_id" ]] || return 0
+  wait_for_window_focus "$dialog_id"
+  geometry="$(xdotool getwindowgeometry --shell "$dialog_id")"
+  dialog_width="$(printf '%s\n' "$geometry" | sed -n 's/^WIDTH=//p')"
+  dialog_height="$(printf '%s\n' "$geometry" | sed -n 's/^HEIGHT=//p')"
+  if [[ ! "$dialog_width" =~ ^[0-9]+$ || ! "$dialog_height" =~ ^[0-9]+$ ]]; then
+    echo "FAIL: could not read geometry for dialog $dialog_id." >&2
+    return 1
+  fi
+  xdotool mousemove --window "$dialog_id" "$((dialog_width-62))" "$((dialog_height-29))" click 1
+}
+
 SMOKE_ROOT="$(mktemp -d /tmp/clipvault-ui-smoke.XXXXXX)"
 SMOKE_SAVE_PATH="$PWD/.clipvault-save-smoke-$$.txt"
 export XDG_DATA_HOME="$SMOKE_ROOT/data"
@@ -69,7 +106,7 @@ import -window root /evidence/linux-image.png
 xdotool mousemove --window "$window_id" 730 78 click 1
 sleep 2
 printf %s 'controlled replacement before image Copy' | xclip -selection clipboard
-xdotool mousemove --window "$window_id" 688 373 click 1
+xdotool mousemove --window "$window_id" 688 "$SMOKE_IMAGE_COPY_Y" click 1
 sleep 1
 xclip -selection clipboard -target image/png -o > /tmp/clipvault-copied.png
 cmp /tmp/clipvault-fixture.png /tmp/clipvault-copied.png
@@ -123,15 +160,20 @@ printf '%s' 'ClipVault explicit picker fixture' > "$SMOKE_ROOT/picker-file.txt"
 xdotool mousemove --sync 28 28 click 1
 sleep 2
 import -window root /evidence/linux-file-picker.png
-xdotool getwindowfocus > /evidence/linux-file-picker-focus.txt
-xwininfo -root -tree > /evidence/linux-window-tree.txt
+picker_id="$(xdotool search --onlyvisible --name '^Add files to share; available storage determines the size$' | head -1 || true)"
+if [[ -z "$picker_id" ]]; then
+  echo "FAIL: native Add File chooser did not open." >&2
+  exit 1
+fi
+wait_for_window_focus "$picker_id"
 xdotool key ctrl+l
-xdotool type --clearmodifiers "$SMOKE_ROOT/picker-file.txt"
-xdotool key Return
-sleep 3
-xdotool mousemove --sync 230 40 click 1
 sleep 1
-xdotool mousemove --sync 760 310 click 1
+printf %s "$SMOKE_ROOT/picker-file.txt" | xclip -selection clipboard
+xdotool key ctrl+a ctrl+v
+sleep 1
+xdotool key Return
+sleep 1
+accept_visible_dialog_if_open '^Add files to share; available storage determines the size$'
 sleep 3
 python3 - "$XDG_DATA_HOME/clipvault/clips.sqlite" <<'PY'
 import sqlite3, sys
@@ -147,10 +189,18 @@ import -window root /evidence/linux-attachments.png
 xdotool mousemove --window "$window_id" 670 267 click 1
 sleep 2
 import -window root /evidence/linux-file-save-picker.png
+save_id="$(xdotool search --onlyvisible --name '^Save file from ClipVault$' | head -1 || true)"
+if [[ -z "$save_id" ]]; then
+  echo "FAIL: native Save picker did not open." >&2
+  exit 1
+fi
+wait_for_window_focus "$save_id"
 xdotool key ctrl+a
-xdotool type --clearmodifiers "$(basename "$SMOKE_SAVE_PATH")"
+xdotool type --clearmodifiers "$SMOKE_SAVE_PATH"
 sleep 1
-xdotool mousemove --sync 776 343 click 1
+xdotool key Return
+sleep 1
+accept_visible_dialog_if_open '^Save file from ClipVault$'
 sleep 3
 cmp "$SMOKE_ROOT/picker-file.txt" "$SMOKE_SAVE_PATH"
 

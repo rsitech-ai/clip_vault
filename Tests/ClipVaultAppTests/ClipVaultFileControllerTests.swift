@@ -101,9 +101,10 @@ struct ClipVaultFileControllerTests {
         store.sharingEnabled = true
         let model = ClipVaultViewModel(container: container, store: store, fileService: FailingFileService())
         let controller = ClipVaultFileController(service: FailingFileService())
+        let image = try #require(Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGPQbD/+HwAEywJ3k0b7vgAAAABJRU5ErkJggg=="))
         let payload = ClipPayload(kind: .image, displayText: "Image", extractedText: "",
-            metadata: ["ocrStatus": "unavailable"], previewData: Data([0xff, 0xd8, 0xff, 0xd9]),
-            uniformTypeIdentifiers: ["public.jpeg"])
+            metadata: ["ocrStatus": "unavailable"], previewData: image,
+            uniformTypeIdentifiers: ["public.png"])
         controller.capture(urls: [URL(fileURLWithPath: "/tmp/local-only.jpg")], sourceApp: "Tests",
             capturedAt: Date(), model: model, imageFallback: { payload })
         for _ in 0..<1000 {
@@ -114,6 +115,13 @@ struct ClipVaultFileControllerTests {
         #expect(try store.allClips().count == 1)
         #expect(try store.pendingSyncExports().isEmpty)
         #expect(controller.message == "Captured an image instead. Use Add File to share the original file.")
+        #expect(store.sharingEnabled)
+        #expect(try store.syncExportFailures().isEmpty)
+        // The same valid raster is exportable once OCR can establish its policy.
+        var complete = payload
+        complete.metadata["ocrStatus"] = "complete"
+        #expect(model.ingest(payload: complete, sourceApp: "Tests", capturedAt: Date().addingTimeInterval(1)))
+        #expect(try store.pendingSyncExports().count == 1)
     }
 
     @Test("a successful file stage does not evaluate the lazy image fallback")
