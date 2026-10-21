@@ -2,17 +2,18 @@
 
 Date: 2026-10-21
 
-**Current verdict: larger-file installed-device verification in progress.** Both
-Macs run signed build 12 and Ubuntu runs preview5 with the updated relay. All
-three devices remain paired. A real 600 MiB file has reached verified-ready state
-on Ubuntu; its native receiving Save matches all 629145600 bytes and the source
-SHA-256. The second Mac receiving Save hash remains pending. Fresh
-Unicode clips from both peers arrived in this Mac's actual history during that
-transfer, including a recorded GNOME Capture call after the update. Existing
-small/100 MiB native Save receipts cover all six directed device routes. New
-source checks and independent reviews pass; the expanded change is not merged.
-Earlier dated sections below record the previous cohorts, not current device
-versions. This report does not claim long-term uptime or warning-free OS logs.
+**Observed verdict: source, installed-client and requested transfer acceptance
+PASS.** Both Macs run signed build 12 and Ubuntu runs preview5 with the updated
+relay. All three devices remain paired. Actual receiving Save/hash checks passed
+for a 600 MiB file from this Mac to both peers and a new 128 MiB file from Ubuntu
+back to this Mac. Ubuntu also holds an authenticated ready receipt from the
+second Mac for that 128 MiB file; its Save was not repeated there. Existing
+small/100 MiB native Save receipts cover all six directed device routes. Fresh
+Unicode text from both peers arrived here during the larger transfer, including
+a real post-update GNOME Capture call. Independent reviews and production-head
+Mac/Linux CI passed. Final PR/check/merge state is available in [PR #27](https://github.com/rsitech-ai/clip_vault/pull/27).
+Earlier dated sections below record previous cohorts, not current versions.
+This report does not claim long-term uptime or warning-free operating-system logs.
 
 ## Larger files and transfer scheduling, 2026-10-21
 
@@ -78,11 +79,23 @@ Actual Razer progress samples rose from 102 MiB to 538 MiB in about 188 seconds
 while sending to both peers. A concurrent 32 MiB SSH stream measured about
 9.85 MiB/s to Razer and 11.78 MiB/s to Sii; this is a contended path check, not an
 isolated benchmark. Tailscale reported a direct LAN path to Razer at 5 ms.
-Ubuntu saved the fixture in Downloads/ClipVault three-device test; its exact
-629145600 bytes and SHA-256 match the source. The second Mac Save/hash and a
-reverse 128 MiB native Add File/receiving Save remain execution gates. The reverse
-source has 134217728 bytes and SHA-256
+Ubuntu saved the fixture in Downloads/ClipVault three-device test, and the second
+Mac saved it in Downloads. Independent filesystem reads on both receivers match
+all 629145600 bytes and the source SHA-256.
+
+The user added a fresh 128 MiB file through Ubuntu's native Add File control.
+Both recipients returned authenticated ready outcomes. This Mac's actual native
+Save displayed success; its saved 134217728 bytes match source SHA-256
 `71c7ceb77e637aded046b188d3e7939b9d6998da619f7b260d9ba70187d8aa9f`.
+The second Mac's native Save was not repeated for that fixture; its 600 MiB Save
+and the earlier six-route fixtures provide separate receiving-filesystem checks.
+
+Hosted checks passed at `958514cfada32fd78418c0068944e976e4a3fd52`:
+[Mac verify](https://github.com/rsitech-ai/clip_vault/actions/runs/39578552958)
+and [Linux](https://github.com/rsitech-ai/clip_vault/actions/runs/39578552927).
+The final evidence-only documentation update does not change production sources.
+Final-head CI and merge status are recorded in the PR rather than recursively
+creating another evidence commit for every documentation-head check.
 
 Do not infer a raw-engine speedup from the isolated test: the earlier optimized
 100 MiB run was 22.57 seconds and the indexed-quota run was 26.54 seconds under
@@ -93,7 +106,8 @@ peer discovery or public ingress was introduced.
 Evidence is retained under `dist/final-audit/20261020/`: `unlimited-*.log`,
 `mac-build12.log`, `sii-build12-installed.log`, `ubuntu-installed-preview5.log`,
 `linux-preview5-startup.log`, `large-file-source-receipt.json`,
-`razer-600mib-saved-receipt.json`, and the Capture
+`razer-600mib-saved-receipt.json`, `sii-600mib-saved-receipt.json`,
+`razer-128mib-source-receipt.json`, `mac-128mib-saved-receipt.json`, and the Capture
 method-name-only profile. No secret tokens or clipboard payloads are in that
 profile. The directory date preserves the existing audit chronology.
 
