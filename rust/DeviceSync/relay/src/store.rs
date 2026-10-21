@@ -16,6 +16,7 @@ pub const MAX_INVITE_IDENTIFIERS: u64 = 100_000;
 
 const EXPIRE_DELIVERIES: &str = "UPDATE deliveries SET envelope=NULL,status='expired',terminal_at=?2 WHERE status='pending' AND created<=?1";
 const DELETE_TERMINAL_DELIVERIES: &str = "DELETE FROM deliveries WHERE status!='pending' AND terminal_at IS NOT NULL AND terminal_at<=?1";
+const READ_MAILBOX: &str = "SELECT cursor,envelope FROM deliveries WHERE workspace=?1 AND recipient=?2 AND status='pending' ORDER BY cursor LIMIT ?3";
 
 pub struct RelayStore {
     db: Connection,
@@ -92,6 +93,9 @@ impl RelayStore {
         // scanning queued ciphertext, whose overflow pages can be megabytes.
         db.execute_batch("CREATE INDEX IF NOT EXISTS deliveries_pending_expiry ON deliveries(created) WHERE status='pending';
             CREATE INDEX IF NOT EXISTS deliveries_terminal_expiry ON deliveries(terminal_at) WHERE status!='pending' AND terminal_at IS NOT NULL;")?;
+        // Stream the oldest recipient rows directly, without sorting envelopes
+        // into a temporary B-tree before applying the mailbox limit.
+        db.execute_batch("CREATE INDEX IF NOT EXISTS deliveries_pending_mailbox ON deliveries(workspace,recipient,cursor) WHERE status='pending';")?;
         let has_completed_at: bool = db.query_row(
             "SELECT EXISTS(SELECT 1 FROM pragma_table_info('enrollments') WHERE name='completed_at')",
             [],
@@ -538,7 +542,7 @@ impl RelayStore {
         const MAX_ITEMS: usize = 16;
         const MAX_BYTES: usize = 24 * 1024 * 1024;
         let limit = limit.clamp(1, MAX_ITEMS);
-        let mut q = self.db.prepare("SELECT cursor,envelope FROM deliveries WHERE workspace=?1 AND recipient=?2 AND status='pending' ORDER BY cursor LIMIT ?3")?;
+        let mut q = self.db.prepare(READ_MAILBOX)?;
         let rows = q.query_map(params![auth.workspace, auth.device, limit as i64], |r| {
             Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?))
         })?;
@@ -614,6 +618,31 @@ fn uuid_invalid(value: &str) -> bool {
 mod tests {
     use super::*;
     use rusqlite::StatementStatus;
+
+    #[test]
+    fn mailbox_reads_oldest_pending_without_sorting_payloads() {
+        let directory = tempfile::tempdir().unwrap();
+        let store =
+            RelayStore::open(&directory.path().join("relay.sqlite"), "registration").unwrap();
+        let tx = store.db.unchecked_transaction().unwrap();
+        for event in 0..512 {
+            tx.execute("INSERT INTO deliveries(workspace,sender,recipient,event,envelope,status,created,envelope_bytes) VALUES('w','s','r',?1,zeroblob(8192),'pending',1,8192)", [event.to_string()]).unwrap();
+        }
+        tx.commit().unwrap();
+        let mut query = store.db.prepare(READ_MAILBOX).unwrap();
+        let cursors: Vec<i64> = query
+            .query_map(params!["w", "r", 16], |r| r.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert_eq!(cursors, (1..=16).collect::<Vec<_>>());
+        assert_eq!(
+            query.get_status(StatementStatus::Sort),
+            0,
+            "mailbox sorted queued ciphertext into a temporary B-tree"
+        );
+        assert!(query.get_status(StatementStatus::VmStep) < 256);
+    }
 
     #[test]
     fn maintenance_skips_live_ciphertext_and_preserves_expiry_boundaries() {
