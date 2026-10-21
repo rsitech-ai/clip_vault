@@ -1,0 +1,43 @@
+[Unit]
+Description=ClipVault bounded loopback HTTP proxy for Tailscale HTTPS
+After=clipvault-relay.service
+Requires=clipvault-relay.service
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=clipvault-relay
+Group=clipvault-relay
+ExecStartPre=/usr/local/libexec/clipvault-relay-nginx -t -p /var/lib/clipvault-relay-proxy/ -c /etc/clipvault-relay/nginx.conf
+ExecStart=/usr/local/libexec/clipvault-relay-nginx -p /var/lib/clipvault-relay-proxy/ -c /etc/clipvault-relay/nginx.conf -g "daemon off;"
+# Manage each nginx buffer directory explicitly so systemd repairs ownership
+# even if a root configuration check created a child before service startup.
+StateDirectory=clipvault-relay-proxy
+StateDirectory=clipvault-relay-proxy/body clipvault-relay-proxy/proxy
+StateDirectory=clipvault-relay-proxy/fastcgi clipvault-relay-proxy/uwsgi clipvault-relay-proxy/scgi
+StateDirectoryMode=0700
+RuntimeDirectory=clipvault-relay-proxy
+RuntimeDirectoryMode=0700
+UMask=0077
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+KillSignal=SIGQUIT
+MemoryMax=128M
+CPUQuota=50%
+TasksMax=16
+LimitNOFILE=512
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

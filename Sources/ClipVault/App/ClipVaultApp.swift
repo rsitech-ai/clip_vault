@@ -70,6 +70,10 @@ struct ClipVaultApp: App {
         .windowResizability(.contentMinSize)
         .commands {
             CommandGroup(after: .newItem) {
+                Button("Add File…") { model.files.addFiles(model: model) }
+                    .keyboardShortcut("o", modifiers: [.command])
+                    .disabled(model.files.busy)
+
                 Button("Open ClipVault") {
                     presentClipVaultWorkspace {
                         openWindow(id: "workspace")

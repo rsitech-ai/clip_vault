@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=ClipVault
+Comment=Your clipboard workspace across paired devices
+Exec=clipvault-linux
+Icon=edit-paste
+Categories=Utility;GTK;
+Terminal=false
+StartupNotify=true
+DBusActivatable=false

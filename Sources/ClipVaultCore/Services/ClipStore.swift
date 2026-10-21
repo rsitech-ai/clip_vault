@@ -495,6 +495,8 @@ enum WorkspaceFolderCreateValidator {
 }
 
 public final class SwiftDataClipStore: ClipStoring {
+    public var sharingEnabled = false
+    var syncQueueByteLimit = 256 * 1024 * 1024
     private let context: ModelContext
     private let encryptor: any PayloadEncrypting
     private let sensitiveRules: SensitiveRuleEngine
@@ -534,6 +536,27 @@ public final class SwiftDataClipStore: ClipStoring {
         self.retentionPolicy = .default
         self.saveContext = saveContext
         self.previewTransformer = previewTransformer
+    }
+
+    /// Validate the same primary/list decode paths as normal reads, while
+    /// leaving legacy plaintext details untouched until the upgrade commits.
+    public func verifyReadableHistoryForMigration() throws -> Int {
+        guard !context.hasChanges else { throw ClipHistoryMigrationAudit.AuditError.contextHasChanges }
+        var offset = 0
+        while true {
+            var descriptor = FetchDescriptor<ClipRecord>(sortBy: [SortDescriptor(\.id)])
+            descriptor.fetchLimit = 128
+            descriptor.fetchOffset = offset
+            let records = try context.fetch(descriptor)
+            if records.isEmpty { break }
+            for record in records {
+                _ = try payload(from: record)
+                _ = try details(from: record, persistingMigration: false)
+            }
+            offset += records.count
+        }
+        guard !context.hasChanges else { throw ClipHistoryMigrationAudit.AuditError.contextHasChanges }
+        return offset
     }
 
     public func allClips() throws -> [Clip] {
@@ -660,6 +683,9 @@ public final class SwiftDataClipStore: ClipStoring {
                 existing.updatedAt = max(existing.updatedAt, capturedAt)
                 existing.encryptedListPayload = try encryptedDetailsPayload(details)
                 clearPlaintextDetails(on: existing)
+                if sharingEnabled, payload.metadata["ocrStatus"] != "unavailable" {
+                    try enqueueSyncPayload(payload, clipID: existing.id, sourceApp: sourceApp, capturedAt: capturedAt)
+                }
                 try saveContext(context)
                 return try recordToClip(existing)
             }
@@ -695,6 +721,11 @@ public final class SwiftDataClipStore: ClipStoring {
             )
             clearPlaintextDetails(on: record)
             context.insert(record)
+            // Incomplete OCR cannot establish whether the image text is sensitive.
+            // Keep it locally; an explicit Share selected clip remains available.
+            if sharingEnabled, payload.metadata["ocrStatus"] != "unavailable" {
+                try enqueueSyncPayload(payload, clipID: clip.id, sourceApp: sourceApp, capturedAt: capturedAt)
+            }
             try saveContext(context)
             return clip
         }
@@ -1002,6 +1033,25 @@ public final class SwiftDataClipStore: ClipStoring {
                 predicate: #Predicate { requestedIDs.contains($0.id) }
             )
             for record in try context.fetch(descriptor) {
+                let deletedID = record.id
+                if context.container.schema.entities.contains(where: { $0.name == "ClipSyncExportRecord" }) {
+                    if record.kindRaw == ClipKind.file.rawValue,
+                       let fileID = try payload(from: record).metadata["file_id"] {
+                        let cancellationID = "file:\(fileID)"
+                        if try context.fetch(FetchDescriptor<ClipSyncExportRecord>(predicate: #Predicate { $0.id == cancellationID })).isEmpty {
+                            let cancellation = ClipSyncExportRecord(id: cancellationID, clipID: deletedID, encryptedPayload: nil)
+                            cancellation.cancelled = true
+                            context.insert(cancellation)
+                        }
+                    }
+                    let exports = try context.fetch(FetchDescriptor<ClipSyncExportRecord>(predicate: #Predicate { $0.clipID == deletedID }))
+                    for export in exports { export.cancelled = true; export.encryptedPayload = nil }
+                    for receipt in try context.fetch(FetchDescriptor<ClipSyncReceiptRecord>(predicate: #Predicate { $0.clipID == deletedID })) {
+                        let cancellation = ClipSyncExportRecord(id: receipt.id, clipID: deletedID, encryptedPayload: nil)
+                        cancellation.cancelled = true
+                        context.insert(cancellation)
+                    }
+                }
                 context.delete(record)
             }
             try saveContext(context)
@@ -1174,20 +1224,20 @@ public final class SwiftDataClipStore: ClipStoring {
         return record.title.isEmpty ? title(for: listPayload(for: legacyPayload)) : record.title
     }
 
-    private func details(from record: ClipRecord) throws -> EncryptedClipDetails {
+    private func details(from record: ClipRecord, persistingMigration: Bool = true) throws -> EncryptedClipDetails {
         if let encryptedListPayload = record.encryptedListPayload {
             let decrypted: Data
             do {
                 decrypted = try encryptor.decrypt(encryptedListPayload)
             } catch {
-                return try recoverLegacyDetails(for: record, after: error)
+                return try recoverLegacyDetails(for: record, after: error, persistingMigration: persistingMigration)
             }
             if let header = try? decoder.decode(EncryptedClipDetailsHeader.self, from: decrypted) {
                 guard header.version == EncryptedClipDetails.currentVersion else {
                     throw EncryptedClipDetailsError.unsupportedVersion(header.version)
                 }
                 let details = try decoder.decode(EncryptedClipDetails.self, from: decrypted)
-                clearPlaintextDetails(on: record)
+                if persistingMigration { clearPlaintextDetails(on: record) }
                 return details
             }
 
@@ -1195,16 +1245,16 @@ public final class SwiftDataClipStore: ClipStoring {
             do {
                 legacyListPayload = try decoder.decode(ClipPayload.self, from: decrypted)
             } catch {
-                return try recoverLegacyDetails(for: record, after: error)
+                return try recoverLegacyDetails(for: record, after: error, persistingMigration: persistingMigration)
             }
-            return try migrateDetails(for: record, listPayload: legacyListPayload)
+            return try migrateDetails(for: record, listPayload: legacyListPayload, persistingMigration: persistingMigration)
         }
 
         let legacyPayload = try payload(from: record)
-        return try migrateDetails(for: record, listPayload: listPayload(for: legacyPayload))
+        return try migrateDetails(for: record, listPayload: listPayload(for: legacyPayload), persistingMigration: persistingMigration)
     }
 
-    private func migrateDetails(for record: ClipRecord, listPayload: ClipPayload) throws -> EncryptedClipDetails {
+    private func migrateDetails(for record: ClipRecord, listPayload: ClipPayload, persistingMigration: Bool = true) throws -> EncryptedClipDetails {
         let details = EncryptedClipDetails(
             listPayload: listPayload,
             title: record.title.isEmpty ? title(for: listPayload) : record.title,
@@ -1212,8 +1262,10 @@ public final class SwiftDataClipStore: ClipStoring {
             tags: split(record.tagsRaw ?? ""),
             sourceApp: record.sourceApp
         )
-        record.encryptedListPayload = try encryptedDetailsPayload(details)
-        clearPlaintextDetails(on: record)
+        if persistingMigration {
+            record.encryptedListPayload = try encryptedDetailsPayload(details)
+            clearPlaintextDetails(on: record)
+        }
         return details
     }
 
@@ -1240,13 +1292,14 @@ public final class SwiftDataClipStore: ClipStoring {
 
     private func recoverLegacyDetails(
         for record: ClipRecord,
-        after error: any Error
+        after error: any Error,
+        persistingMigration: Bool = true
     ) throws -> EncryptedClipDetails {
         guard hasLegacyPlaintextDetails(record) else {
             throw error
         }
         let legacyPayload = try payload(from: record)
-        return try migrateDetails(for: record, listPayload: listPayload(for: legacyPayload))
+        return try migrateDetails(for: record, listPayload: listPayload(for: legacyPayload), persistingMigration: persistingMigration)
     }
 
     private func listPayload(for payload: ClipPayload) -> ClipPayload {
@@ -1267,6 +1320,178 @@ public final class SwiftDataClipStore: ClipStoring {
             .map(String.init)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
+    }
+
+    private func enqueueSyncPayload(_ payload: ClipPayload, clipID: String, sourceApp: String?, capturedAt: Date) throws {
+        if payload.kind == .file, payload.metadata["file_id"] == nil { return }
+        if payload.kind == .file {
+            // A transfer has one immutable history identity. Retain that outbox
+            // identity after export so repeated Share gestures cannot bind the
+            // same transfer to a second event and strand a new retry marker.
+            let existing = try context.fetch(FetchDescriptor<ClipSyncExportRecord>(predicate: #Predicate { $0.clipID == clipID && !$0.cancelled }))
+            if let record = existing.first {
+                // An explicit Share action can recover a quarantined transfer from
+                // its intact local clip while preserving the event/transfer ID.
+                // Healthy pending and already-exported rows remain idempotent.
+                guard record.failure != nil else { return }
+                do {
+                    let portable = try ClipSyncPortable(payload: payload, sourceApp: sourceApp, capturedAt: capturedAt)
+                    let encoded = try encoder.encode(portable)
+                    let encrypted = try encryptor.encrypt(encoded)
+                    let allPending = try context.fetch(FetchDescriptor<ClipSyncExportRecord>(predicate: #Predicate { $0.encryptedPayload != nil }))
+                    let otherPendingBytes = allPending.reduce(0) { total, candidate in
+                        total + (candidate.id == record.id ? 0 : (candidate.encryptedPayload?.count ?? 0))
+                    }
+                    guard otherPendingBytes + encrypted.count <= syncQueueByteLimit else { return }
+                    record.encryptedPayload = encrypted
+                    record.failure = nil
+                    record.retryable = false
+                } catch is ClipSyncError {
+                    // Preserve the existing marker and its failure when the local
+                    // clip cannot be converted into a shareable portable payload.
+                    return
+                }
+                return
+            }
+        }
+        let portable: ClipSyncPortable
+        do { portable = try ClipSyncPortable(payload: payload, sourceApp: sourceApp, capturedAt: capturedAt) }
+        catch {
+            context.insert(ClipSyncExportRecord(clipID: clipID, encryptedPayload: nil, failure: error.localizedDescription))
+            return
+        }
+        let encoded = try encoder.encode(portable)
+        let existing = try context.fetch(FetchDescriptor<ClipSyncExportRecord>(predicate: #Predicate { $0.encryptedPayload != nil }))
+        let pendingBytes = existing.reduce(0) { $0 + ($1.encryptedPayload?.count ?? 0) }
+        guard pendingBytes + encoded.count <= syncQueueByteLimit else {
+            context.insert(ClipSyncExportRecord(clipID: clipID, encryptedPayload: nil, failure: "Sharing backlog full; this clip remains local.", retryable: true))
+            return
+        }
+        context.insert(ClipSyncExportRecord(clipID: clipID, encryptedPayload: try encryptor.encrypt(encoded)))
+    }
+
+    public func pendingSyncExports() throws -> [ClipSyncExport] {
+        var descriptor = FetchDescriptor<ClipSyncExportRecord>(
+            predicate: #Predicate { !$0.cancelled && $0.encryptedPayload != nil && $0.failure == nil },
+            sortBy: [SortDescriptor(\.id)]
+        )
+        descriptor.fetchLimit = 16
+        return try withRollback {
+            var bytes = 0
+            var quarantined = false
+            let exports = try context.fetch(descriptor).compactMap { record -> ClipSyncExport? in
+                guard let data = record.encryptedPayload else { return nil }
+                guard bytes + data.count <= 20 * 1024 * 1024 else { return nil }
+                do {
+                    var payload = try decoder.decode(ClipSyncPortable.self, from: encryptor.decrypt(data))
+                    // Earlier file previews persisted the capture app in the outbox.
+                    // Typed file frames omit it; normalize on read without changing
+                    // the event identity or the original local history metadata.
+                    if payload.kind == "attachment" { payload.sourceApp = nil }
+                    bytes += data.count
+                    return ClipSyncExport(id: record.id, clipID: record.clipID, payload: payload)
+                } catch {
+                    // Keep the encrypted bytes for diagnosis or explicit repair, but
+                    // exclude this record from automatic scans after recording failure.
+                    record.failure = "Unable to read queued share: \(error.localizedDescription)"
+                    record.retryable = false
+                    quarantined = true
+                    return nil
+                }
+            }
+            if quarantined { try saveContext(context) }
+            return exports
+        }
+    }
+
+    public func retrySyncExports() throws {
+        try withRollback {
+            let pending = try context.fetch(FetchDescriptor<ClipSyncExportRecord>(predicate: #Predicate { $0.encryptedPayload != nil }))
+            var pendingBytes = pending.reduce(0) { $0 + ($1.encryptedPayload?.count ?? 0) }
+            let records = try context.fetch(FetchDescriptor<ClipSyncExportRecord>(predicate: #Predicate { !$0.cancelled && $0.retryable }))
+            for record in records {
+                let id = record.clipID
+                guard let clip = try context.fetch(FetchDescriptor<ClipRecord>(predicate: #Predicate { $0.id == id })).first,
+                      let payload = try payload(for: id) else { continue }
+                do {
+                    let portable = try ClipSyncPortable(payload: payload, sourceApp: try details(from: clip).sourceApp, capturedAt: clip.createdAt)
+                    let data = try encoder.encode(portable)
+                    guard pendingBytes + data.count <= syncQueueByteLimit else { continue }
+                    record.encryptedPayload = try encryptor.encrypt(data)
+                    record.failure = nil
+                    record.retryable = false
+                    pendingBytes += record.encryptedPayload?.count ?? 0
+                } catch is ClipSyncError { record.retryable = false }
+            }
+            try saveContext(context)
+        }
+    }
+
+    public func markSyncExported(id: String) throws {
+        try withRollback {
+            let records = try context.fetch(FetchDescriptor<ClipSyncExportRecord>(predicate: #Predicate { $0.id == id }))
+            records.first?.encryptedPayload = nil
+            try saveContext(context)
+        }
+    }
+
+    public func pendingSyncCancellations() throws -> [String] {
+        try context.fetch(FetchDescriptor<ClipSyncExportRecord>(predicate: #Predicate { $0.cancelled })).map(\.id)
+    }
+
+    public func completeSyncCancellation(id: String) throws {
+        try withRollback {
+            for record in try context.fetch(FetchDescriptor<ClipSyncExportRecord>(predicate: #Predicate { $0.id == id })) { context.delete(record) }
+            try saveContext(context)
+        }
+    }
+
+    public func syncExportFailures() throws -> [String] {
+        try context.fetch(FetchDescriptor<ClipSyncExportRecord>(predicate: #Predicate { $0.failure != nil && !$0.cancelled })).compactMap(\.failure)
+    }
+
+    /// An explicit local pairing reset cancels queued shares without deleting
+    /// their source clips. They must never be replayed into a new workspace.
+    public func cancelAllSyncExports() throws {
+        try withRollback {
+            for record in try context.fetch(FetchDescriptor<ClipSyncExportRecord>()) {
+                context.delete(record)
+            }
+            try saveContext(context)
+        }
+    }
+
+    public func shareExistingClip(id: String) throws {
+        try withRollback {
+            let record = try context.fetch(FetchDescriptor<ClipRecord>(predicate: #Predicate { $0.id == id })).first
+            guard let record, let payload = try payload(for: id) else { throw ClipSyncError.invalidPayload }
+            try enqueueSyncPayload(payload, clipID: id, sourceApp: try details(from: record).sourceApp, capturedAt: record.createdAt)
+            try saveContext(context)
+        }
+    }
+
+    @discardableResult
+    public func importSyncEvent(_ event: ClipSyncEvent) throws -> Clip? {
+        try withRollback {
+            guard UUID(uuidString: event.id) != nil, UUID(uuidString: event.origin) != nil, event.sequence > 0 else { throw ClipSyncError.invalidPayload }
+            guard event.clip.kind != "attachment" || event.clip.metadata["file_origin"] == event.origin else { throw ClipSyncError.invalidPayload }
+            let id = event.id
+            if try context.fetch(FetchDescriptor<ClipSyncReceiptRecord>(predicate: #Predicate { $0.id == id })).first != nil { return nil }
+            guard try context.fetch(FetchDescriptor<ClipRecord>(predicate: #Predicate { $0.id == id })).isEmpty else { throw ClipSyncError.invalidPayload }
+            let payload = try event.clip.payloadValue()
+            let list = listPayload(for: payload)
+            let date = Date(timeIntervalSince1970: TimeInterval(event.clip.capturedAt))
+            let clip = Clip(id: id, createdAt: date, updatedAt: date, kind: payload.kind, title: title(for: list), preview: list.displayText,
+                            extractedText: list.extractedText, collectionIDs: BuiltInCollectionAssignment.ids(for: payload.kind),
+                            sourceApp: event.clip.sourceApp, fingerprint: ClipDuplicateIdentity(payload: payload, index: index).fingerprint,
+                            previewData: list.previewData, metadata: list.metadata)
+            let encrypted = try encryptor.encrypt(encoder.encode(payload))
+            let details = try encryptedDetailsPayload(EncryptedClipDetails(listPayload: list, title: clip.title, userNote: "", tags: [], sourceApp: clip.sourceApp))
+            context.insert(ClipRecord(clip: clip, encryptedPayload: encrypted, encryptedListPayload: details))
+            context.insert(ClipSyncReceiptRecord(id: id, clipID: id))
+            try saveContext(context)
+            return clip
+        }
     }
 
     private func normalizedTags(_ tags: [String]) -> [String] {

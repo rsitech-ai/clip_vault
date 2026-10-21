@@ -1,6 +1,6 @@
 # ClipVault
 
-ClipVault is a local-first clipboard workspace for macOS. It captures clipboard items only after consent, filters sensitive-looking values before storage, encrypts clip payloads and details locally, and keeps retrieval fast from the menu bar or the main workspace.
+ClipVault is a local-first clipboard workspace with a native macOS app and an experimental Ubuntu/GNOME client. It captures clipboard items only after consent, filters sensitive-looking values before storage, encrypts clip payloads and details locally, and keeps retrieval fast from the menu bar or the main workspace.
 
 ![ClipVault workspace](AppStore/Screenshots/01-main-workspace.jpg)
 
@@ -18,7 +18,7 @@ ClipVault is a pre-1.0 release candidate maintained by [RSI Tech](https://rsitec
 - Copies a selected clip back to the pasteboard from the workspace or menu bar.
 - Offers on-device prompt enhancement through Apple Foundation Models when the model is available.
 
-ClipVault does not provide cloud sync, accounts, team workspaces, or a cloud AI fallback. Foundation Models actions explain their unavailable state instead of sending content elsewhere.
+An experimental device-sharing layer supports new text and image clips and actual files without a fixed product size cap through a self-hosted relay after explicit pairing. Received files require an explicit Save action. Update both clients and the relay for file support; installed-device validation limits are recorded in the verification report. There is no hosted sync service, account system, team workspace, or cloud AI fallback. See [Linux and encrypted sharing](docs/LINUX_AND_SYNC.md) for build instructions, compatibility limits, and setup. Foundation Models actions explain their unavailable state instead of sending content elsewhere.
 
 ## Requirements
 
@@ -74,7 +74,7 @@ The smoke test builds and launches a per-run non-production bundle, writes an is
 
 ## Privacy and security boundaries
 
-Clipboard data stays on the Mac. ClipVault does not send clipboard contents to the developer or third parties, and the current build has no enabled cloud AI provider. Operational metadata needed for indexing and deduplication remains in the sandboxed local database; the exact boundary is documented in [PRIVACY.md](PRIVACY.md).
+Clipboard data stays local with sharing disabled. When you opt into encrypted sharing, portable clips are encrypted for paired devices and sent through your configured relay. The relay sees routing metadata, timing and sizes; it does not receive device decryption keys. There is no enabled cloud AI provider. Operational metadata needed for indexing and deduplication remains in the sandboxed local database; the exact boundary is documented in [PRIVACY.md](PRIVACY.md).
 
 Sensitive-value detection is a safety net, not a password manager guarantee. Do not copy secrets solely because ClipVault attempts to exclude common credential formats.
 

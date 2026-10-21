@@ -1,0 +1,38 @@
+[package]
+name = "clipvault-sync-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+base64.workspace = true
+sha2.workspace = true
+hex.workspace = true
+rand.workspace = true
+zeroize.workspace = true
+uuid.workspace = true
+hpke = { version = "0.13", default-features = false, features = ["std", "x25519"] }
+ed25519-dalek = { version = "2.2", features = ["rand_core", "zeroize"] }
+chacha20poly1305 = "0.10"
+hkdf = "0.12"
+hmac = "0.12"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+url = "2.5"
+regex = "1.12"
+keyring = { version = "3.6", default-features = false }
+rusqlite.workspace = true
+libc.workspace = true
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3.6", features = ["apple-native"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3.6", features = ["sync-secret-service", "crypto-rust"] }
+
+[dev-dependencies]
+tempfile.workspace = true

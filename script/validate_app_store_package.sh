@@ -96,8 +96,8 @@ EFFECTIVE_ENTITLEMENTS="$INSPECT_ROOT/effective-entitlements.plist"
 /usr/bin/plutil -p "$EFFECTIVE_ENTITLEMENTS"
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.app-sandbox' "$EFFECTIVE_ENTITLEMENTS")" == "true" ]] || \
   fail "effective app sandbox entitlement is not true"
-[[ "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.files.user-selected.read-only' "$EFFECTIVE_ENTITLEMENTS")" == "true" ]] || \
-  fail "effective user-selected read-only entitlement is not true"
+[[ "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.files.user-selected.read-write' "$EFFECTIVE_ENTITLEMENTS")" == "true" ]] || \
+  fail "effective user-selected read-write entitlement is not true"
 TEAM_ID="$(/usr/libexec/PlistBuddy -c 'Print :com.apple.developer.team-identifier' "$EFFECTIVE_ENTITLEMENTS")"
 [[ "$TEAM_ID" == "$EXPECTED_TEAM_ID" ]] || fail "effective team identifier does not match expected team"
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.application-identifier' "$EFFECTIVE_ENTITLEMENTS")" == "$EXPECTED_TEAM_ID.$BUNDLE_ID" ]] || \

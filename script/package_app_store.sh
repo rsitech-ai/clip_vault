@@ -67,6 +67,7 @@ if [[ -z "$INSTALLER_SIGNING_IDENTITY" ]]; then
 fi
 
 cargo build --manifest-path rust/SearchIndexCore/Cargo.toml --release
+./script/build_sync_bridge.sh
 swift build -c release
 
 if [[ ! -f "$APP_ICON" ]]; then
@@ -154,9 +155,11 @@ if [[ -n "$APPLE_TEAM_ID" ]]; then
   <string>$APPLE_TEAM_ID.$BUNDLE_ID</string>
   <key>com.apple.developer.team-identifier</key>
   <string>$APPLE_TEAM_ID</string>
+  <key>com.apple.security.network.client</key>
+  <true/>
   <key>com.apple.security.app-sandbox</key>
   <true/>
-  <key>com.apple.security.files.user-selected.read-only</key>
+  <key>com.apple.security.files.user-selected.read-write</key>
   <true/>
 </dict>
 </plist>

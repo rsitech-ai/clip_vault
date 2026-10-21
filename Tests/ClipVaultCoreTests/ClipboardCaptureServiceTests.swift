@@ -5,6 +5,30 @@ import Testing
 @Suite("Clipboard capture service")
 struct ClipboardCaptureServiceTests {
     @MainActor
+    @Test("oversized file selections report an error without delivering partial capture")
+    func rejectsOversizedSelectionBeforeCapture() throws {
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        let service = ClipboardCaptureService(pasteboard: pasteboard)
+        var captures = 0
+        var errors: [String] = []
+        service.onFilesCaptured = { _, _, _ in captures += 1 }
+        service.onClipCaptured = { _, _, _ in captures += 1 }
+        service.onFileCaptureError = { errors.append($0) }
+        service.start(interval: 60)
+        defer { service.stop() }
+        let urls = (0..<32).map { URL(fileURLWithPath: "/tmp/ClipVault-bounded-selection-\($0).txt") as NSURL }
+        let previous = pasteboard.changeCount
+        pasteboard.clearContents()
+        #expect(pasteboard.writeObjects(urls))
+        #expect(pasteboard.changeCount != previous)
+        service.poll()
+        service.poll()
+        #expect(captures == 0)
+        #expect(errors == ["Choose up to 10 files at a time."])
+    }
+
+    @MainActor
     @Test("a stalled payload cannot prevent a later completed capture from being saved")
     func stalledPayloadDoesNotBlockLaterCapture() async throws {
         let pasteboard = NSPasteboard.withUniqueName()
@@ -382,6 +406,38 @@ struct ClipboardCaptureServiceTests {
     }
 
     @MainActor
+    @Test("remote file authorities cannot become local source paths")
+    func remoteFileAuthorityIsNotCaptured() throws {
+        let pasteboard = NSPasteboard(name: .init("ClipVaultRemoteFileAuthorityTest"))
+        pasteboard.clearContents()
+        pasteboard.writeObjects([try #require(URL(string: "file://remote.example/tmp/secret.txt")) as NSURL])
+        #expect(ClipboardCaptureService.payload(from: pasteboard) == nil)
+    }
+
+    @MainActor
+    @Test("file capture retains original URL objects for security-scoped access")
+    func capturesFileURLsWithoutReconstructingPaths() throws {
+        let pasteboard = NSPasteboard(name: .init("ClipVaultFileURLCallbackTest"))
+        pasteboard.clearContents()
+        let service = ClipboardCaptureService(pasteboard: pasteboard)
+        var captured: [URL] = []
+        service.onFilesCaptured = { urls, _, _ in captured = urls }
+        service.start(interval: 60)
+        defer { service.stop() }
+        let file = URL(fileURLWithPath: "/tmp/file with spaces.txt")
+        let previous = pasteboard.changeCount
+        // A real Copy first declares new ownership; writeObjects alone may
+        // append representations without advancing this named board's count.
+        pasteboard.clearContents()
+        #expect(pasteboard.writeObjects([file as NSURL]))
+        #expect(pasteboard.changeCount != previous)
+        let snapshotPayload = try #require(ClipboardCaptureService.payload(from: pasteboard))
+        #expect(snapshotPayload.metadata["paths"] == file.path)
+        service.poll()
+        #expect(captured == [file])
+    }
+
+    @MainActor
     @Test("parses file URLs with reversible path metadata")
     func parsesFileURLs() throws {
         let pasteboard = NSPasteboard(name: NSPasteboard.Name("ClipVaultFileCaptureTest"))
@@ -444,7 +500,6 @@ struct ClipboardCaptureServiceTests {
         #expect(payload.metadata["host"] == "rsitech.ai")
     }
 }
-
 private actor PayloadBuilderGate {
     private var started = false
     private var startWaiters: [CheckedContinuation<Void, Never>] = []

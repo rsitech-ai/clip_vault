@@ -46,6 +46,7 @@ terminate_staged_app() {
 terminate_staged_app
 
 cargo build --manifest-path rust/SearchIndexCore/Cargo.toml --release
+./script/build_sync_bridge.sh
 swift build "${SWIFT_BUILD_ARGS[@]}"
 BUILD_BINARY="$(swift build "${SWIFT_BUILD_ARGS[@]}" --show-bin-path)/$APP_NAME"
 
@@ -62,6 +63,7 @@ chmod +x "$RUST_DYLIB_BUNDLE"
 install_name_tool -id "@rpath/$RUST_DYLIB_NAME" "$RUST_DYLIB_BUNDLE"
 install_name_tool -change "$RUST_DYLIB_SOURCE" "@executable_path/../Frameworks/$RUST_DYLIB_NAME" "$APP_BINARY"
 cp "$PRIVACY_MANIFEST" "$APP_RESOURCES/PrivacyInfo.xcprivacy"
+cp "$ROOT_DIR/dist/ClipVaultSync-THIRD-PARTY-NOTICES.txt" "$APP_RESOURCES/ClipVaultSync-THIRD-PARTY-NOTICES.txt"
 cp "$APP_ICON" "$APP_RESOURCES/AppIcon.icns"
 
 cat >"$INFO_PLIST" <<PLIST

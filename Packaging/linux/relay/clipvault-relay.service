@@ -1,0 +1,36 @@
+[Unit]
+Description=ClipVault encrypted clipboard relay
+After=network.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=clipvault-relay
+Group=clipvault-relay
+EnvironmentFile=/etc/clipvault-relay/environment
+Environment=TOKIO_WORKER_THREADS=2
+ExecStart=/usr/local/libexec/clipvault-sync-relay /var/lib/clipvault-relay/relay.sqlite 127.0.0.1:8742
+StateDirectory=clipvault-relay
+StateDirectoryMode=0700
+UMask=0077
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+MemoryMax=512M
+CPUQuota=100%
+TasksMax=32
+LimitNOFILE=512
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

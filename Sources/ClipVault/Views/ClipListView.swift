@@ -240,7 +240,7 @@ private struct ClipWorkspaceRowView: View {
                 .onTapGesture(count: 2) { model.selectAndCopy(clip) }
                 .onTapGesture { model.selectedClipID = clipID }
                 .contextMenu {
-                    Button("Copy") { model.copyToClipboard(clip) }
+                    Button(clip.metadata["file_id"] == nil ? "Copy" : "Save File…") { model.copyToClipboard(clip) }
                     Button(model.selectedClipIDs.contains(clipID) ? "Remove from AI Selection" : "Add to AI Selection") {
                         model.select(clip)
                     }

@@ -26,6 +26,14 @@ struct ContentView: View {
         .toolbar {
             ToolbarItemGroup {
                 Button {
+                    model.files.addFiles(model: model)
+                } label: {
+                    Label("Add File", systemImage: "doc.badge.plus")
+                }
+                .disabled(model.files.busy)
+                .help("Add files to share with paired devices")
+
+                Button {
                     model.toggleCapture()
                 } label: {
                     Label(model.isCapturing ? "Pause Capture" : "Start Capture", systemImage: model.isCapturing ? "pause.circle" : "play.circle")
@@ -38,6 +46,31 @@ struct ContentView: View {
                     Label("Refresh", systemImage: "arrow.clockwise")
                 }
                 .help("Refresh clips from storage")
+            }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if let activity = model.files.activity {
+                HStack(spacing: 8) { ProgressView().controlSize(.small); Text(activity); Spacer() }
+                    .font(.callout).padding(10).background(.bar)
+            } else if let message = model.files.message {
+                HStack {
+                    Text(message).textSelection(.enabled)
+                    Spacer()
+                    Button("Dismiss", systemImage: "xmark") { model.files.message = nil }.labelStyle(.iconOnly)
+                }
+                .font(.callout).padding(10).background(.bar)
+            } else if let transfer = model.files.transfers.first(where: { $0.status == "receiving" || $0.status == "verifying" }) {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("\(model.files.statusTitle(transfer.status)): \(transfer.filename)")
+                        .lineLimit(1)
+                    Spacer()
+                    if transfer.size > 0 {
+                        Text("\(Int(min(1, Double(transfer.transferred) / Double(transfer.size)) * 100))%")
+                            .monospacedDigit()
+                    }
+                }
+                .font(.callout).padding(10).background(.bar)
             }
         }
         .captureConsentDisclosure(model: model)

@@ -80,6 +80,7 @@ cd "$ROOT_DIR"
 preflight || exit $?
 
 cargo build --manifest-path rust/SearchIndexCore/Cargo.toml --release
+./script/build_sync_bridge.sh
 swift build -c release -Xswiftc -warnings-as-errors
 BUILD_BINARY="$(swift build -c release --show-bin-path)/$APP_NAME"
 

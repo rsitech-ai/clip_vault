@@ -29,6 +29,9 @@ struct SettingsView: View {
                 Label("Capture", systemImage: "doc.on.clipboard")
             }
 
+            DevicesSharingSettingsTab(sync: model.deviceSync)
+                .tabItem { Label("Devices", systemImage: "laptopcomputer.and.iphone") }
+
             PrivacyAccessSettingsTab()
                 .tabItem {
                     Label("Access", systemImage: "checkmark.shield")
@@ -76,6 +79,7 @@ private struct GeneralSettingsTab: View {
     @Bindable var model: ClipVaultViewModel
     var openWorkspace: () -> Void
     @State private var confirmConsentRevocation = false
+    @State private var confirmHistoryRetention = false
 
     var body: some View {
         Form {
@@ -85,6 +89,15 @@ private struct GeneralSettingsTab: View {
                         .foregroundStyle(model.isCapturing ? .green : .secondary)
                 }
                 LabeledContent("Indexed clips", value: "\(model.clips.count)")
+                if let migration = model.historyMigrationStatus {
+                    Text(migration).font(.callout).textSelection(.enabled)
+                }
+                if model.historyRetentionReviewPending {
+                    Text("Cleanup is paused to preserve all history from your previous version, including after restarting the app.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Button("Resume scheduled cleanup…") { confirmHistoryRetention = true }
+                        .disabled(!model.canResumeHistoryRetention)
+                }
                 if let storageStartupError = model.storageStartupError {
                     Label(storageStartupError, systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.orange)
@@ -129,6 +142,11 @@ private struct GeneralSettingsTab: View {
             }
         }
         .formStyle(.grouped)
+        .confirmationDialog("Resume automatic history cleanup?", isPresented: $confirmHistoryRetention) {
+            Button("Resume existing retention policy", role: .destructive, action: model.resumeHistoryRetention)
+        } message: {
+            Text("Future cleanup can delete unpinned clips older than \(model.historyRetentionDays) days, including clips from the previous version. Your saved retention setting has not changed.")
+        }
         .confirmationDialog(
             "Revoke Clipboard Capture Consent?",
             isPresented: $confirmConsentRevocation,
@@ -161,6 +179,7 @@ private struct CaptureStorageSettingsTab: View {
                     Label("Apply Retention Cleanup Now", systemImage: "clock.arrow.circlepath")
                 }
                 .help("Remove unpinned clips older than the selected retention window")
+                .disabled(!model.canApplyHistoryRetention)
 
                 Text("Pinned clips and clips saved to boards are kept until you remove them.")
                     .font(.caption)
@@ -206,7 +225,7 @@ private struct PrivacyAccessSettingsTab: View {
                 DisclosureGroup("Privacy Policy") {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("ClipVault does not collect, track, sell, or transmit personal data to the developer or third parties.")
-                        Text("Clipboard items, screenshots, OCR text, titles, tags, notes, folders, source-application names, clipboard types, organization state, and settings stay on this Mac. Clipboard payloads, source context, and clip details are encrypted with a Keychain-backed key. Identifiers, kind, timestamps, deduplication fingerprints, copy counts, folder names, pin state, collection membership, and settings remain plaintext local metadata inside ClipVault's sandbox.")
+                        Text("With sharing off, clipboard content and settings stay on this Mac. Opt-in device sharing sends encrypted portable clips through your configured relay; notes, tags, folders and settings remain local. Clipboard payloads, source context, and clip details are encrypted with a Keychain-backed key. Identifiers, kind, timestamps, deduplication fingerprints, copy counts, folder names, pin state, collection membership, and settings remain plaintext local metadata inside ClipVault's sandbox.")
                         Text("Ordinary clips are retained for 30 days by default. You can change retention, delete clips, pause capture, or revoke clipboard consent at any time.")
                     }
                     .font(.caption)
@@ -233,7 +252,7 @@ private struct PrivacyAccessSettingsTab: View {
                 )
                 PermissionStatusRow(
                     title: "User-selected files",
-                    detail: "Read-only sandbox entitlement is included for files the user explicitly selects.",
+                    detail: "User-selected sandbox access lets you add files and save received attachments at a chosen destination.",
                     state: .ready
                 )
             }
@@ -282,7 +301,7 @@ private struct PrivacyAccessSettingsTab: View {
             }
 
             Section("Review Notes") {
-                Text("ClipVault is designed to process clipboard content on device. Review privacy labels before enabling any future sync, team, or cloud AI feature.")
+                Text("ClipVault is designed to process clipboard content on device. Device sharing requires explicit pairing in Devices settings. Cloud AI remains disabled.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

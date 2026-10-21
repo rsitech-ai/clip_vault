@@ -47,6 +47,7 @@ public struct SensitiveRuleEngine: Sendable {
     }
 
     public static let defaultRules: [SensitiveRule] = [
+        SensitiveRule(id: "device-pairing", label: "Device pairing invitation", pattern: #"clipvault-pair-v1:[A-Za-z0-9+/=]+"#),
         SensitiveRule(
             id: "private-key",
             label: "Private key",

@@ -50,3 +50,30 @@ Existing stored records are migrated only when a persistent store existed before
 ## Release boundaries
 
 A successful source build does not prove signing, notarization, App Store provisioning, GitHub settings, or runtime interaction. [RELEASING.md](RELEASING.md) records the separate gates.
+
+## Optional encrypted device sharing
+
+`rust/DeviceSync` is a separate Cargo workspace: `core` owns authenticated HPKE envelopes, signed membership, bounded encrypted queues and relay transport; `relay` stores authenticated opaque mailboxes; `bridge` exposes the bounded synchronous JSON C ABI used on a Swift background queue; `linux` provides a GTK/libadwaita client and clipboard adapters. The original Rust search library keeps its existing build paths.
+
+Mac capture creates a SwiftData export record in the same transaction as a local clip. Export preparation failures retain retryable references to local content. Rust queue submission uses a stable event identifier. Remote import uses its own SwiftData method and receipt, without increasing local copy counts or producing another export. Only after the SwiftData import commits does the controller mark that event applied for acknowledgement. Invalid platform payloads create durable negative acknowledgements; storage failures remain retryable.
+
+The Linux client uses encrypted SQLite payloads and GNOME Secret Service credentials. GNOME Wayland capture uses a push-only, consent-gated Shell bridge; X11 capture uses bounded clipboard streams. Both clients retain local history while offline. HTTPS is required outside explicit loopback tests, and disabled sharing starts no relay connection. See [Linux and sync](LINUX_AND_SYNC.md) and the [design](design/linux-encrypted-sync.md) for trust and compatibility boundaries.
+
+
+Attachments use separate versioned authenticated manifest/chunk/outcome frames,
+with 1 MiB chunks and no fixed per-file product cap. Disk-space checks include
+active transfer reservations, encrypted-storage overhead and 1 GiB headroom.
+The u32 chunk count is the finite wire representation bound (about 4 PiB). The platform history and C ABI
+carry only a small descriptor; encrypted file bytes stay in the portable store.
+Outgoing data is staged before a history descriptor/outbox is committed. Every
+paired device must advertise file support before transmission; files above the
+legacy 100 MiB limit also require file-large-v1 support from every peer and
+the current relay. Incoming chunks
+are acknowledged after encrypted persistence; a separate authenticated outcome
+confirms complete length/hash verification before history publication. Explicit
+Save streams and verifies again, then publishes without overwriting a destination.
+Ordinary clip work and incoming mail continue while an attachment is waiting for
+an update or recipient capacity. Active progress schedules the next poll after
+250 ms; idle and backoff polling retain the five-second interval. Relay pending
+byte quotas use indexed integer sizes rather than rescanning ciphertext text. See the [file design](design/file-sharing-and-linux-ui.md)
+for resource bounds, consent generations, sandbox access and recovery behavior.

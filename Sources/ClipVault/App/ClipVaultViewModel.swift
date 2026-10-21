@@ -22,6 +22,16 @@ final class ClipVaultViewModel {
     let storageStartupError: String?
     let shouldMigrateLegacyKey: Bool
 
+    let deviceSync = ClipVaultSyncController()
+    let files: ClipVaultFileController
+    var historyMigrationStatus: String?
+    var historyRetentionReviewPending = false
+    var canApplyHistoryRetention: Bool { historyMigrationReady && !historyRetentionReviewPending }
+    var canResumeHistoryRetention: Bool { historyMigrationReady && historyRetentionReviewPending }
+    var historyRetentionDays: Int { configuredRetentionDays }
+    private var pendingHistoryMigration: ClipHistoryMigrationAudit.Receipt?
+    private var historyMigrationStoreURL: URL?
+
     var clips: [Clip] = [] {
         didSet {
             refreshAllSearchResults()
@@ -82,6 +92,9 @@ final class ClipVaultViewModel {
     private var promptEnhancementTask: Task<Void, Never>?
     private var promptEnhancementTaskID: UUID?
     private var store: (any ClipStoring)?
+    private var historyMigrationReady = false
+    private var sharingConsentReady = false
+    private var restoringSharingConsent = false
     private var dockTileUpdater: ([Clip], Bool, String) -> Void = { clips, isCapturing, status in
         DockTileController.shared.update(clips: clips, isCapturing: isCapturing, captureStatus: status)
     }
@@ -115,9 +128,12 @@ final class ClipVaultViewModel {
         return hasCaptureConsent ? "Paused" : "Consent required"
     }
 
-    init(container: ModelContainer, store: (any ClipStoring)?) {
+    init(container: ModelContainer, store: (any ClipStoring)?, fileService: any ClipFileServicing = ClipSyncService()) {
+        files = ClipVaultFileController(service: fileService)
         self.container = container
         self.store = store
+        historyMigrationReady = store != nil
+        sharingConsentReady = store != nil
         storageStartupError = nil
         shouldMigrateLegacyKey = false
         encryptionBootstrap = LocalPayloadEncryptionBootstrap()
@@ -130,10 +146,12 @@ final class ClipVaultViewModel {
     init(
         promptEnhancementRunner: PromptEnhancementBatchRunner = PromptEnhancementBatchRunner(
             enhancer: FoundationModelsPromptEnhancer()
-        )
+        ),
+        fileService: any ClipFileServicing = ClipSyncService()
     ) {
+        files = ClipVaultFileController(service: fileService)
         self.promptEnhancementRunner = promptEnhancementRunner
-        let schema = Schema([ClipRecord.self, FolderRecord.self])
+        let schema = Schema([ClipRecord.self, FolderRecord.self, ClipSyncExportRecord.self, ClipSyncReceiptRecord.self])
         var migrateLegacyKey = false
         do {
             #if CLIPVAULT_E2E_PROBE
@@ -146,7 +164,16 @@ final class ClipVaultViewModel {
             let configuration = ModelConfiguration("ClipVault", schema: schema)
             #endif
             let persistentStoreExists = FileManager.default.fileExists(atPath: configuration.url.path)
+            let backup = try ClipStoreMigrationBackup.createOnce(beforeOpening: configuration.url)
+            let legacy = try backup.map { try ClipHistoryMigrationAudit.snapshot(legacyStore: $0) }
             let openedContainer = try ModelContainer(for: schema, configurations: [configuration])
+            if let legacy {
+                pendingHistoryMigration = try ClipHistoryMigrationAudit.verify(snapshot: legacy, in: ModelContext(openedContainer))
+            }
+            historyMigrationStoreURL = configuration.url
+            historyRetentionReviewPending = FileManager.default.fileExists(
+                atPath: configuration.url.appendingPathExtension("history-cleanup-paused").path
+            )
             let storedClipCount = persistentStoreExists
                 ? try ModelContext(openedContainer).fetchCount(FetchDescriptor<ClipRecord>())
                 : 0
@@ -198,9 +225,56 @@ final class ClipVaultViewModel {
         guard store == nil else {
             return
         }
-        store = SwiftDataClipStore(context: context, encryptor: encryptor)
+        let persistentStore = SwiftDataClipStore(context: context, encryptor: encryptor)
+        store = persistentStore
+        let verifiedUpgrade = pendingHistoryMigration != nil
+        do {
+            if let receipt = pendingHistoryMigration {
+                guard try persistentStore.verifyReadableHistoryForMigration() == receipt.clipCount else {
+                    throw ClipSyncError.invalidPayload
+                }
+                if let source = historyMigrationStoreURL {
+                    let hold = source.appendingPathExtension("history-cleanup-paused")
+                    try Data("Review imported history before resuming automatic cleanup.\n".utf8).write(to: hold, options: .atomic)
+                    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: hold.path)
+                    historyRetentionReviewPending = true
+                    let result = try JSONEncoder().encode(receipt)
+                    let file = source.appendingPathExtension("history-upgrade.json")
+                    try result.write(to: file, options: .atomic)
+                    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+                }
+                historyMigrationStatus = "Verified upgrade: \(receipt.clipCount) clips and \(receipt.folderCount) folders preserved. All clip payloads are readable."
+                pendingHistoryMigration = nil
+            } else if let source = historyMigrationStoreURL,
+                      let data = try? Data(contentsOf: source.appendingPathExtension("history-upgrade.json")),
+                      let receipt = try? JSONDecoder().decode(ClipHistoryMigrationAudit.Receipt.self, from: data) {
+                historyMigrationStatus = "Last upgrade verified: \(receipt.clipCount) clips and \(receipt.folderCount) folders preserved."
+            }
+            if let source = historyMigrationStoreURL { try ClipStoreMigrationBackup.markCompleted(afterOpening: source) }
+            historyMigrationReady = true
+        } catch {
+            stopCapture()
+            historyMigrationStatus = "History upgrade verification failed. The preserved backup remains available; capture and cleanup are paused."
+            captureStatus = historyMigrationStatus ?? "History verification failed"
+            store = nil
+            updateDockTile()
+            return
+        }
+        deviceSync.start(model: self, store: persistentStore)
+        captureService.onFilesCaptured = { [weak self] urls, sourceApp, capturedAt in
+            guard let self else { return }
+            self.files.capture(urls: urls, sourceApp: sourceApp, capturedAt: capturedAt, model: self)
+        }
+        captureService.onFileCaptureError = { [weak self] error in
+            self?.files.message = error
+        }
         captureService.onClipCaptured = { [weak self] payload, sourceApp, capturedAt in
-            self?.ingest(payload: payload, sourceApp: sourceApp, capturedAt: capturedAt)
+            guard let self else { return }
+            if payload.kind == .file, payload.metadata["file_id"] == nil {
+                self.files.capture(payload, sourceApp: sourceApp, capturedAt: capturedAt, model: self)
+            } else {
+                self.ingest(payload: payload, sourceApp: sourceApp, capturedAt: capturedAt)
+            }
         }
         let screenshotHotKeyRegistered = ScreenshotCaptureController.shared.configure { [weak self] didCapture, status in
             self?.captureStatus = status
@@ -209,13 +283,27 @@ final class ClipVaultViewModel {
             }
             self?.updateDockTile()
         }
+        // Load consent before clipboard reads. History stays usable when the
+        // credential service is locked; resuming capture retries this load.
+        do {
+            try await deviceSync.restoreConsent()
+            sharingConsentReady = true
+        } catch {
+            stopCapture()
+            captureStatus = "Sharing settings unavailable: \(error.localizedDescription). Unlock credentials and try Resume again."
+            _ = reload()
+            updateDockTile()
+            return
+        }
         if captureConsentPolicy.isCapturing {
             _ = startCapture()
         } else {
             stopCapture()
         }
         reload()
-        pruneExpiredClips(retentionDays: configuredRetentionDays, updatesStatus: false)
+        // Preserve all imported history across restarts until the user
+        // explicitly resumes the existing retention policy in General settings.
+        if !verifiedUpgrade { pruneExpiredClips(retentionDays: configuredRetentionDays, updatesStatus: false) }
         if let storageStartupError {
             Self.logger.error("Persistent storage startup failed; using fallback storage")
             captureStatus = storageStartupError
@@ -362,9 +450,29 @@ final class ClipVaultViewModel {
     }
 
     private func startCapture() -> Bool {
-        guard store != nil else {
+        guard store != nil, historyMigrationReady else {
             isCapturing = false
             UserDefaults.standard.removeObject(forKey: ClipVaultSettingsKey.captureReadyProcessID)
+            return false
+        }
+
+        guard sharingConsentReady else {
+            if !restoringSharingConsent {
+                restoringSharingConsent = true
+                Task {
+                    defer { restoringSharingConsent = false }
+                    do {
+                        try await deviceSync.restoreConsent()
+                        sharingConsentReady = true
+                        if captureConsentPolicy.isCapturing, startCapture() {
+                            captureStatus = "Watching clipboard"
+                        }
+                    } catch {
+                        captureStatus = "Sharing settings unavailable: \(error.localizedDescription). Unlock credentials and try Resume again."
+                    }
+                    updateDockTile()
+                }
+            }
             return false
         }
 
@@ -379,6 +487,7 @@ final class ClipVaultViewModel {
 
     private func stopCapture() {
         captureService.stop()
+        files.cancelCapture()
         isCapturing = false
         UserDefaults.standard.removeObject(forKey: ClipVaultSettingsKey.captureReadyProcessID)
         Self.logger.info("Clipboard capture stopped")
@@ -562,6 +671,19 @@ final class ClipVaultViewModel {
         }
     }
 
+    func resumeHistoryRetention() {
+        guard historyMigrationReady, let source = historyMigrationStoreURL else { return }
+        do {
+            let hold = source.appendingPathExtension("history-cleanup-paused")
+            if FileManager.default.fileExists(atPath: hold.path) {
+                try FileManager.default.removeItem(at: hold)
+            }
+            historyRetentionReviewPending = false
+            captureStatus = "Scheduled cleanup resumed using your existing retention settings."
+        } catch { captureStatus = error.localizedDescription }
+        updateDockTile()
+    }
+
     func pruneExpiredClips(retentionDays: Int) {
         pruneExpiredClips(retentionDays: retentionDays, updatesStatus: true)
     }
@@ -599,6 +721,10 @@ final class ClipVaultViewModel {
             guard let payload = try store?.payload(for: clip.id) else {
                 captureStatus = "Missing payload"
                 updateDockTile()
+                return
+            }
+            if payload.kind == .file, payload.metadata["file_id"] != nil {
+                files.save(clip)
                 return
             }
             try pasteboardWriter.write(payload)
@@ -957,7 +1083,8 @@ final class ClipVaultViewModel {
         selectedClipIDs = restored.selectedClipIDs
     }
 
-    func ingest(payload: ClipPayload, sourceApp: String?, capturedAt: Date) {
+    @discardableResult
+    func ingest(payload: ClipPayload, sourceApp: String?, capturedAt: Date) -> Bool {
         do {
             if let clip = try store?.save(payload: payload, sourceApp: sourceApp, capturedAt: capturedAt) {
                 if let existingIndex = clips.firstIndex(where: { $0.id == clip.id }) {
@@ -972,6 +1099,8 @@ final class ClipVaultViewModel {
                 selectFirstVisibleResultIfNeeded()
                 Self.logger.info("Captured clipboard item")
                 captureStatus = "Added to \(payload.kind.title)"
+                updateDockTile()
+                return true
             } else {
                 Self.logger.info("Excluded sensitive clipboard item before persistence")
                 captureStatus = "Excluded sensitive item"
@@ -982,6 +1111,12 @@ final class ClipVaultViewModel {
             captureStatus = error.localizedDescription
             updateDockTile()
         }
+        return false
+    }
+
+    func copyPrivateSyncInvitation(_ code: String) {
+        pasteboardWriter.writePrivateText(code)
+        captureService.consumeCurrentPasteboardChange()
     }
 
     private func updateDockTile() {
@@ -997,6 +1132,7 @@ final class ClipVaultViewModel {
     }
 
     private func pruneExpiredClips(retentionDays: Int, updatesStatus: Bool) {
+        guard canApplyHistoryRetention else { return }
         let policy = RetentionPolicy(ordinaryClipLifetimeDays: min(max(retentionDays, 7), 180))
         let expired = clips.filter { policy.shouldExpire($0) }
         guard !expired.isEmpty else {
