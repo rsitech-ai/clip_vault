@@ -145,7 +145,10 @@ fn rejects_fifo_source_without_blocking() {
         .stderr(Stdio::null())
         .spawn()
         .unwrap();
-    let deadline = Instant::now() + Duration::from_secs(3);
+    // This watchdog also covers subprocess startup and encrypted-store creation,
+    // which compete with large-file fixtures on small debug CI runners. A FIFO
+    // opened in blocking mode would wait indefinitely regardless of this allowance.
+    let deadline = Instant::now() + Duration::from_secs(30);
     loop {
         if let Some(status) = child.try_wait().unwrap() {
             assert!(status.success(), "FIFO staging subprocess failed: {status}");
@@ -154,7 +157,7 @@ fn rejects_fifo_source_without_blocking() {
         if Instant::now() >= deadline {
             child.kill().unwrap();
             let _ = child.wait();
-            panic!("staging a FIFO source blocked past the 3-second deadline");
+            panic!("staging a FIFO source blocked past the 30-second watchdog");
         }
         thread::sleep(Duration::from_millis(10));
     }
