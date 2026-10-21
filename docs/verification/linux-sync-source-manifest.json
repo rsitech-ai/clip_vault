@@ -224,7 +224,7 @@
     },
     {
       "path": "docs/design/linux-encrypted-sync.md",
-      "sha256": "c878f270726953856c57f2d1d4319704b43e7fdaf95271274ba4e9ea4bd9b0be"
+      "sha256": "c354bfe8da31412df3ec78c132a4260173b62c98c39c1bad77001d5a4ad62b67"
     },
     {
       "path": "rust/DeviceSync/Cargo.lock",

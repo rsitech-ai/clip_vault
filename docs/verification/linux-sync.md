@@ -5,7 +5,8 @@ Date: 2026-10-21
 **Current verdict: larger-file installed-device verification in progress.** Both
 Macs run signed build 12 and Ubuntu runs preview5 with the updated relay. All
 three devices remain paired. A real 600 MiB file has reached verified-ready state
-on Ubuntu; native receiving Save hashes are pending on the two receivers. Fresh
+on Ubuntu; its native receiving Save matches all 629145600 bytes and the source
+SHA-256. The second Mac receiving Save hash remains pending. Fresh
 Unicode clips from both peers arrived in this Mac's actual history during that
 transfer, including a recorded GNOME Capture call after the update. Existing
 small/100 MiB native Save receipts cover all six directed device routes. New
@@ -77,7 +78,11 @@ Actual Razer progress samples rose from 102 MiB to 538 MiB in about 188 seconds
 while sending to both peers. A concurrent 32 MiB SSH stream measured about
 9.85 MiB/s to Razer and 11.78 MiB/s to Sii; this is a contended path check, not an
 isolated benchmark. Tailscale reported a direct LAN path to Razer at 5 ms.
-Native Save/hash and the reverse larger-file check remain execution gates.
+Ubuntu saved the fixture in Downloads/ClipVault three-device test; its exact
+629145600 bytes and SHA-256 match the source. The second Mac Save/hash and a
+reverse 128 MiB native Add File/receiving Save remain execution gates. The reverse
+source has 134217728 bytes and SHA-256
+`71c7ceb77e637aded046b188d3e7939b9d6998da619f7b260d9ba70187d8aa9f`.
 
 Do not infer a raw-engine speedup from the isolated test: the earlier optimized
 100 MiB run was 22.57 seconds and the indexed-quota run was 26.54 seconds under
@@ -87,7 +92,8 @@ peer discovery or public ingress was introduced.
 
 Evidence is retained under `dist/final-audit/20261020/`: `unlimited-*.log`,
 `mac-build12.log`, `sii-build12-installed.log`, `ubuntu-installed-preview5.log`,
-`linux-preview5-startup.log`, `large-file-source-receipt.json`, and the Capture
+`linux-preview5-startup.log`, `large-file-source-receipt.json`,
+`razer-600mib-saved-receipt.json`, and the Capture
 method-name-only profile. No secret tokens or clipboard payloads are in that
 profile. The directory date preserves the existing audit chronology.
 
