@@ -6,7 +6,7 @@ ClipVault is a local-first clipboard workspace with a native macOS app and an ex
 
 ## Project status
 
-ClipVault is a pre-1.0 release candidate maintained by [RSI Tech](https://rsitech.ai). The source, tests, and local app bundle are actively hardened, but no public binary release has been published. The current build targets macOS 15 or later on Apple silicon.
+ClipVault is a pre-1.0 release candidate maintained by [RSI Tech](https://rsitech.ai). The `v0.2.0-preview.8` source-and-Ubuntu preview is prepared for publication on the [releases page](https://github.com/rsitech-ai/clip_vault/releases). It includes the Intel/AMD Ubuntu client and Linux relay. A public macOS download remains blocked on notarization and clean-machine Gatekeeper proof; Mac users can build from source. The Mac build targets macOS 15 or later on Apple silicon. See the [current release status](docs/release/0.2.0-preview.8/RELEASE_STATUS.md) for exact gates and compatibility limits.
 
 ## What it does
 
@@ -96,7 +96,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the data flow and trust bou
 - [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) defines the community standard and enforcement route.
 - [CHANGELOG.md](CHANGELOG.md) records user-visible changes.
 - [docs/RELEASING.md](docs/RELEASING.md) separates source, direct-download, and Mac App Store release gates.
-- [docs/release/0.1.0/RELEASE_STATUS.md](docs/release/0.1.0/RELEASE_STATUS.md) records the current evidence and blockers for the first release.
+- [Current preview status](docs/release/0.2.0-preview.8/RELEASE_STATUS.md) records publication gates; the [0.1.0 dossier](docs/release/0.1.0/RELEASE_STATUS.md) is historical.
 
 ## License
 

@@ -6,6 +6,39 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Cli
 
 ## [Unreleased]
 
+No changes recorded after the preview candidate below.
+
+## [0.2.0-preview.8] - 2026-10-21
+
+Experimental source-and-Ubuntu release candidate. Public macOS binary distribution
+remains blocked on notarization and clean-machine Gatekeeper proof.
+
+### Added
+
+- Ubuntu/GNOME clipboard workspace for Intel/AMD laptops, with explicit capture consent and a GNOME Shell 51 capture extension.
+- Opt-in encrypted pairing and sharing for new text, rich text and images across Mac and Ubuntu clients.
+- Actual file sharing without a fixed product size cap, bounded encrypted chunks, explicit receiver Save, disk reservations and restart recovery.
+- Existing Mac history verification and a retained recovery snapshot during schema upgrade.
+
+### Changed
+
+- Reuse transport connections, overlap two fresh file chunks, remove redundant requests and keep receiving through short batch gaps.
+- Stream proxy traffic and index relay cleanup/mailbox queries while preserving encryption, private HTTPS and SQLite durability.
+- Align package defaults with the validated Mac 0.2.0 build 16 and Ubuntu preview 8, and include project licensing in Linux packages.
+
+### Fixed
+
+- Recover usable clipboard image bytes when a single background copied file advertises an inaccessible file URL; retain OCR privacy and capture-generation checks.
+
+### Validation and limits
+
+- Final installed 128 MiB test measured 4.869 MiB/s sustained versus 3.302 MiB/s baseline in equal progress windows; rates vary with Wi-Fi and recipient workload.
+- All six text routes and six receiver Save/size/hash routes passed on three actual hosts, plus restart recovery and a 600 MiB integrity gate.
+- Linux target is Ubuntu 26.10, x86_64, GNOME Shell 51; other GNOME versions, Intel Macs and mobile clients are not qualified.
+- Sharing requires a self-hosted relay. No accounts, hosted sync service or cloud AI provider is supplied. macOS source builds target Apple silicon and macOS 15 or later.
+
+## Earlier unreleased macOS work
+
 ### Added
 
 - Local-first clipboard capture with explicit consent, menu-bar retrieval, workspace search, notes, tags, pinning, folders, and collections.
@@ -39,7 +72,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Cli
 
 ### Known limitations
 
-- No public tag, GitHub Release, or notarized binary distribution exists yet.
+- The historical 0.1.0 candidate had no public tag or downloadable binary distribution.
 - The current build is arm64-only and requires macOS 15 or later.
-- Cloud sync, accounts, teams, and cloud AI providers are not available.
+- Accounts, teams, a developer-hosted sync service and cloud AI providers are not available. Optional self-hosted encrypted sharing was added in the 0.2.0 preview.
 - Direct-download publication remains blocked until a notarization Keychain profile and clean-account Gatekeeper proof are available.

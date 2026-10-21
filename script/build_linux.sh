@@ -9,6 +9,8 @@ PACKAGE_ROOT="$ROOT_DIR/dist/linux/package"
 [[ ! -e "$PACKAGE_ROOT" ]] || { echo 'Move the previous dist/linux/package staging folder before packaging again.' >&2; exit 1; }
 install -Dm755 "$TARGET_DIR/release/clipvault-linux" "$PACKAGE_ROOT/usr/bin/clipvault-linux"
 install -Dm644 Packaging/linux/com.rsitech.ClipVault.desktop "$PACKAGE_ROOT/usr/share/applications/com.rsitech.ClipVault.desktop"
+install -Dm644 LICENSE "$PACKAGE_ROOT/usr/share/doc/clipvault/copyright"
+install -Dm644 NOTICE "$PACKAGE_ROOT/usr/share/doc/clipvault/NOTICE"
 python3 script/generate_sync_notices.py "$PACKAGE_ROOT/usr/share/doc/clipvault/THIRD-PARTY-NOTICES.txt"
 install -Dm644 Packaging/linux/com.rsitech.ClipVault.Capture.service "$PACKAGE_ROOT/usr/share/dbus-1/services/com.rsitech.ClipVault.Capture.service"
 EXTENSION_ROOT="$PACKAGE_ROOT/usr/share/gnome-shell/extensions/clipvault-capture@rsitech.ai"
@@ -19,7 +21,7 @@ mkdir -p "$PACKAGE_ROOT/DEBIAN"
 ARCHITECTURE="$(dpkg --print-architecture)"
 cat > "$PACKAGE_ROOT/DEBIAN/control" <<CONTROL
 Package: clipvault
-Version: 0.2.0~preview2
+Version: 0.2.0~preview8
 Section: utils
 Priority: optional
 Architecture: $ARCHITECTURE
@@ -29,4 +31,4 @@ Description: Encrypted local clipboard workspace with paired device sharing
  Includes the preview ClipVault capture extension targeting GNOME Shell 51.
  Enable the extension explicitly after installing on a supported GNOME desktop.
 CONTROL
-dpkg-deb --build --root-owner-group "$PACKAGE_ROOT" "$ROOT_DIR/dist/linux/clipvault_0.2.0-preview2_$ARCHITECTURE.deb"
+dpkg-deb --build --root-owner-group "$PACKAGE_ROOT" "$ROOT_DIR/dist/linux/clipvault_0.2.0-preview8_$ARCHITECTURE.deb"
